@@ -108,6 +108,17 @@ impl Headers {
             .push((key.as_bytes().to_vec(), value.as_bytes().to_vec()));
     }
 
+    /// Construct Headers directly from string pairs — O(n) with no deduplication.
+    /// Use this when building response headers from scratch (e.g. from reqwest).
+    pub fn from_raw_pairs(pairs: Vec<(String, String)>) -> Self {
+        let raw: Vec<(Vec<u8>, Vec<u8>)> = pairs
+            .into_iter()
+            .map(|(k, v)| (k.into_bytes(), v.into_bytes()))
+            .collect();
+        let encoding = Self::detect_encoding(&raw, "utf-8");
+        Headers { raw, encoding }
+    }
+
     pub fn contains_header(&self, key: &str) -> bool {
         let key_lower = key.to_lowercase();
         self.raw

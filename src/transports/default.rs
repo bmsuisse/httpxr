@@ -108,18 +108,16 @@ impl HTTPTransport {
         let body_bytes = request.content_body.clone();
         let has_body = body_bytes.is_some();
         let client = self.client.clone();
-        let method_str = request.method.clone();
         let stream_response = request.stream_response;
         let header_list = request.headers.bind(py).borrow().get_multi_items();
-        let rt_handle = self.rt.handle().clone();
 
-        let method = reqwest::Method::from_bytes(method_str.as_bytes())
+        let method = reqwest::Method::from_bytes(request.method.as_bytes())
             .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("Invalid method: {}", e)))?;
 
         // Release GIL for blocking I/O — run async reqwest on the persistent runtime
         let (status_code, resp_headers, body_bytes_result) = py
             .detach(move || {
-                rt_handle.block_on(async {
+                self.rt.handle().block_on(async {
                     let mut req_builder = client.request(method, &url_str);
                     for (key, value) in &header_list {
                         req_builder = req_builder.header(key.as_str(), value.as_str());
@@ -143,13 +141,12 @@ impl HTTPTransport {
                         .collect();
 
                     let bytes = response.bytes().await?;
-                    Ok::<_, reqwest::Error>((status, resp_headers, bytes.to_vec()))
+                    Ok((status, resp_headers, bytes.to_vec()))
                 })
             })
             .map_err(|e: reqwest::Error| {
                 let msg = format!("{}", e);
                 if e.is_timeout() {
-                    // Classify timeout type based on what was configured
                     if e.is_connect()
                         || (connect_timeout_val.is_some()
                             && read_timeout_val.is_none()
@@ -167,7 +164,6 @@ impl HTTPTransport {
                 } else if e.is_connect() {
                     crate::exceptions::ConnectError::new_err(msg)
                 } else if e.is_body() || e.is_decode() {
-                    // Body/decode errors during read are typically timeout-related
                     if read_timeout_val.is_some() || write_timeout_val.is_some() {
                         crate::exceptions::ReadTimeout::new_err(msg)
                     } else {
@@ -180,11 +176,8 @@ impl HTTPTransport {
                 }
             })?;
 
-        // Build Response (requires GIL)
-        let mut hdrs = Headers::create(None, "utf-8")?;
-        for (k, v) in &resp_headers {
-            hdrs.set_header(k, v);
-        }
+        // Build Response (requires GIL) — use from_raw_pairs for O(n) construction
+        let hdrs = Headers::from_raw_pairs(resp_headers);
 
         let ext = PyDict::new(py);
 
@@ -518,10 +511,7 @@ impl AsyncHTTPTransport {
             };
 
             pyo3::Python::attach(|py| {
-                let mut hdrs = Headers::create(None, "utf-8")?;
-                for (k, v) in &resp_headers {
-                    hdrs.set_header(k, v);
-                }
+                let hdrs = Headers::from_raw_pairs(resp_headers);
                 let ext = PyDict::new(py);
                 let version_str = match version {
                     reqwest::Version::HTTP_09 => "HTTP/0.9",
