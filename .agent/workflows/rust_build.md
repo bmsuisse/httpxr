@@ -6,9 +6,9 @@ description: Build the Rust extension with maturin
 
 // turbo-all
 
-1. Build with Arrow features enabled:
+1. Build the Rust extension:
 ```bash
-maturin develop --features arrow
+maturin develop
 ```
 
 2. Verify the build produced the .so:
