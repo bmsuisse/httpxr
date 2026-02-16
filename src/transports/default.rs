@@ -5,6 +5,7 @@ use pyo3::Python;
 use crate::models::{Headers, Request, Response};
 use std::io::Read;
 use std::sync::Arc;
+use ureq::RequestExt;
 
 /// Synchronous HTTP Transport backed by ureq.
 #[pyclass]
@@ -22,13 +23,17 @@ impl HTTPTransport {
         proxy: Option<&crate::config::Proxy>,
         _retries: u32,
     ) -> PyResult<Self> {
-        let mut builder = ureq::AgentBuilder::new().redirects(0); // Disable redirects to let httpr handle them manually if needed
+        use ureq::tls::{TlsConfig, TlsProvider};
 
-        let mut tls_builder = native_tls::TlsConnector::builder();
+        let mut tls_builder = TlsConfig::builder().provider(TlsProvider::NativeTls);
 
-        if let Some(path) = root_cert_path {
+        if !verify {
+            tls_builder = tls_builder.disable_verification(true);
+        }
+
+        if let Some(cert_path) = root_cert_path {
             let mut buf = Vec::new();
-            std::fs::File::open(path)
+            std::fs::File::open(cert_path)
                 .map_err(|e| {
                     pyo3::exceptions::PyIOError::new_err(format!("Failed to open cert file: {}", e))
                 })?
@@ -37,27 +42,25 @@ impl HTTPTransport {
                     pyo3::exceptions::PyIOError::new_err(format!("Failed to read cert file: {}", e))
                 })?;
 
-            let cert = native_tls::Certificate::from_pem(&buf).map_err(|e| {
-                pyo3::exceptions::PyValueError::new_err(format!("Invalid certificate: {}", e))
-            })?;
+            // Parse PEM certificates using ureq's built-in parser
+            let mut certs: Vec<ureq::tls::Certificate<'static>> = Vec::new();
+            for item in ureq::tls::parse_pem(&buf) {
+                if let Ok(ureq::tls::PemItem::Certificate(cert)) = item {
+                    certs.push(cert);
+                }
+            }
 
-            tls_builder.add_root_certificate(cert);
+            if !certs.is_empty() {
+                tls_builder = tls_builder.root_certs(ureq::tls::RootCerts::Specific(
+                    Arc::new(certs),
+                ));
+            }
         }
 
-        if !verify {
-            tls_builder.danger_accept_invalid_certs(true);
-            tls_builder.danger_accept_invalid_hostnames(true);
-        }
-
-        let connector = tls_builder.build().map_err(|e| {
-            pyo3::exceptions::PyRuntimeError::new_err(format!(
-                "Failed to build TLS connector: {}",
-                e
-            ))
-        })?;
-
-        // ureq 2.x expects the TLS connector to be wrapped in Arc for the trait implementation to match.
-        builder = builder.tls_connector(Arc::new(connector));
+        let mut config_builder = ureq::Agent::config_builder()
+            .max_redirects(0) // Disable redirects to let httpr handle them manually
+            .tls_config(tls_builder.build())
+            .http_status_as_error(false); // We handle status codes ourselves
 
         if let Some(p) = proxy {
             // Only configure ureq proxy for HTTP/HTTPS proxies (not SOCKS)
@@ -68,11 +71,11 @@ impl HTTPTransport {
                         p.url, e
                     ))
                 })?;
-                builder = builder.proxy(proxy_obj);
+                config_builder = config_builder.proxy(Some(proxy_obj));
             }
         }
 
-        let agent = builder.build();
+        let agent: ureq::Agent = config_builder.build().new_agent();
         let proxy_url_str = proxy.map(|p| p.url.clone());
         Ok(HTTPTransport {
             agent,
@@ -112,46 +115,62 @@ impl HTTPTransport {
         let (status_code, resp_headers, body_enum) = py
             .detach(move || {
                 let run = || -> Result<_, String> {
-                    let mut req = agent.request(&method, &url_str);
+                    // Build an http::Request
+                    let parsed_method: http::Method = method.parse().map_err(|e: http::method::InvalidMethod| {
+                        format!("Invalid method: {}", e)
+                    })?;
+
+                    let mut req_builder = http::Request::builder()
+                        .method(parsed_method)
+                        .uri(&url_str);
+
                     for (key, value) in &header_list {
-                        req = req.set(key, value);
+                        req_builder = req_builder.header(key.as_str(), value.as_str());
                     }
+
+                    // Build body
+                    let body_data: Vec<u8> = body_bytes.unwrap_or_default();
+
+                    let http_request = req_builder
+                        .body(body_data)
+                        .map_err(|e| format!("Failed to build request: {}", e))?;
+
+                    // Configure request-level options (timeout)
+                    let mut config = http_request
+                        .with_agent(&agent)
+                        .configure();
+
                     if let Some(d) = timeout_duration {
-                        req = req.timeout(d);
+                        config = config.timeout_global(Some(d));
                     }
 
-                    let response_result = if let Some(ref b) = body_bytes {
-                        req.send_bytes(b)
-                    } else {
-                        req.call()
-                    };
-                    let response = match response_result {
-                        Ok(resp) => resp,
-                        Err(ureq::Error::Status(_code, resp)) => resp,
-                        Err(e) => return Err(format!("Request failed: {}", e)),
-                    };
+                    let ureq_request = config.build();
 
-                    let status = response.status();
-                    // Pre-allocate headers vec with reasonable capacity
-                    let header_names = response.headers_names();
-                    let mut headers_vec = Vec::with_capacity(header_names.len());
-                    for name in header_names {
-                        if let Some(value) = response.header(&name) {
-                            headers_vec.push((name, value.to_string()));
-                        }
+                    let response: http::Response<ureq::Body> = ureq_request.run()
+                        .map_err(|e| format!("Request failed: {}", e))?;
+
+                    let status = response.status().as_u16();
+
+                    // Collect headers
+                    let resp_headers: &http::HeaderMap = response.headers();
+                    let mut headers_vec: Vec<(String, String)> = Vec::with_capacity(resp_headers.len());
+                    for (name, value) in resp_headers.iter() {
+                        headers_vec.push((
+                            name.as_str().to_owned(),
+                            value.to_str().unwrap_or("").to_owned(),
+                        ));
                     }
 
                     if stream_response {
-                        let reader = response.into_reader();
-                        // ureq reader is Box<dyn Read + Send + Sync>, so it satisfies Send
-                        Ok((status, headers_vec, ResponseBody::Stream(reader)))
+                        let reader = response.into_body().into_reader();
+                        Ok((status, headers_vec, ResponseBody::Stream(Box::new(reader))))
                     } else {
-                        // Pre-allocate body buffer using content-length hint
-                        let content_len = response
-                            .header("content-length")
-                            .and_then(|v| v.parse::<usize>().ok())
+                        let content_len: usize = resp_headers
+                            .get("content-length")
+                            .and_then(|v: &http::HeaderValue| v.to_str().ok())
+                            .and_then(|s: &str| s.parse::<usize>().ok())
                             .unwrap_or(4096);
-                        let mut reader = response.into_reader();
+                        let mut reader = response.into_body().into_reader();
                         let mut bytes = Vec::with_capacity(content_len);
                         std::io::Read::read_to_end(&mut reader, &mut bytes)
                             .map_err(|e| format!("Failed to read body: {}", e))?;
@@ -168,6 +187,11 @@ impl HTTPTransport {
                     || e.contains("Connection")
                     || e.contains("dns error")
                     || e.contains("resolve")
+                    || e.contains("native-tls")
+                    || e.contains("certificate")
+                    || e.contains("tls")
+                    || e.contains("ssl")
+                    || e.contains("handshake")
                 {
                     crate::exceptions::ConnectError::new_err(e)
                 } else if e.contains("timed out") || e.contains("Timeout") || e.contains("timeout")
