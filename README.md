@@ -33,6 +33,12 @@ Unlike httpx (which depends on `httpcore`, `certifi`, `anyio`, `idna`, and optio
 pip install httpr
 ```
 
+To also install the **optional CLI**:
+
+```bash
+pip install "httpr[cli]"
+```
+
 **Sync:**
 
 ```python
@@ -70,7 +76,7 @@ asyncio.run(main())
 - `MockTransport`, `ASGITransport`, `WSGITransport` — test transports
 - Authentication flows, redirects, streaming, event hooks
 - HTTP/1.1 & HTTP/2, SOCKS proxy support
-- CLI via `httpr` command
+- CLI via `httpr` command (requires `pip install "httpr[cli]"`)
 
 ---
 

@@ -12,7 +12,6 @@ pyo3 = { version = "0.28", features = ["auto-initialize", "extension-module", "m
 pyo3-async-runtimes = { version = "0.28", features = ["tokio-runtime"] }
 tokio = { version = "1", features = ["full"] }
 reqwest = { version = "0.13", features = ["rustls", "native-tls", "json", "cookies", "gzip", "brotli", "zstd", "deflate", "stream", "socks"] }
-ureq = { version = "3", features = ["native-tls", "json", "gzip", "brotli", "socks-proxy"] }
 native-tls = "0.2"
 regex = "1"
 percent-encoding = "2"

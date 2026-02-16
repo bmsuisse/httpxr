@@ -2,6 +2,10 @@ import os
 import typing
 from unittest.mock import MagicMock, patch
 
+import pytest
+
+pytest.importorskip("click")
+
 from click.testing import CliRunner
 
 import httpr

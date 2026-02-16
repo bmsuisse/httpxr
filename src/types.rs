@@ -142,7 +142,7 @@ impl ByteStreamAsyncIter {
     }
 }
 
-/// Iterator for streaming bytes from a blocking reader (e.g. ureq)
+/// Iterator for streaming bytes from a blocking reader (e.g. reqwest::blocking)
 #[pyclass(unsendable)]
 pub struct BlockingBytesIterator {
     reader: Option<Box<dyn std::io::Read + Send>>,

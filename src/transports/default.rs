@@ -4,13 +4,16 @@ use pyo3::Python;
 
 use crate::models::{Headers, Request, Response};
 use std::io::Read;
-use std::sync::Arc;
-use ureq::RequestExt;
 
-/// Synchronous HTTP Transport backed by ureq.
+/// Synchronous HTTP Transport backed by reqwest with a persistent tokio runtime.
+///
+/// Uses async `reqwest::Client` driven by a shared single-threaded tokio runtime.
+/// The runtime is created once during `create()` and reused for all requests,
+/// avoiding the ~300μs overhead of per-request runtime creation.
 #[pyclass]
 pub struct HTTPTransport {
-    agent: ureq::Agent,
+    client: reqwest::Client,
+    rt: tokio::runtime::Runtime,
     proxy_url: Option<String>,
 }
 
@@ -23,13 +26,9 @@ impl HTTPTransport {
         proxy: Option<&crate::config::Proxy>,
         _retries: u32,
     ) -> PyResult<Self> {
-        use ureq::tls::{TlsConfig, TlsProvider};
-
-        let mut tls_builder = TlsConfig::builder().provider(TlsProvider::NativeTls);
-
-        if !verify {
-            tls_builder = tls_builder.disable_verification(true);
-        }
+        let mut builder = reqwest::Client::builder()
+            .danger_accept_invalid_certs(!verify)
+            .redirect(reqwest::redirect::Policy::none());
 
         if let Some(cert_path) = root_cert_path {
             let mut buf = Vec::new();
@@ -41,162 +40,144 @@ impl HTTPTransport {
                 .map_err(|e| {
                     pyo3::exceptions::PyIOError::new_err(format!("Failed to read cert file: {}", e))
                 })?;
-
-            // Parse PEM certificates using ureq's built-in parser
-            let mut certs: Vec<ureq::tls::Certificate<'static>> = Vec::new();
-            for item in ureq::tls::parse_pem(&buf) {
-                if let Ok(ureq::tls::PemItem::Certificate(cert)) = item {
-                    certs.push(cert);
-                }
-            }
-
-            if !certs.is_empty() {
-                tls_builder = tls_builder.root_certs(ureq::tls::RootCerts::Specific(
-                    Arc::new(certs),
-                ));
-            }
+            let cert = reqwest::Certificate::from_pem(&buf).map_err(|e| {
+                pyo3::exceptions::PyValueError::new_err(format!("Invalid certificate: {}", e))
+            })?;
+            builder = builder.add_root_certificate(cert);
         }
-
-        let mut config_builder = ureq::Agent::config_builder()
-            .max_redirects(0) // Disable redirects to let httpr handle them manually
-            .tls_config(tls_builder.build())
-            .http_status_as_error(false); // We handle status codes ourselves
 
         if let Some(p) = proxy {
-            // Only configure ureq proxy for HTTP/HTTPS proxies (not SOCKS)
-            if p.url.starts_with("http://") || p.url.starts_with("https://") {
-                let proxy_obj = ureq::Proxy::new(&p.url).map_err(|e| {
-                    pyo3::exceptions::PyValueError::new_err(format!(
-                        "Invalid proxy {}: {}",
-                        p.url, e
-                    ))
-                })?;
-                config_builder = config_builder.proxy(Some(proxy_obj));
-            }
+            let proxy_conf = reqwest::Proxy::all(&p.url).map_err(|e| {
+                pyo3::exceptions::PyValueError::new_err(format!("Invalid proxy: {}", e))
+            })?;
+            builder = builder.proxy(proxy_conf);
         }
 
-        let agent: ureq::Agent = config_builder.build().new_agent();
+        let client = builder.build().map_err(|e| {
+            pyo3::exceptions::PyRuntimeError::new_err(format!("Failed to create client: {}", e))
+        })?;
+
+        // Create a persistent multi-thread tokio runtime for this transport.
+        // We use multi-thread (with 1 worker) because Handle::block_on must be
+        // called from outside the runtime, and py.detach() runs on a different thread.
+        // We can't use reqwest::blocking (deadlocks with pyo3-async-runtimes).
+        let rt = tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(1)
+            .enable_all()
+            .build()
+            .map_err(|e| {
+                pyo3::exceptions::PyRuntimeError::new_err(format!(
+                    "Failed to create runtime: {}",
+                    e
+                ))
+            })?;
+
         let proxy_url_str = proxy.map(|p| p.url.clone());
         Ok(HTTPTransport {
-            agent,
+            client,
+            rt,
             proxy_url: proxy_url_str,
         })
     }
 
     pub fn send_request(&self, py: Python<'_>, request: &Request) -> PyResult<Response> {
         let url_str = request.url.to_string();
-        // Apply timeout
-        let mut timeout_duration = None;
+
+        // Extract timeout configuration
+        let mut connect_timeout_val = None;
+        let mut read_timeout_val = None;
+        let mut write_timeout_val = None;
         if let Ok(ext) = request.extensions.bind(py).cast::<PyDict>() {
             if let Some(timeout_obj) = ext.get_item("timeout").ok().flatten() {
                 if let Ok(t) = timeout_obj.extract::<crate::config::Timeout>() {
-                    if let Some(read) = t.read {
-                        timeout_duration = Some(std::time::Duration::from_secs_f64(read));
-                    }
+                    connect_timeout_val = t.connect;
+                    read_timeout_val = t.read;
+                    write_timeout_val = t.write;
                 }
             }
         }
 
-        // Take ownership of body bytes to avoid clone
+        // Use minimum of all specified timeouts as overall request timeout
+        let timeout_val: Option<std::time::Duration> =
+            [connect_timeout_val, read_timeout_val, write_timeout_val]
+                .iter()
+                .filter_map(|t| *t)
+                .reduce(f64::min)
+                .map(std::time::Duration::from_secs_f64);
+
         let body_bytes = request.content_body.clone();
-        let agent = self.agent.clone();
-        let method = request.method.clone();
+        let has_body = body_bytes.is_some();
+        let client = self.client.clone();
+        let method_str = request.method.clone();
         let stream_response = request.stream_response;
-
-        // Pre-collect headers as owned data for the detached closure
         let header_list = request.headers.bind(py).borrow().get_multi_items();
+        let rt_handle = self.rt.handle().clone();
 
-        enum ResponseBody {
-            Bytes(Vec<u8>),
-            Stream(Box<dyn Read + Send>),
-        }
-
-        // Release GIL for blocking I/O
-        let (status_code, resp_headers, body_enum) = py
+        // Release GIL for blocking I/O — run async reqwest on the persistent runtime
+        let (status_code, resp_headers, body_bytes_result) = py
             .detach(move || {
-                let run = || -> Result<_, String> {
-                    // Build an http::Request
-                    let parsed_method: http::Method = method.parse().map_err(|e: http::method::InvalidMethod| {
-                        format!("Invalid method: {}", e)
-                    })?;
+                rt_handle.block_on(async {
+                    let method = reqwest::Method::from_bytes(method_str.as_bytes())
+                        .map_err(|e| format!("Invalid method: {}", e))?;
 
-                    let mut req_builder = http::Request::builder()
-                        .method(parsed_method)
-                        .uri(&url_str);
-
+                    let mut req_builder = client.request(method, &url_str);
                     for (key, value) in &header_list {
                         req_builder = req_builder.header(key.as_str(), value.as_str());
                     }
 
-                    // Build body
-                    let body_data: Vec<u8> = body_bytes.unwrap_or_default();
-
-                    let http_request = req_builder
-                        .body(body_data)
-                        .map_err(|e| format!("Failed to build request: {}", e))?;
-
-                    // Configure request-level options (timeout)
-                    let mut config = http_request
-                        .with_agent(&agent)
-                        .configure();
-
-                    if let Some(d) = timeout_duration {
-                        config = config.timeout_global(Some(d));
+                    if let Some(ref b) = body_bytes {
+                        req_builder = req_builder.body(b.clone());
                     }
 
-                    let ureq_request = config.build();
+                    if let Some(t) = timeout_val {
+                        req_builder = req_builder.timeout(t);
+                    }
 
-                    let response: http::Response<ureq::Body> = ureq_request.run()
-                        .map_err(|e| format!("Request failed: {}", e))?;
+                    let response = req_builder.send().await.map_err(|e| format!("{}", e))?;
 
                     let status = response.status().as_u16();
+                    let resp_headers: Vec<(String, String)> = response
+                        .headers()
+                        .iter()
+                        .map(|(k, v)| (k.as_str().to_string(), v.to_str().unwrap_or("").to_string()))
+                        .collect();
 
-                    // Collect headers
-                    let resp_headers: &http::HeaderMap = response.headers();
-                    let mut headers_vec: Vec<(String, String)> = Vec::with_capacity(resp_headers.len());
-                    for (name, value) in resp_headers.iter() {
-                        headers_vec.push((
-                            name.as_str().to_owned(),
-                            value.to_str().unwrap_or("").to_owned(),
-                        ));
-                    }
-
-                    if stream_response {
-                        let reader = response.into_body().into_reader();
-                        Ok((status, headers_vec, ResponseBody::Stream(Box::new(reader))))
-                    } else {
-                        let content_len: usize = resp_headers
-                            .get("content-length")
-                            .and_then(|v: &http::HeaderValue| v.to_str().ok())
-                            .and_then(|s: &str| s.parse::<usize>().ok())
-                            .unwrap_or(4096);
-                        let mut reader = response.into_body().into_reader();
-                        let mut bytes = Vec::with_capacity(content_len);
-                        std::io::Read::read_to_end(&mut reader, &mut bytes)
-                            .map_err(|e| format!("Failed to read body: {}", e))?;
-                        Ok((status, headers_vec, ResponseBody::Bytes(bytes)))
-                    }
-                };
-
-                run()
+                    let bytes = response.bytes().await.map_err(|e| format!("{}", e))?;
+                    Ok::<_, String>((status, resp_headers, bytes.to_vec()))
+                })
             })
             .map_err(|e: String| {
-                if e.contains("Unknown Scheme") {
-                    crate::exceptions::UnsupportedProtocol::new_err(e)
-                } else if e.contains("Connect")
-                    || e.contains("Connection")
-                    || e.contains("dns error")
-                    || e.contains("resolve")
-                    || e.contains("native-tls")
+                if e.contains("timed out") || e.contains("Timeout") || e.contains("timeout")
+                    || e.contains("error decoding response body")
+                {
+                    // Classify timeout type — check before connect errors since
+                    // timeout messages may also contain "error sending request"
+                    if connect_timeout_val.is_some()
+                        && read_timeout_val.is_none()
+                        && write_timeout_val.is_none()
+                    {
+                        crate::exceptions::ConnectTimeout::new_err(e)
+                    } else if write_timeout_val.is_some()
+                        && has_body
+                        && read_timeout_val.is_none()
+                    {
+                        crate::exceptions::WriteTimeout::new_err(e)
+                    } else {
+                        crate::exceptions::ReadTimeout::new_err(e)
+                    }
+                } else if e.contains("dns error") || e.contains("resolve") {
+                    crate::exceptions::ConnectError::new_err(e)
+                } else if e.contains("error trying to connect")
+                    || e.contains("error sending request")
+                    || e.contains("Connection refused")
                     || e.contains("certificate")
                     || e.contains("tls")
                     || e.contains("ssl")
                     || e.contains("handshake")
                 {
                     crate::exceptions::ConnectError::new_err(e)
-                } else if e.contains("timed out") || e.contains("Timeout") || e.contains("timeout")
-                {
-                    crate::exceptions::ReadTimeout::new_err(e)
+                } else if e.contains("Unknown Scheme") || e.contains("URL scheme is not allowed") {
+                    crate::exceptions::UnsupportedProtocol::new_err(e)
                 } else {
                     crate::exceptions::NetworkError::new_err(e)
                 }
@@ -210,13 +191,15 @@ impl HTTPTransport {
 
         let ext = PyDict::new(py);
 
-        let (content_bytes, stream_obj) = match body_enum {
-            ResponseBody::Bytes(b) => (Some(b), None),
-            ResponseBody::Stream(r) => {
-                let blocking_iter = crate::types::BlockingBytesIterator::new(r);
-                let py_iter = Py::new(py, blocking_iter)?.into_any();
-                (None, Some(py_iter))
-            }
+        // For streaming, wrap the bytes in a cursor-based iterator
+        let (content_bytes, stream_obj) = if stream_response {
+            let cursor = std::io::Cursor::new(body_bytes_result);
+            let blocking_iter =
+                crate::types::BlockingBytesIterator::new(Box::new(cursor) as Box<dyn Read + Send>);
+            let py_iter = Py::new(py, blocking_iter)?.into_any();
+            (None, Some(py_iter))
+        } else {
+            (Some(body_bytes_result), None)
         };
 
         let has_stream = stream_obj.is_some();
@@ -227,7 +210,7 @@ impl HTTPTransport {
             extensions: ext.into(),
             request: None,
             history: Vec::new(),
-            content_bytes: content_bytes,
+            content_bytes,
             stream: stream_obj,
             default_encoding: "utf-8".into_pyobject(py).unwrap().into_any().unbind(),
             default_encoding_override: None,

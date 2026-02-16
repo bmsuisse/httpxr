@@ -1,38 +1,47 @@
 use pyo3::prelude::*;
-use pyo3::types::{PyBool, PyBytes, PyDict, PyList, PyString, PyTuple};
+use pyo3::types::{PyBool, PyBytes, PyDict, PyFloat, PyList, PyString, PyTuple};
 
-/// Convert a serde_json::Value to a Python object.
-/// This avoids going through Python's json module — pure Rust → Python object construction.
-fn json_value_to_py(py: Python<'_>, val: &serde_json::Value) -> PyResult<Py<PyAny>> {
+/// Convert a simd_json::OwnedValue directly to a Python object.
+/// This is the fast path — no intermediate serde_json conversion.
+fn simd_value_to_py(py: Python<'_>, val: &simd_json::OwnedValue) -> PyResult<Py<PyAny>> {
+    use simd_json::OwnedValue;
     match val {
-        serde_json::Value::Null => Ok(py.None()),
-        serde_json::Value::Bool(b) => Ok(PyBool::new(py, *b).to_owned().into_any().unbind()),
-        serde_json::Value::Number(n) => {
-            if let Some(i) = n.as_i64() {
-                Ok(i.into_pyobject(py).unwrap().into_any().unbind())
-            } else if let Some(f) = n.as_f64() {
-                Ok(f.into_pyobject(py).unwrap().into_any().unbind())
-            } else {
-                Ok(py.None())
+        OwnedValue::Static(s) => match s {
+            simd_json::StaticNode::Null => Ok(py.None()),
+            simd_json::StaticNode::Bool(b) => {
+                Ok(PyBool::new(py, *b).to_owned().into_any().unbind())
             }
-        }
-        serde_json::Value::String(s) => Ok(PyString::new(py, s).into_any().unbind()),
-        serde_json::Value::Array(arr) => {
+            simd_json::StaticNode::I64(i) => {
+                Ok((*i).into_pyobject(py).unwrap().into_any().unbind())
+            }
+            simd_json::StaticNode::U64(u) => {
+                Ok((*u).into_pyobject(py).unwrap().into_any().unbind())
+            }
+            simd_json::StaticNode::F64(f) => {
+                Ok(PyFloat::new(py, *f).into_any().unbind())
+            }
+            #[allow(unreachable_patterns)]
+            _ => Ok(py.None()),
+        },
+        OwnedValue::String(s) => Ok(PyString::new(py, s).into_any().unbind()),
+        OwnedValue::Array(arr) => {
             let items: Vec<Py<PyAny>> = arr
                 .iter()
-                .map(|v| json_value_to_py(py, v))
+                .map(|v| simd_value_to_py(py, v))
                 .collect::<PyResult<_>>()?;
             Ok(PyList::new(py, &items)?.into_any().unbind())
         }
-        serde_json::Value::Object(map) => {
+        OwnedValue::Object(map) => {
             let dict = PyDict::new(py);
-            for (k, v) in map {
-                dict.set_item(k, json_value_to_py(py, v)?)?;
+            for (k, v) in map.iter() {
+                let key: &str = k.as_ref();
+                dict.set_item(key, simd_value_to_py(py, v)?)?;
             }
             Ok(dict.into_any().unbind())
         }
     }
 }
+
 
 /// Case-insensitive HTTP headers multidict.
 #[pyclass(from_py_object)]
@@ -1553,11 +1562,7 @@ impl Response {
         // We clone because simd_json modifies the buffer in-place
         let mut buf = content.clone();
         match simd_json::to_owned_value(&mut buf) {
-            Ok(val) => {
-                let serde_val = serde_json::to_value(&val)
-                    .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
-                json_value_to_py(py, &serde_val)
-            }
+            Ok(val) => simd_value_to_py(py, &val),
             Err(_) => {
                 // If simd-json fails (e.g. not UTF-8 or other issues), try Python's json.loads
                 // ensuring we decode text first

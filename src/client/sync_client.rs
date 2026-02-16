@@ -8,7 +8,7 @@ use crate::urls::URL;
 
 use super::common::*;
 
-/// Synchronous HTTP Client backed by ureq.
+/// Synchronous HTTP Client backed by reqwest::blocking.
 #[pyclass]
 pub struct Client {
     pub(crate) base_url: Option<URL>,
