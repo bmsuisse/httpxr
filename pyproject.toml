@@ -4,7 +4,7 @@ build-backend = "maturin"
 
 [project]
 name = "httpr"
-description = "The next generation HTTP client."
+description = "A 1:1 Rust port of httpx — same API, faster execution."
 license = { text = "MIT OR Apache-2.0" }
 requires-python = ">=3.10"
 authors = [
@@ -23,49 +23,27 @@ classifiers = [
     "Programming Language :: Python :: Implementation :: CPython",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3 :: Only",
-    "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
     "Topic :: Internet :: WWW/HTTP",
 ]
-dependencies = [
-    "certifi",
-    "httpcore==1.*",
-    "anyio",
-    "idna",
-]
+dependencies = []
 dynamic = ["readme", "version"]
 
 [project.optional-dependencies]
-brotli = [
-    "brotli; platform_python_implementation == 'CPython'",
-    "brotlicffi; platform_python_implementation != 'CPython'",
-]
 cli = [
     "click==8.*",
     "pygments==2.*",
     "rich>=10,<15",
 ]
-http2 = [
-    "h2>=3,<5",
-]
-socks = [
-    "socksio==1.*",
-]
-zstd = [
-  "zstandard>=0.18.0",
-]
-
 
 [project.scripts]
 httpr = "httpr:main"
 
 [project.urls]
-Changelog = "https://github.com/encode/httpx/blob/master/CHANGELOG.md"
-Documentation = "https://www.python-httpx.org"
-Source = "https://github.com/encode/httpx"
+Source = "https://dev.azure.com/bmeurope/BMS%20-%20Data/_git/httpr"
 
 [tool.maturin]
 features = ["pyo3/extension-module"]
@@ -109,7 +87,11 @@ include = ["httpr/*", "tests/*"]
 
 [dependency-groups]
 dev = [
+    "anyio>=4.0",
+    "certifi",
     "chardet>=5.0",
+    "httpcore==1.*",
+    "idna",
     "pandas>=2.0",
     "polars>=1.0",
     "pyright>=1.1",
