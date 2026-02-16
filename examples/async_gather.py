@@ -1,8 +1,8 @@
 """
 Example: httpr.AsyncClient.gather() and paginate() — async versions
 
-The async client provides the same gather() and paginate() extensions,
-returning coroutines that can be awaited in an async context.
+The async client provides the same gather() and paginate() extensions.
+paginate() returns an **async iterator** that you use with ``async for``.
 
 This is an httpr extension — not available in httpx.
 """
@@ -39,10 +39,10 @@ async def async_gather_with_concurrency() -> None:
         ]
 
         start = time.perf_counter()
-        responses = await client.gather(requests, max_concurrency=5)  # noqa: F841
+        responses = await client.gather(requests, max_concurrency=5)
         elapsed = time.perf_counter() - start
 
-        print(f"20 requests with max_concurrency=5: {elapsed:.2f}s")
+        print(f"{len(responses)} requests with max_concurrency=5: {elapsed:.2f}s")
 
 
 async def async_gather_error_handling() -> None:
@@ -63,23 +63,53 @@ async def async_gather_error_handling() -> None:
                 print(f"  [{i}] {resp.status_code}")
 
 
-async def async_paginate() -> None:
-    """Auto-follow pagination with async client."""
+# ── Async paginate — uses async for ─────────────────────────────────────
+
+
+async def async_paginate_iterate() -> None:
+    """Auto-follow pagination with async for."""
+    async with httpr.AsyncClient() as client:
+        total = 0
+        async for page in client.paginate(
+            "GET",
+            "https://api.github.com/repos/python/cpython/issues",
+            next_header="link",
+            max_pages=3,
+        ):
+            items = page.json()
+            total += len(items)
+            print(f"  Page: {len(items)} items")
+
+        print(f"Total items: {total}")
+
+
+async def async_paginate_collect() -> None:
+    """Use collect() to gather all pages into a list."""
     async with httpr.AsyncClient() as client:
         pages = await client.paginate(
             "GET",
             "https://api.github.com/repos/python/cpython/issues",
             next_header="link",
+            max_pages=2,
+        ).collect()
+
+        print(f"Collected {len(pages)} pages")
+
+
+async def async_paginate_with_progress() -> None:
+    """Track pagination progress with pages_fetched."""
+    async with httpr.AsyncClient() as client:
+        paginator = client.paginate(
+            "GET",
+            "https://api.github.com/repos/python/cpython/commits",
+            next_header="link",
             max_pages=3,
         )
 
-        total = 0
-        for i, page in enumerate(pages):
-            items = page.json()
-            total += len(items)
-            print(f"  Page {i + 1}: {len(items)} items")
+        async for page in paginator:
+            print(f"  Page {paginator.pages_fetched}: {page.status_code}")
 
-        print(f"Total items: {total}")
+        print(f"Total pages fetched: {paginator.pages_fetched}")
 
 
 async def main() -> None:
@@ -92,8 +122,14 @@ async def main() -> None:
     print("\n=== Async Gather (Error Handling) ===")
     await async_gather_error_handling()
 
-    print("\n=== Async Paginate ===")
-    await async_paginate()
+    print("\n=== Async Paginate (iterate) ===")
+    await async_paginate_iterate()
+
+    print("\n=== Async Paginate (collect) ===")
+    await async_paginate_collect()
+
+    print("\n=== Async Paginate (progress) ===")
+    await async_paginate_with_progress()
 
 
 if __name__ == "__main__":

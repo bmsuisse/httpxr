@@ -1,8 +1,11 @@
 """
 Example: httpr.Client.paginate() — automatic pagination
 
-paginate() automatically follows pagination links across multiple API
-responses. It supports three strategies for discovering the next page URL:
+paginate() returns a lazy **iterator** that auto-follows pagination links.
+Each call to ``next()`` fetches exactly one page, keeping memory usage low
+even for APIs with thousands of pages.
+
+Three strategies for discovering the next page URL:
 
   1. next_url:    Extract from a JSON key in the response body
   2. next_header: Parse a Link header (e.g. GitHub-style pagination)
@@ -17,18 +20,16 @@ import httpr
 def paginate_json_key() -> None:
     """Follow @odata.nextLink in JSON body (common in Microsoft Graph APIs)."""
     with httpr.Client() as client:
-        pages = client.paginate(
+        # Returns an iterator — pages are fetched lazily
+        for page in client.paginate(
             "GET",
             "https://graph.microsoft.com/v1.0/users",
-            next_url="@odata.nextLink",  # JSON key containing the next page URL
+            next_url="@odata.nextLink",  # JSON key containing the next URL
             max_pages=5,
             headers={"Authorization": "Bearer YOUR_TOKEN"},
-        )
-
-        print(f"Fetched {len(pages)} pages")
-        for i, page in enumerate(pages):
+        ):
             data = page.json()
-            print(f"  Page {i + 1}: {len(data.get('value', []))} items")
+            print(f"  Page: {len(data.get('value', []))} items")
 
 
 def paginate_link_header() -> None:
@@ -39,19 +40,17 @@ def paginate_link_header() -> None:
               <https://api.github.com/repos/org/repo/issues?page=5>; rel="last"
     """
     with httpr.Client() as client:
-        pages = client.paginate(
+        total_issues = 0
+        for page in client.paginate(
             "GET",
             "https://api.github.com/repos/python/cpython/issues",
             next_header="link",  # HTTP header name to parse for rel="next"
             max_pages=3,
             params={"per_page": "10", "state": "open"},
-        )
-
-        total_issues = 0
-        for i, page in enumerate(pages):
+        ):
             issues = page.json()
             total_issues += len(issues)
-            print(f"  Page {i + 1}: {len(issues)} issues")
+            print(f"  Page: {len(issues)} issues")
 
         print(f"Total issues fetched: {total_issues}")
 
@@ -70,35 +69,53 @@ def paginate_custom_function() -> None:
         return pagination.get("next")
 
     with httpr.Client() as client:
-        pages = client.paginate(
+        for page in client.paginate(
             "GET",
             "https://api.example.com/items",
             next_func=get_next_url,
             max_pages=10,
-        )
+        ):
+            print(f"  Got page: {page.status_code}")
 
-        print(f"Fetched {len(pages)} pages via custom extractor")
 
-
-def paginate_with_max_pages() -> None:
-    """Limit the number of pages fetched to avoid runaway loops."""
+def paginate_collect() -> None:
+    """Use collect() to gather all pages into a list at once."""
     with httpr.Client() as client:
         pages = client.paginate(
             "GET",
+            "https://api.github.com/repos/python/cpython/issues",
+            next_header="link",
+            max_pages=2,
+        ).collect()
+
+        print(f"Collected {len(pages)} pages")
+
+
+def paginate_with_progress() -> None:
+    """Track pagination progress with pages_fetched."""
+    with httpr.Client() as client:
+        paginator = client.paginate(
+            "GET",
             "https://api.github.com/repos/python/cpython/commits",
             next_header="link",
-            max_pages=2,  # Stop after 2 pages even if more are available
+            max_pages=3,
         )
 
-        print(f"Fetched exactly {len(pages)} pages (max_pages=2)")
+        for page in paginator:
+            print(f"  Page {paginator.pages_fetched}: {page.status_code}")
+
+        print(f"Total pages fetched: {paginator.pages_fetched}")
 
 
 if __name__ == "__main__":
     print("=== Paginate with Link Header (GitHub) ===")
     paginate_link_header()
 
-    print("\n=== Paginate with max_pages ===")
-    paginate_with_max_pages()
+    print("\n=== Paginate with collect() ===")
+    paginate_collect()
+
+    print("\n=== Paginate with progress tracking ===")
+    paginate_with_progress()
 
     # These require valid API credentials:
     # print("\n=== Paginate with JSON Key (OData) ===")

@@ -1518,47 +1518,47 @@ impl AsyncClient {
             ));
         }
 
+        if requests.is_empty() {
+            return pyo3_async_runtimes::tokio::future_into_py(py, async move {
+                Python::attach(|py| {
+                    Ok(pyo3::types::PyList::empty(py).unbind())
+                })
+            });
+        }
+
         // Build all Request data we need upfront
         let transport = self.transport.clone_ref(py);
         let mounts = self.mounts.clone_ref(py);
 
-        pyo3_async_runtimes::tokio::future_into_py(py, async move {
-            if requests.is_empty() {
-                return Python::attach(|py| {
-                    Ok(pyo3::types::PyList::empty(py).unbind())
-                });
-            }
+        // Build coroutines and asyncio.gather coroutine in the MAIN thread
+        // (which has a running asyncio event loop). This avoids the
+        // "no current event loop" error when asyncio.gather is called from
+        // a tokio worker thread.
+        let coros = pyo3::types::PyList::empty(py);
+        for req_py in &requests {
+            let transport_to_use = {
+                let req_bound = req_py.bind(py);
+                let req_ref = req_bound.borrow();
+                select_transport(
+                    mounts.bind(py).clone(),
+                    transport.clone_ref(py),
+                    &req_ref.url,
+                )?
+            };
+            let t_bound = transport_to_use.bind(py);
+            let coro = t_bound.call_method1("handle_async_request", (req_py,))?;
+            coros.append(coro)?;
+        }
 
-            // Use asyncio.Semaphore + asyncio.gather for concurrent dispatch
-            let result: Py<PyAny> = Python::attach(|py| {
-                let asyncio = py.import("asyncio")?;
+        let ns = pyo3::types::PyDict::new(py);
+        let asyncio = py.import("asyncio")?;
+        ns.set_item("asyncio", asyncio)?;
+        ns.set_item("coros", &coros)?;
+        ns.set_item("max_concurrency", max_concurrency)?;
+        ns.set_item("return_exceptions", return_exceptions)?;
 
-                // Build coroutines for each request
-                let coros = pyo3::types::PyList::empty(py);
-                for req_py in &requests {
-                    let transport_to_use = {
-                        let req_bound = req_py.bind(py);
-                        let req_ref = req_bound.borrow();
-                        select_transport(
-                            mounts.bind(py).clone(),
-                            transport.clone_ref(py),
-                            &req_ref.url,
-                        )?
-                    };
-                    let t_bound = transport_to_use.bind(py);
-                    let coro = t_bound.call_method1("handle_async_request", (req_py,))?;
-                    coros.append(coro)?;
-                }
-
-                // Create a Python wrapper that limits concurrency via asyncio.Semaphore
-                let ns = pyo3::types::PyDict::new(py);
-                ns.set_item("asyncio", asyncio)?;
-                ns.set_item("coros", &coros)?;
-                ns.set_item("max_concurrency", max_concurrency)?;
-                ns.set_item("return_exceptions", return_exceptions)?;
-
-                py.run(
-                    c"
+        py.run(
+            c"
 import asyncio
 
 _sem = asyncio.Semaphore(max_concurrency)
@@ -1572,17 +1572,16 @@ _gather_coro = asyncio.gather(
     return_exceptions=return_exceptions,
 )
 ",
-                    Some(&ns),
-                    Some(&ns),
-                )?;
+            Some(&ns),
+            Some(&ns),
+        )?;
 
-                let gather_coro = ns.get_item("_gather_coro")?.unwrap().unbind();
-                Ok::<_, PyErr>(gather_coro)
-            })?;
+        let gather_coro = ns.get_item("_gather_coro")?.unwrap().unbind();
 
-            // Await the gather coroutine
+        pyo3_async_runtimes::tokio::future_into_py(py, async move {
+            // Await the gather coroutine (created in the main thread)
             let gather_future = Python::attach(|py| {
-                pyo3_async_runtimes::tokio::into_future(result.bind(py).clone())
+                pyo3_async_runtimes::tokio::into_future(gather_coro.bind(py).clone())
             })?;
 
             let results_obj = gather_future.await?;
@@ -1611,13 +1610,18 @@ _gather_coro = asyncio.gather(
         })
     }
 
-    /// Auto-follow pagination links, fetching all pages sequentially.
+    /// Auto-follow pagination links, returning an async iterator.
+    /// Each iteration fetches the next page — memory-efficient for large result sets.
     /// Supports JSON key extraction, Link header parsing, and custom callables.
     /// This is an httpr extension — not available in httpx.
+    ///
+    /// Usage:
+    ///   async for page in client.paginate("GET", url, next_header="link"):
+    ///       process(page.json())
     #[pyo3(signature = (method, url, *, next_url=None, next_header=None, next_func=None, max_pages=100, params=None, headers=None, cookies=None, timeout=None, extensions=None, **kwargs))]
     #[allow(clippy::too_many_arguments, unused_variables)]
     fn paginate<'py>(
-        &self,
+        slf: &Bound<'py, Self>,
         py: Python<'py>,
         method: &str,
         url: &Bound<'_, PyAny>,
@@ -1632,10 +1636,13 @@ _gather_coro = asyncio.gather(
         extensions: Option<Py<PyAny>>,
         kwargs: Option<Py<PyDict>>,
     ) -> PyResult<Bound<'py, PyAny>> {
-        if self.is_closed {
-            return Err(pyo3::exceptions::PyRuntimeError::new_err(
-                "Cannot send requests, as the client has been closed.",
-            ));
+        {
+            let this = slf.borrow();
+            if this.is_closed {
+                return Err(pyo3::exceptions::PyRuntimeError::new_err(
+                    "Cannot send requests, as the client has been closed.",
+                ));
+            }
         }
         if next_url.is_none() && next_header.is_none() && next_func.is_none() {
             return Err(pyo3::exceptions::PyValueError::new_err(
@@ -1643,122 +1650,97 @@ _gather_coro = asyncio.gather(
             ));
         }
 
-        let method_owned = method.to_string();
-        let url_owned: Py<PyAny> = url.clone().unbind();
-        let transport = self.transport.clone_ref(py);
-        let mounts = self.mounts.clone_ref(py);
+        // Use a Python async generator for the iterator — this is the simplest
+        // and most correct approach since Python handles the state naturally.
+        let ns = PyDict::new(py);
+        ns.set_item("client", slf)?;
+        ns.set_item("method", method)?;
+        ns.set_item("url", url)?;
+        ns.set_item("next_url", &next_url)?;
+        ns.set_item("next_header", &next_header)?;
+        ns.set_item("next_func", &next_func)?;
+        ns.set_item("max_pages", max_pages)?;
+        ns.set_item("headers", &headers)?;
+        ns.set_item("timeout", &timeout)?;
 
-        pyo3_async_runtimes::tokio::future_into_py(py, async move {
-            let mut pages: Vec<Py<Response>> = Vec::new();
-            let mut current_url: Py<PyAny> = url_owned;
+        py.run(
+            c"
+import re as _re
 
-            for _page_num in 0..max_pages {
-                // Build and send the request
-                let response_coro = Python::attach(|py| {
-                    let url_bound = current_url.bind(py);
-                    let transport_to_use = {
-                        let url_str: String = url_bound.str()?.extract()?;
-                        let u = crate::urls::URL::create_from_str(&url_str)?;
-                        select_transport(
-                            mounts.bind(py).clone(),
-                            transport.clone_ref(py),
-                            &u,
-                        )?
-                    };
-                    let t_bound = transport_to_use.bind(py);
+def _parse_link_next(header):
+    for part in header.split(','):
+        part = part.strip()
+        if 'rel=\"next\"' in part or \"rel='next'\" in part:
+            m = _re.search(r'<([^>]+)>', part)
+            if m:
+                return m.group(1)
+    return None
 
-                    // Build a minimal request
-                    let mut merged_headers = Headers::create(None, "utf-8")?;
-                    if let Some(ref h) = headers {
-                        merged_headers.update_from(Some(h.bind(py)))?;
-                    }
+class _AsyncPageIter:
+    def __init__(self):
+        self._current_url = url
+        self._page_count = 0
+        self._done = False
 
-                    let req = Request {
-                        method: method_owned.clone(),
-                        url: crate::urls::URL::create_from_str(&url_bound.str()?.extract::<String>()?)?,
-                        headers: Py::new(py, merged_headers)?,
-                        extensions: PyDict::new(py).into(),
-                        content_body: None,
-                        stream: None,
-                        stream_response: false,
-                    };
+    def __aiter__(self):
+        return self
 
-                    if let Some(ref t) = timeout {
-                        req.extensions.bind(py).set_item("timeout", t)?;
-                    }
+    async def __anext__(self):
+        if self._done or self._page_count >= max_pages:
+            raise StopAsyncIteration
 
-                    let req_py = Py::new(py, req)?;
-                    t_bound
-                        .call_method1("handle_async_request", (req_py,))
-                        .map(|b| b.unbind())
-                })?;
+        if self._current_url is None:
+            raise StopAsyncIteration
 
-                let future = Python::attach(|py| {
-                    pyo3_async_runtimes::tokio::into_future(response_coro.bind(py).clone())
-                })?;
-                let response_obj: Py<PyAny> = future.await?;
+        kw = {}
+        if headers is not None:
+            kw['headers'] = headers
+        if timeout is not None:
+            kw['timeout'] = timeout
 
-                let response = Python::attach(|py| {
-                    let resp: Response = response_obj.bind(py).extract()?;
-                    Py::new(py, resp)
-                })?;
+        response = await client.request(method, self._current_url, **kw)
+        self._page_count += 1
 
-                // Extract next URL
-                let next: Option<String> = Python::attach(|py| {
-                    let resp_bound = response.bind(py);
-                    let resp_ref = resp_bound.borrow();
+        # Extract next URL
+        _next = None
+        if next_url is not None:
+            try:
+                data = response.json()
+                _next = data.get(next_url) if isinstance(data, dict) else None
+            except Exception:
+                _next = None
+        elif next_header is not None:
+            hdr = response.headers.get(next_header)
+            if hdr:
+                _next = _parse_link_next(hdr)
+        elif next_func is not None:
+            _next = next_func(response)
 
-                    if let Some(ref json_key) = next_url {
-                        let json_val = resp_bound.call_method0("json")?;
-                        if let Ok(val) = json_val.get_item(json_key.as_str()) {
-                            if !val.is_none() {
-                                return Ok::<_, PyErr>(val.extract::<String>().ok());
-                            }
-                        }
-                        return Ok(None);
-                    }
+        if _next is None:
+            self._done = True
+        else:
+            self._current_url = _next
 
-                    if let Some(ref header_name) = next_header {
-                        let hdrs = resp_ref.headers.bind(py).borrow();
-                        if let Some(header_val) = hdrs.get_first_value(header_name) {
-                            return Ok(parse_link_next_async(&header_val));
-                        }
-                        return Ok(None);
-                    }
+        return response
 
-                    if let Some(ref func) = next_func {
-                        let result = func.call1(py, (resp_bound,))?;
-                        let result_bound = result.bind(py);
-                        if result_bound.is_none() {
-                            return Ok(None);
-                        }
-                        return Ok(result_bound.extract::<String>().ok());
-                    }
+    async def collect(self):
+        pages = []
+        async for page in self:
+            pages.append(page)
+        return pages
 
-                    Ok(None)
-                })?;
+    @property
+    def pages_fetched(self):
+        return self._page_count
 
-                pages.push(response);
+_paginator = _AsyncPageIter()
+",
+            Some(&ns),
+            Some(&ns),
+        )?;
 
-                match next {
-                    Some(next_url_str) => {
-                        current_url = Python::attach(|py| {
-                            Ok::<_, PyErr>(pyo3::types::PyString::new(py, &next_url_str).into_any().unbind())
-                        })?;
-                    }
-                    None => break,
-                }
-            }
-
-            // Convert Vec<Py<Response>> to PyList
-            Python::attach(|py| {
-                let py_list = pyo3::types::PyList::empty(py);
-                for resp in pages {
-                    py_list.append(resp.bind(py))?;
-                }
-                Ok(py_list.unbind())
-            })
-        })
+        let paginator = ns.get_item("_paginator")?.unwrap();
+        Ok(paginator.into_any())
     }
 
     fn _transport_for_url(&self, url: &Bound<'_, PyAny>) -> PyResult<Py<PyAny>> {
@@ -1975,19 +1957,3 @@ impl Drop for ReleaseGuard {
     }
 }
 
-/// Parse a Link header value to extract the URL with rel="next".
-fn parse_link_next_async(header: &str) -> Option<String> {
-    for part in header.split(',') {
-        let part = part.trim();
-        if part.contains("rel=\"next\"") || part.contains("rel='next'") {
-            if let Some(start) = part.find('<') {
-                if let Some(end) = part.find('>') {
-                    if start < end {
-                        return Some(part[start + 1..end].to_string());
-                    }
-                }
-            }
-        }
-    }
-    None
-}

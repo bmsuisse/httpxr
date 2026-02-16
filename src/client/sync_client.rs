@@ -1099,14 +1099,19 @@ impl Client {
         }
     }
 
-    /// Auto-follow pagination links, fetching all pages sequentially.
+    /// Auto-follow pagination links, returning a lazy iterator.
+    /// Each iteration fetches the next page — memory-efficient for large result sets.
     /// Supports JSON key extraction, Link header parsing, and custom callables.
     /// This is an httpr extension — not available in httpx.
+    ///
+    /// Usage:
+    ///   for page in client.paginate("GET", url, next_header="link"):
+    ///       process(page.json())
     #[pyo3(signature = (method, url, *, next_url=None, next_header=None, next_func=None, max_pages=100, params=None, headers=None, cookies=None, timeout=None, extensions=None, **kwargs))]
     #[allow(clippy::too_many_arguments)]
     fn paginate(
-        &self,
-        py: Python<'_>,
+        slf: &Bound<'_, Self>,
+        _py: Python<'_>,
         method: &str,
         url: &Bound<'_, PyAny>,
         next_url: Option<&str>,
@@ -1119,8 +1124,9 @@ impl Client {
         timeout: Option<&Bound<'_, PyAny>>,
         extensions: Option<&Bound<'_, PyAny>>,
         kwargs: Option<&Bound<'_, PyDict>>,
-    ) -> PyResult<Vec<Response>> {
-        if self.is_closed {
+    ) -> PyResult<PageIterator> {
+        let this = slf.borrow();
+        if this.is_closed {
             return Err(pyo3::exceptions::PyRuntimeError::new_err(
                 "Cannot send requests, as the client has been closed.",
             ));
@@ -1131,72 +1137,23 @@ impl Client {
             ));
         }
 
-        let mut pages: Vec<Response> = Vec::new();
-        let mut current_url: Py<PyAny> = url.clone().unbind();
-
-        for _page_num in 0..max_pages {
-            // Send the request using standard request() method
-            let response = self.request(
-                py,
-                method,
-                current_url.bind(py),
-                None, None, None, None,
-                if pages.is_empty() { params } else { None },
-                headers,
-                cookies,
-                None,
-                timeout,
-                extensions,
-                kwargs,
-            )?;
-
-            // Extract next URL from response
-            let next: Option<String> = if let Some(json_key) = next_url {
-                // Extract from JSON body: response.json()[key]
-                let resp_py = Py::new(py, response.clone())?;
-                let json_val = resp_py.call_method0(py, "json")?;
-                let json_bound = json_val.bind(py);
-                if let Ok(val) = json_bound.get_item(json_key) {
-                    if !val.is_none() {
-                        val.extract::<String>().ok()
-                    } else {
-                        None
-                    }
-                } else {
-                    None
-                }
-            } else if let Some(header_name) = next_header {
-                // Extract from response header (e.g. Link header)
-                let hdrs = response.headers.bind(py).borrow();
-                if let Some(header_val) = hdrs.get_first_value(header_name) {
-                    parse_link_next(&header_val)
-                } else {
-                    None
-                }
-            } else if let Some(func) = next_func {
-                // Call custom function with the response
-                let resp_py = Py::new(py, response.clone())?;
-                let result = func.call1((resp_py,))?;
-                if result.is_none() {
-                    None
-                } else {
-                    result.extract::<String>().ok()
-                }
-            } else {
-                None
-            };
-
-            pages.push(response);
-
-            match next {
-                Some(next_url_str) => {
-                    current_url = pyo3::types::PyString::new(py, &next_url_str).into();
-                }
-                None => break,
-            }
-        }
-
-        Ok(pages)
+        Ok(PageIterator {
+            client: slf.clone().unbind().into_any(),
+            method: method.to_string(),
+            current_url: Some(url.clone().unbind()),
+            next_url_key: next_url.map(|s| s.to_string()),
+            next_header_name: next_header.map(|s| s.to_string()),
+            next_func: next_func.map(|f| f.clone().unbind()),
+            max_pages,
+            page_count: 0,
+            done: false,
+            params: params.map(|p| p.clone().unbind()),
+            headers: headers.map(|h| h.clone().unbind()),
+            cookies: cookies.map(|c| c.clone().unbind()),
+            timeout: timeout.map(|t| t.clone().unbind()),
+            extensions: extensions.map(|e| e.clone().unbind()),
+            _kwargs: kwargs.map(|k| k.clone().unbind()),
+        })
     }
 
     #[pyo3(signature = (request, *, auth=None, follow_redirects=None))]
@@ -1744,6 +1701,150 @@ impl Client {
         }
 
         Ok(current_response)
+    }
+}
+
+/// Lazy iterator that fetches one page per `__next__()` call.
+/// Created by `Client.paginate()`.
+#[pyclass]
+pub struct PageIterator {
+    client: Py<PyAny>,
+    method: String,
+    current_url: Option<Py<PyAny>>,
+    next_url_key: Option<String>,
+    next_header_name: Option<String>,
+    next_func: Option<Py<PyAny>>,
+    max_pages: usize,
+    page_count: usize,
+    done: bool,
+    params: Option<Py<PyAny>>,
+    headers: Option<Py<PyAny>>,
+    cookies: Option<Py<PyAny>>,
+    timeout: Option<Py<PyAny>>,
+    extensions: Option<Py<PyAny>>,
+    _kwargs: Option<Py<PyDict>>,
+}
+
+#[pymethods]
+impl PageIterator {
+    fn __iter__(slf: PyRef<'_, Self>) -> PyRef<'_, Self> {
+        slf
+    }
+
+    fn __next__(&mut self, py: Python<'_>) -> PyResult<Option<Response>> {
+        if self.done || self.page_count >= self.max_pages {
+            return Ok(None);
+        }
+
+        let current_url = match &self.current_url {
+            Some(url) => url.clone_ref(py),
+            None => {
+                self.done = true;
+                return Ok(None);
+            }
+        };
+
+        // Call client.request() to fetch the page
+        let client_bound = self.client.bind(py);
+
+        // Only pass params on the first page
+        let params_arg = if self.page_count == 0 {
+            self.params.as_ref().map(|p| p.bind(py).clone())
+        } else {
+            None
+        };
+
+        let response: Response = client_bound
+            .call_method(
+                "request",
+                (self.method.as_str(), current_url.bind(py)),
+                Some(
+                    &{
+                        let kw = PyDict::new(py);
+                        if let Some(ref p) = params_arg {
+                            kw.set_item("params", p)?;
+                        }
+                        if let Some(ref h) = self.headers {
+                            kw.set_item("headers", h)?;
+                        }
+                        if let Some(ref c) = self.cookies {
+                            kw.set_item("cookies", c)?;
+                        }
+                        if let Some(ref t) = self.timeout {
+                            kw.set_item("timeout", t)?;
+                        }
+                        if let Some(ref e) = self.extensions {
+                            kw.set_item("extensions", e)?;
+                        }
+                        kw
+                    },
+                ),
+            )?
+            .extract()?;
+
+        self.page_count += 1;
+
+        // Extract next URL from response
+        let next: Option<String> = if let Some(ref json_key) = self.next_url_key {
+            let resp_py = Py::new(py, response.clone())?;
+            let json_val = resp_py.call_method0(py, "json")?;
+            let json_bound = json_val.bind(py);
+            if let Ok(val) = json_bound.get_item(json_key.as_str()) {
+                if !val.is_none() {
+                    val.extract::<String>().ok()
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        } else if let Some(ref header_name) = self.next_header_name {
+            let hdrs = response.headers.bind(py).borrow();
+            if let Some(header_val) = hdrs.get_first_value(header_name) {
+                parse_link_next(&header_val)
+            } else {
+                None
+            }
+        } else if let Some(ref func) = self.next_func {
+            let resp_py = Py::new(py, response.clone())?;
+            let result = func.call1(py, (resp_py,))?;
+            let result_bound = result.bind(py);
+            if result_bound.is_none() {
+                None
+            } else {
+                result_bound.extract::<String>().ok()
+            }
+        } else {
+            None
+        };
+
+        // Update URL for next iteration
+        match next {
+            Some(next_url_str) => {
+                self.current_url =
+                    Some(pyo3::types::PyString::new(py, &next_url_str).into_any().unbind());
+            }
+            None => {
+                self.done = true;
+            }
+        }
+
+        Ok(Some(response))
+    }
+
+    /// Collect all remaining pages into a list (convenience method).
+    fn collect(&mut self, py: Python<'_>) -> PyResult<Vec<Response>> {
+        let mut pages = Vec::new();
+        while let Some(page) = self.__next__(py)? {
+            pages.push(page);
+        }
+        Ok(pages)
+    }
+
+    /// The number of pages fetched so far.
+    #[getter]
+    fn pages_fetched(&self) -> usize {
+        self.page_count
     }
 }
 
