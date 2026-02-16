@@ -27,28 +27,6 @@ def _skip_leading_empty_chunks(body: typing.Iterable[_T]) -> typing.Iterable[_T]
 
 
 class WSGITransport(BaseTransport):
-    """
-    A custom transport that handles sending requests directly to a WSGI app.
-
-    ```python
-    transport = httpr.WSGITransport(
-        app=app,
-        script_name="/submount",
-        remote_addr="1.2.3.4"
-    )
-    client = httpr.Client(transport=transport)
-    ```
-
-    Arguments:
-
-    * `app` - The WSGI application.
-    * `raise_app_exceptions` - Boolean indicating if exceptions in the application
-       should be raised. Default to `True`. Can be set to `False` for use cases
-       such as testing the content of a client 500 response.
-    * `script_name` - The root path on which the WSGI application should be mounted.
-    * `remote_addr` - A string indicating the client IP of incoming requests.
-    ```
-    """
 
     def __init__(
         self,

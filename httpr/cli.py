@@ -114,6 +114,6 @@ def main(
             if response.status_code >= 300:
                 sys.exit(1)
 
-    except _httpr_mod.HTTPError:  # type: ignore[attr-defined]
-        click.echo(f"{type(sys.exc_info()[1]).__name__}: {sys.exc_info()[1]}", err=False)
+    except _httpr_mod.HTTPError as exc:  # type: ignore[attr-defined]
+        click.echo(f"{type(exc).__name__}: {exc}", err=False)
         sys.exit(1)

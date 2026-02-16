@@ -17,52 +17,23 @@ SUB_DELIMS = "!$&'()*+,;="
 
 PERCENT_ENCODED_REGEX = re.compile("%[A-Fa-f0-9]{2}")
 
-FRAG_SAFE = "".join(
-    [chr(i) for i in range(0x20, 0x7F) if i not in (0x20, 0x22, 0x3C, 0x3E, 0x60)]
-)
+_ALWAYS_EXCLUDED = (0x20, 0x22, 0x3C, 0x3E)
+_PATH_EXCLUDED = _ALWAYS_EXCLUDED + (0x23, 0x3F, 0x60, 0x7B, 0x7D)
+_USERINFO_EXTRA = (0x2F, 0x3B, 0x3D, 0x40, 0x5B, 0x5C, 0x5D, 0x5E, 0x7C)
+_CREDENTIAL_EXTRA = _USERINFO_EXTRA + (0x3A,)
 
-QUERY_SAFE = "".join(
-    [chr(i) for i in range(0x20, 0x7F) if i not in (0x20, 0x22, 0x23, 0x3C, 0x3E)]
-)
 
-PATH_SAFE = "".join(
-    [
-        chr(i)
-        for i in range(0x20, 0x7F)
-        if i not in (0x20, 0x22, 0x23, 0x3C, 0x3E) + (0x3F, 0x60, 0x7B, 0x7D)
-    ]
-)
+def _safe_chars(*excluded: int) -> str:
+    excluded_set = set(excluded)
+    return "".join(chr(i) for i in range(0x20, 0x7F) if i not in excluded_set)
 
-USERNAME_SAFE = "".join(
-    [
-        chr(i)
-        for i in range(0x20, 0x7F)
-        if i
-        not in (0x20, 0x22, 0x23, 0x3C, 0x3E)
-        + (0x3F, 0x60, 0x7B, 0x7D)
-        + (0x2F, 0x3A, 0x3B, 0x3D, 0x40, 0x5B, 0x5C, 0x5D, 0x5E, 0x7C)
-    ]
-)
-PASSWORD_SAFE = "".join(
-    [
-        chr(i)
-        for i in range(0x20, 0x7F)
-        if i
-        not in (0x20, 0x22, 0x23, 0x3C, 0x3E)
-        + (0x3F, 0x60, 0x7B, 0x7D)
-        + (0x2F, 0x3A, 0x3B, 0x3D, 0x40, 0x5B, 0x5C, 0x5D, 0x5E, 0x7C)
-    ]
-)
-USERINFO_SAFE = "".join(
-    [
-        chr(i)
-        for i in range(0x20, 0x7F)
-        if i
-        not in (0x20, 0x22, 0x23, 0x3C, 0x3E)
-        + (0x3F, 0x60, 0x7B, 0x7D)
-        + (0x2F, 0x3B, 0x3D, 0x40, 0x5B, 0x5C, 0x5D, 0x5E, 0x7C)
-    ]
-)
+
+FRAG_SAFE = _safe_chars(*_ALWAYS_EXCLUDED, 0x60)
+QUERY_SAFE = _safe_chars(*_ALWAYS_EXCLUDED, 0x23)
+PATH_SAFE = _safe_chars(*_PATH_EXCLUDED)
+USERNAME_SAFE = _safe_chars(*_PATH_EXCLUDED, *_CREDENTIAL_EXTRA)
+PASSWORD_SAFE = USERNAME_SAFE
+USERINFO_SAFE = _safe_chars(*_PATH_EXCLUDED, *_USERINFO_EXTRA)
 
 
 URL_REGEX = re.compile(
@@ -161,17 +132,21 @@ class ParseResult(typing.NamedTuple):
         )
 
 
+def _validate_non_printable(value: str, label: str) -> None:
+    if any(char.isascii() and not char.isprintable() for char in value):
+        char = next(char for char in value if char.isascii() and not char.isprintable())
+        idx = value.find(char)
+        raise InvalidURL(
+            f"Invalid non-printable ASCII character in {label}, "
+            f"{char!r} at position {idx}."
+        )
+
+
 def urlparse(url: str = "", **kwargs: str | None) -> ParseResult:
     if len(url) > MAX_URL_LENGTH:
         raise InvalidURL("URL too long")
 
-    if any(char.isascii() and not char.isprintable() for char in url):
-        char = next(char for char in url if char.isascii() and not char.isprintable())
-        idx = url.find(char)
-        error = (
-            f"Invalid non-printable ASCII character in URL, {char!r} at position {idx}."
-        )
-        raise InvalidURL(error)
+    _validate_non_printable(url, "URL")
 
     if "port" in kwargs:
         port = kwargs["port"]
@@ -202,16 +177,7 @@ def urlparse(url: str = "", **kwargs: str | None) -> ParseResult:
             if len(value) > MAX_URL_LENGTH:
                 raise InvalidURL(f"URL component '{key}' too long")
 
-            if any(char.isascii() and not char.isprintable() for char in value):
-                char = next(
-                    char for char in value if char.isascii() and not char.isprintable()
-                )
-                idx = value.find(char)
-                error = (
-                    f"Invalid non-printable ASCII character in URL {key} component, "
-                    f"{char!r} at position {idx}."
-                )
-                raise InvalidURL(error)
+            _validate_non_printable(value, f"URL {key} component")
 
             if not COMPONENT_REGEX[key].fullmatch(value):
                 raise InvalidURL(f"Invalid URL component '{key}'")
@@ -340,7 +306,7 @@ def normalize_path(path: str) -> str:
     return "/".join(output)
 
 
-def PERCENT(string: str) -> str:
+def _percent_encode(string: str) -> str:
     return "".join([f"%{byte:02X}" for byte in string.encode("utf-8")])
 
 
@@ -351,7 +317,10 @@ def percent_encoded(string: str, safe: str) -> str:
         return string
 
     return "".join(
-        [char if char in NON_ESCAPED_CHARS else PERCENT(char) for char in string]
+        [
+            char if char in NON_ESCAPED_CHARS else _percent_encode(char)
+            for char in string
+        ]
     )
 
 

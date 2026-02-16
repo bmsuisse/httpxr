@@ -1,4 +1,3 @@
-
 from __future__ import annotations
 
 import ipaddress
@@ -11,7 +10,6 @@ if typing.TYPE_CHECKING:
 
 
 def get_environment_proxies() -> dict[str, str | None]:
-
     proxy_info = getproxies()
     mounts: dict[str, str | None] = {}
 
@@ -29,9 +27,9 @@ def get_environment_proxies() -> dict[str, str | None]:
         elif hostname:
             if "://" in hostname:
                 mounts[hostname] = None
-            elif is_ipv4_hostname(hostname):
+            elif _is_ip_hostname(hostname, ipaddress.IPv4Address):
                 mounts[f"all://{hostname}"] = None
-            elif is_ipv6_hostname(hostname):
+            elif _is_ip_hostname(hostname, ipaddress.IPv6Address):
                 mounts[f"all://[{hostname}]"] = None
             elif hostname.lower() == "localhost":
                 mounts[f"all://{hostname}"] = None
@@ -39,6 +37,17 @@ def get_environment_proxies() -> dict[str, str | None]:
                 mounts[f"all://*{hostname}"] = None
 
     return mounts
+
+
+def _is_ip_hostname(
+    hostname: str,
+    address_class: type[ipaddress.IPv4Address] | type[ipaddress.IPv6Address],
+) -> bool:
+    try:
+        address_class(hostname.split("/")[0])
+    except ValueError:
+        return False
+    return True
 
 
 class URLPattern:
@@ -97,19 +106,3 @@ class URLPattern:
 
     def __eq__(self, other: typing.Any) -> bool:
         return isinstance(other, URLPattern) and self.pattern == other.pattern
-
-
-def is_ipv4_hostname(hostname: str) -> bool:
-    try:
-        ipaddress.IPv4Address(hostname.split("/")[0])
-    except ValueError:
-        return False
-    return True
-
-
-def is_ipv6_hostname(hostname: str) -> bool:
-    try:
-        ipaddress.IPv6Address(hostname.split("/")[0])
-    except Exception:
-        return False
-    return True
