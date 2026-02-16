@@ -42,6 +42,41 @@ fn simd_value_to_py(py: Python<'_>, val: &simd_json::OwnedValue) -> PyResult<Py<
     }
 }
 
+/// Convert a serde_json::Value directly to a Python object.
+/// This is the primary fast path — no clone of content bytes needed.
+fn serde_value_to_py(py: Python<'_>, val: &serde_json::Value) -> PyResult<Py<PyAny>> {
+    use serde_json::Value;
+    match val {
+        Value::Null => Ok(py.None()),
+        Value::Bool(b) => Ok(PyBool::new(py, *b).to_owned().into_any().unbind()),
+        Value::Number(n) => {
+            if let Some(i) = n.as_i64() {
+                Ok(i.into_pyobject(py).unwrap().into_any().unbind())
+            } else if let Some(u) = n.as_u64() {
+                Ok(u.into_pyobject(py).unwrap().into_any().unbind())
+            } else if let Some(f) = n.as_f64() {
+                Ok(PyFloat::new(py, f).into_any().unbind())
+            } else {
+                Ok(py.None())
+            }
+        }
+        Value::String(s) => Ok(PyString::new(py, s).into_any().unbind()),
+        Value::Array(arr) => {
+            let items: Vec<Py<PyAny>> = arr
+                .iter()
+                .map(|v| serde_value_to_py(py, v))
+                .collect::<PyResult<_>>()?;
+            Ok(PyList::new(py, &items)?.into_any().unbind())
+        }
+        Value::Object(map) => {
+            let dict = PyDict::new(py);
+            for (k, v) in map.iter() {
+                dict.set_item(k, serde_value_to_py(py, v)?)?;
+            }
+            Ok(dict.into_any().unbind())
+        }
+    }
+}
 
 /// Case-insensitive HTTP headers multidict.
 #[pyclass(from_py_object)]
@@ -1584,17 +1619,21 @@ impl Response {
             return Ok(loads.call(args, kwargs)?.into());
         }
 
-        // Use simd-json for SIMD-accelerated parsing directly on raw bytes
-        // We clone because simd_json modifies the buffer in-place
-        let mut buf = content.clone();
-        match simd_json::to_owned_value(&mut buf) {
-            Ok(val) => simd_value_to_py(py, &val),
+        // Fast path: use serde_json which doesn't require mutable buffer (no clone needed)
+        match serde_json::from_slice::<serde_json::Value>(content) {
+            Ok(val) => serde_value_to_py(py, &val),
             Err(_) => {
-                // If simd-json fails (e.g. not UTF-8 or other issues), try Python's json.loads
-                // ensuring we decode text first
-                let text = self.text(py)?;
-                let json_mod = py.import("json")?;
-                Ok(json_mod.call_method1("loads", (text,))?.into())
+                // Fall back to simd-json (requires mutable buffer, must clone)
+                let mut buf = content.clone();
+                match simd_json::to_owned_value(&mut buf) {
+                    Ok(val) => simd_value_to_py(py, &val),
+                    Err(_) => {
+                        // Last resort: Python's json.loads with text decoding
+                        let text = self.text(py)?;
+                        let json_mod = py.import("json")?;
+                        Ok(json_mod.call_method1("loads", (text,))?.into())
+                    }
+                }
             }
         }
     }

@@ -46,6 +46,36 @@ def test_single_post__rust(benchmark: typing.Any, rust_client: typing.Any) -> No
 
 
 # ============================================================================
+# 2b. Fast-path raw API latency (no Request/Response objects)
+# ============================================================================
+
+
+def test_single_get_raw__rust(benchmark: typing.Any, rust_client: typing.Any, base_url: str) -> None:
+    """Single GET / — Rust httpr raw fast-path."""
+    url = base_url + "/"
+    benchmark(rust_client.get_raw, url)
+
+
+def test_single_post_raw__rust(benchmark: typing.Any, rust_client: typing.Any, base_url: str) -> None:
+    """Single POST /echo_body with 1 KB body — Rust httpr raw fast-path."""
+    url = base_url + "/echo_body"
+    benchmark(rust_client.post_raw, url, body=SMALL_BODY)
+
+
+def _sequential_raw_gets(client: typing.Any, url: str, n: int) -> None:
+    for _ in range(n):
+        client.get_raw(url)
+
+
+def test_sequential_raw_gets__rust(
+    benchmark: typing.Any, rust_client: typing.Any, base_url: str
+) -> None:
+    """100 sequential GET / — Rust httpr raw fast-path."""
+    url = base_url + "/"
+    benchmark(_sequential_raw_gets, rust_client, url, SEQUENTIAL_N)
+
+
+# ============================================================================
 # 3. Sequential throughput — 100 GET requests
 # ============================================================================
 

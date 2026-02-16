@@ -387,17 +387,21 @@ impl Client {
         request: Request,
         follow_redirects: Option<bool>,
     ) -> PyResult<Response> {
-        let target_url = request.url.clone();
-
         // Select transport (mounts support)
-        let selected_transport = self.select_transport_for_url(py, &target_url);
+        let selected_transport = self.select_transport_for_url(py, &request.url);
 
-        // Send request
+        // Send request — fast path: direct Rust call if transport is our HTTPTransport
         let mut response = {
             let t_bound = selected_transport.bind(py);
-            let req_py = Py::new(py, request.clone())?;
-            let res_py = t_bound.call_method1("handle_request", (req_py,))?;
-            res_py.extract::<Response>()?
+            if let Ok(t) = t_bound.cast::<crate::transports::default::HTTPTransport>() {
+                // Direct Rust dispatch — no Python FFI overhead
+                t.borrow().send_request(py, &request)?
+            } else {
+                // Slow path: Python dispatch for custom/mock transports
+                let req_py = Py::new(py, request.clone())?;
+                let res_py = t_bound.call_method1("handle_request", (req_py,))?;
+                res_py.extract::<Response>()?
+            }
         };
 
         response.elapsed = Some(start.elapsed().as_secs_f64());
@@ -500,13 +504,17 @@ impl Client {
                 }
             }
 
-            // Send the request
+            // Send the request — fast path: direct Rust dispatch
             let mut response = {
                 let selected_transport = self.select_transport_for_url(py, &current_req.url);
                 let t_bound = selected_transport.bind(py);
-                let req_py = Py::new(py, current_req.clone())?;
-                let res_py = t_bound.call_method1("handle_request", (req_py,))?;
-                res_py.extract::<Response>()?
+                if let Ok(t) = t_bound.cast::<crate::transports::default::HTTPTransport>() {
+                    t.borrow().send_request(py, &current_req)?
+                } else {
+                    let req_py = Py::new(py, current_req.clone())?;
+                    let res_py = t_bound.call_method1("handle_request", (req_py,))?;
+                    res_py.extract::<Response>()?
+                }
             };
             response.elapsed = Some(start.elapsed().as_secs_f64());
             response.request = Some(current_req.clone());
@@ -821,6 +829,79 @@ impl Client {
             py, "DELETE", url, None, None, None, None, params, headers, cookies, f, t, extensions,
             kwargs,
         )
+    }
+
+    // ── Fast-path raw API ──────────────────────────────────────────────
+    // These bypass httpx-compatible Request/Response construction entirely.
+    // Returns (status_code: int, headers: dict[str, str], body: bytes).
+
+    #[pyo3(signature = (url, *, headers=None, timeout=None))]
+    fn get_raw(
+        &self,
+        py: Python<'_>,
+        url: &str,
+        headers: Option<&Bound<'_, PyDict>>,
+        timeout: Option<f64>,
+    ) -> PyResult<Py<PyAny>> {
+        self._send_raw(py, reqwest::Method::GET, url, headers, None, timeout)
+    }
+
+    #[pyo3(signature = (url, *, headers=None, body=None, timeout=None))]
+    fn post_raw(
+        &self,
+        py: Python<'_>,
+        url: &str,
+        headers: Option<&Bound<'_, PyDict>>,
+        body: Option<Vec<u8>>,
+        timeout: Option<f64>,
+    ) -> PyResult<Py<PyAny>> {
+        self._send_raw(py, reqwest::Method::POST, url, headers, body, timeout)
+    }
+
+    #[pyo3(signature = (url, *, headers=None, body=None, timeout=None))]
+    fn put_raw(
+        &self,
+        py: Python<'_>,
+        url: &str,
+        headers: Option<&Bound<'_, PyDict>>,
+        body: Option<Vec<u8>>,
+        timeout: Option<f64>,
+    ) -> PyResult<Py<PyAny>> {
+        self._send_raw(py, reqwest::Method::PUT, url, headers, body, timeout)
+    }
+
+    #[pyo3(signature = (url, *, headers=None, body=None, timeout=None))]
+    fn patch_raw(
+        &self,
+        py: Python<'_>,
+        url: &str,
+        headers: Option<&Bound<'_, PyDict>>,
+        body: Option<Vec<u8>>,
+        timeout: Option<f64>,
+    ) -> PyResult<Py<PyAny>> {
+        self._send_raw(py, reqwest::Method::PATCH, url, headers, body, timeout)
+    }
+
+    #[pyo3(signature = (url, *, headers=None, timeout=None))]
+    fn delete_raw(
+        &self,
+        py: Python<'_>,
+        url: &str,
+        headers: Option<&Bound<'_, PyDict>>,
+        timeout: Option<f64>,
+    ) -> PyResult<Py<PyAny>> {
+        self._send_raw(py, reqwest::Method::DELETE, url, headers, None, timeout)
+    }
+
+    #[pyo3(signature = (url, *, headers=None, timeout=None))]
+    fn head_raw(
+        &self,
+        py: Python<'_>,
+        url: &str,
+        headers: Option<&Bound<'_, PyDict>>,
+        timeout: Option<f64>,
+    ) -> PyResult<Py<PyAny>> {
+        self._send_raw(py, reqwest::Method::HEAD, url, headers, None, timeout)
     }
 
     fn close(&mut self) -> PyResult<()> {
@@ -1167,9 +1248,13 @@ impl Client {
         let _ = auth;
         let start = Instant::now();
         let t_bound = self.transport.bind(py);
-        let req_py = Py::new(py, request.clone())?;
-        let res_py = t_bound.call_method1("handle_request", (req_py,))?;
-        let mut response: Response = res_py.extract()?;
+        let mut response: Response = if let Ok(t) = t_bound.cast::<crate::transports::default::HTTPTransport>() {
+            t.borrow().send_request(py, request)?
+        } else {
+            let req_py = Py::new(py, request.clone())?;
+            let res_py = t_bound.call_method1("handle_request", (req_py,))?;
+            res_py.extract()?
+        };
         response.elapsed = Some(start.elapsed().as_secs_f64());
         response.request = Some(request.clone());
         let should_follow = follow_redirects.unwrap_or(self.follow_redirects);
@@ -1209,7 +1294,9 @@ impl Client {
                 };
                 let mut history = current_response.history.clone();
                 history.push(current_response);
-                let mut new_response = {
+                let mut new_response = if let Ok(t) = t_bound.cast::<crate::transports::default::HTTPTransport>() {
+                    t.borrow().send_request(py, &redirect_request)?
+                } else {
                     let req_py2 = Py::new(py, redirect_request.clone())?;
                     let res_py2 = t_bound.call_method1("handle_request", (req_py2,))?;
                     res_py2.extract::<Response>()?
@@ -1647,9 +1734,13 @@ impl Client {
 
             let mut new_response = {
                 let t_bound = self.transport.bind(py);
-                let req_py = Py::new(py, redirect_request.clone())?;
-                let res_py = t_bound.call_method1("handle_request", (req_py,))?;
-                res_py.extract::<Response>()?
+                if let Ok(t) = t_bound.cast::<crate::transports::default::HTTPTransport>() {
+                    t.borrow().send_request(py, &redirect_request)?
+                } else {
+                    let req_py = Py::new(py, redirect_request.clone())?;
+                    let res_py = t_bound.call_method1("handle_request", (req_py,))?;
+                    res_py.extract::<Response>()?
+                }
             };
 
             // Event hooks: response (redirect)
@@ -1701,6 +1792,28 @@ impl Client {
         }
 
         Ok(current_response)
+    }
+
+    /// Internal fast-path dispatcher: pass Python args directly to transport.
+    fn _send_raw(
+        &self,
+        py: Python<'_>,
+        method: reqwest::Method,
+        url: &str,
+        headers: Option<&Bound<'_, PyDict>>,
+        body: Option<Vec<u8>>,
+        timeout: Option<f64>,
+    ) -> PyResult<Py<PyAny>> {
+        let t_bound = self.transport.bind(py);
+        let transport = t_bound
+            .cast::<crate::transports::default::HTTPTransport>()
+            .map_err(|_| {
+                pyo3::exceptions::PyRuntimeError::new_err(
+                    "Raw API requires the default HTTPTransport",
+                )
+            })?;
+
+        transport.borrow().send_raw(py, method, url, headers, body, timeout)
     }
 }
 

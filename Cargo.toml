@@ -35,3 +35,10 @@ log = "0.4.29"
 idna = "1.1.0"
 futures = "0.3.32"
 http = "1"
+mimalloc = { version = "0.1", default-features = false, features = ["local_dynamic_tls"] }
+
+[profile.release]
+opt-level = 3
+codegen-units = 1
+lto = "fat"
+strip = true

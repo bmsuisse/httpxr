@@ -189,6 +189,28 @@ pub fn build_request_body<'py>(
 
 /// Arrange headers in httpx canonical order: Host, Accept, Accept-Encoding, Connection, User-Agent, Content-*, then remaining.
 pub fn arrange_headers_httpx_order(merged_headers: &Headers, target_url: &URL) -> Headers {
+    // Fast path: check if headers are already in canonical order.
+    // For simple requests with default headers, this avoids rebuilding the entire header map.
+    let canonical_prefix = ["host", "accept", "accept-encoding", "connection", "user-agent"];
+    let items = merged_headers.iter_all();
+    if items.len() >= canonical_prefix.len() {
+        let already_ordered = canonical_prefix.iter().enumerate().all(|(i, expected)| {
+            items.get(i).map_or(false, |(name, _value)| name.to_lowercase() == *expected)
+        });
+        if already_ordered {
+            // Verify host value matches target URL host
+            let current_host = items[0].1.clone();
+            let expected_host = if merged_headers.contains_header("host") {
+                merged_headers.get_first_value("host").unwrap_or_default()
+            } else {
+                build_host_header(target_url)
+            };
+            if current_host.to_lowercase() == expected_host.to_lowercase() {
+                return merged_headers.clone();
+            }
+        }
+    }
+
     let mut final_headers = Headers::new_empty();
 
     // 1. Host (always add, it's URL-dependent)

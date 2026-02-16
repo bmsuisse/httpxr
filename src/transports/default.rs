@@ -59,7 +59,7 @@ impl HTTPTransport {
 
         // Create a persistent multi-thread tokio runtime (1 worker) for this transport.
         // Must be multi-thread because py.detach() runs on a separate OS thread,
-        // and current_thread runtime can only be driven from its creating thread.
+        // and send_batch_requests uses tokio::spawn for concurrent request dispatch.
         let rt = tokio::runtime::Builder::new_multi_thread()
             .worker_threads(1)
             .enable_all()
@@ -237,6 +237,105 @@ impl HTTPTransport {
                 0,
             )),
         })
+    }
+
+    /// Fast-path: send a raw request, return (status, headers_dict, body) Python tuple directly.
+    /// Eliminates ALL intermediate allocations by building Python objects immediately.
+    pub fn send_raw(
+        &self,
+        py: Python<'_>,
+        method: reqwest::Method,
+        url: &str,
+        headers: Option<&pyo3::Bound<'_, pyo3::types::PyDict>>,
+        body: Option<Vec<u8>>,
+        timeout_secs: Option<f64>,
+    ) -> PyResult<Py<PyAny>> {
+        use pyo3::types::{PyBytes, PyDict, PyTuple};
+        use pyo3::IntoPyObject;
+
+        let parsed_url = reqwest::Url::parse(url).map_err(|e| {
+            crate::exceptions::InvalidURL::new_err(format!("Invalid URL: {}", e))
+        })?;
+
+        let mut req_builder = self.client.request(method, parsed_url);
+
+        // Pass headers directly from Python dict → reqwest without intermediate Vec
+        if let Some(h) = headers {
+            for (k, v) in h.iter() {
+                let key: &str = k.extract()?;
+                let val: &str = v.extract()?;
+                req_builder = req_builder.header(key, val);
+            }
+        }
+
+        if let Some(b) = body {
+            req_builder = req_builder.body(b);
+        }
+
+        if let Some(t) = timeout_secs {
+            req_builder = req_builder.timeout(std::time::Duration::from_secs_f64(t));
+        }
+
+        let built_request = req_builder.build().map_err(|e| {
+            pyo3::exceptions::PyRuntimeError::new_err(format!("Failed to build request: {}", e))
+        })?;
+
+        // Execute request with GIL released
+        let handle = self.rt.handle().clone();
+        let client = self.client.clone();
+        let result = py
+            .detach(move || {
+                handle.block_on(async {
+                    let response = client.execute(built_request).await?;
+                    let status = response.status().as_u16();
+                    // Collect headers as raw bytes to avoid String allocation
+                    let hdrs: Vec<(&str, &[u8])> = response
+                        .headers()
+                        .iter()
+                        .map(|(k, v)| (k.as_str(), v.as_bytes()))
+                        .collect();
+                    // Convert to owned for Send
+                    let owned_hdrs: Vec<(String, Vec<u8>)> = hdrs
+                        .into_iter()
+                        .map(|(k, v)| (k.to_owned(), v.to_vec()))
+                        .collect();
+                    let body = response.bytes().await?;
+                    Ok::<_, reqwest::Error>((status, owned_hdrs, body))
+                })
+            })
+            .map_err(|e: reqwest::Error| {
+                let msg = format!("{}", e);
+                if e.is_timeout() {
+                    if e.is_connect() {
+                        crate::exceptions::ConnectTimeout::new_err(msg)
+                    } else {
+                        crate::exceptions::ReadTimeout::new_err(msg)
+                    }
+                } else if e.is_connect() {
+                    crate::exceptions::ConnectError::new_err(msg)
+                } else if msg.contains("Unknown Scheme") || msg.contains("URL scheme is not allowed") {
+                    crate::exceptions::UnsupportedProtocol::new_err(msg)
+                } else {
+                    crate::exceptions::NetworkError::new_err(msg)
+                }
+            })?;
+
+        let (status, resp_headers, body_bytes) = result;
+
+        // Build Python objects — we're back under GIL here
+        let dict = PyDict::new(py);
+        for (k, v) in &resp_headers {
+            // Use unsafe bytes → str since HTTP header values are ASCII
+            let val_str = std::str::from_utf8(v).unwrap_or("");
+            dict.set_item(k.as_str(), val_str)?;
+        }
+        let body_py = PyBytes::new(py, &body_bytes);
+        let tuple = PyTuple::new(py, &[
+            status.into_pyobject(py)?.into_any().as_borrowed(),
+            dict.as_any().as_borrowed(),
+            body_py.as_any().as_borrowed(),
+        ])?;
+        Ok(tuple.unbind().into())
     }
 }
 
