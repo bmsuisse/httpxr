@@ -13,7 +13,9 @@ use std::io::Read;
 #[pyclass]
 pub struct HTTPTransport {
     client: reqwest::Client,
-    rt: tokio::runtime::Runtime,
+    /// Kept alive for RAII — the `handle` references this runtime.
+    _rt: tokio::runtime::Runtime,
+    handle: tokio::runtime::Handle,
     proxy_url: Option<String>,
 }
 
@@ -72,9 +74,11 @@ impl HTTPTransport {
             })?;
 
         let proxy_url_str = proxy.map(|p| p.url.clone());
+        let handle = rt.handle().clone();
         Ok(HTTPTransport {
             client,
-            rt,
+            _rt: rt,
+            handle,
             proxy_url: proxy_url_str,
         })
     }
@@ -150,7 +154,7 @@ impl HTTPTransport {
         let client = self.client.clone();
         let (status_code, resp_headers, body_bytes_result) = py
             .detach(move || {
-                self.rt.handle().block_on(async {
+                self.handle.block_on(async {
                     let response = client.execute(built_request).await?;
 
                     let status = response.status().as_u16();
@@ -281,7 +285,7 @@ impl HTTPTransport {
         })?;
 
         // Execute request with GIL released
-        let handle = self.rt.handle().clone();
+        let handle = self.handle.clone();
         let client = self.client.clone();
         let result = py
             .detach(move || {
@@ -408,7 +412,7 @@ impl HTTPTransport {
         let client = self.client.clone();
         let results: Vec<Result<(u16, Vec<(Vec<u8>, Vec<u8>)>, Vec<u8>), String>> = py
             .detach(move || {
-                self.rt.handle().block_on(async {
+                self.handle.block_on(async {
                     let semaphore = std::sync::Arc::new(tokio::sync::Semaphore::new(max_concurrency));
                     let mut handles = Vec::with_capacity(built_requests.len());
 
