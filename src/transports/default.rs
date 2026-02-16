@@ -81,6 +81,9 @@ impl HTTPTransport {
 
     pub fn send_request(&self, py: Python<'_>, request: &Request) -> PyResult<Response> {
         let url_str = request.url.to_string();
+        let parsed_url = reqwest::Url::parse(&url_str).map_err(|e| {
+            crate::exceptions::InvalidURL::new_err(format!("Invalid URL: {}", e))
+        })?;
 
         // Extract timeout configuration
         let mut connect_timeout_val = None;
@@ -122,8 +125,9 @@ impl HTTPTransport {
         };
 
         // Build the reqwest Request under the GIL — borrows headers, avoids clone.
+        // Pass pre-parsed URL to skip reqwest's internal URL re-parsing.
         let hdrs = request.headers.bind(py).borrow();
-        let mut req_builder = self.client.request(method, &url_str);
+        let mut req_builder = self.client.request(method, parsed_url);
         for (key, value) in &hdrs.raw {
             req_builder = req_builder.header(key.as_slice(), value.as_slice());
         }
