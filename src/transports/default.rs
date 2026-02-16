@@ -123,8 +123,8 @@ impl HTTPTransport {
                         req_builder = req_builder.header(key.as_str(), value.as_str());
                     }
 
-                    if let Some(ref b) = body_bytes {
-                        req_builder = req_builder.body(b.clone());
+                    if let Some(b) = body_bytes {
+                        req_builder = req_builder.body(b);
                     }
 
                     if let Some(t) = timeout_val {
@@ -134,14 +134,17 @@ impl HTTPTransport {
                     let response = req_builder.send().await?;
 
                     let status = response.status().as_u16();
-                    let resp_headers: Vec<(String, String)> = response
-                        .headers()
-                        .iter()
-                        .map(|(k, v)| (k.as_str().to_string(), v.to_str().unwrap_or("").to_string()))
-                        .collect();
+                    let headers = response.headers();
+                    let mut resp_headers = Vec::with_capacity(headers.len());
+                    for (k, v) in headers.iter() {
+                        resp_headers.push((
+                            k.as_str().to_string(),
+                            v.to_str().unwrap_or("").to_string(),
+                        ));
+                    }
 
                     let bytes = response.bytes().await?;
-                    Ok((status, resp_headers, bytes.to_vec()))
+                    Ok((status, resp_headers, Vec::from(bytes)))
                 })
             })
             .map_err(|e: reqwest::Error| {
@@ -484,11 +487,14 @@ impl AsyncHTTPTransport {
 
             let status_code = response.status().as_u16();
             let version = response.version();
-            let resp_headers: Vec<(String, String)> = response
-                .headers()
-                .iter()
-                .map(|(k, v)| (k.as_str().to_string(), v.to_str().unwrap_or("").to_string()))
-                .collect();
+            let headers = response.headers();
+            let mut resp_headers = Vec::with_capacity(headers.len());
+            for (k, v) in headers.iter() {
+                resp_headers.push((
+                    k.as_str().to_string(),
+                    v.to_str().unwrap_or("").to_string(),
+                ));
+            }
 
             enum BodyType {
                 Bytes(Vec<u8>),
@@ -507,7 +513,7 @@ impl AsyncHTTPTransport {
                         crate::exceptions::ReadError::new_err(format!("{}", e))
                     }
                 })?;
-                BodyType::Bytes(bytes.to_vec())
+                BodyType::Bytes(Vec::from(bytes))
             };
 
             pyo3::Python::attach(|py| {
