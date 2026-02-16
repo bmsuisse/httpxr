@@ -76,7 +76,7 @@ asyncio.run(main())
 
 ## Test Suite
 
-The port is validated against the **complete httpx test suite** — **1289 tests** across 30+ modules, ported 1:1 from the original project. No tests were deleted, skipped, or weakened.
+The port is validated against the **complete httpx test suite** — **1303 tests** across 30+ modules, ported 1:1 from the original project.
 
 ### Behavioral Differences
 
@@ -93,6 +93,7 @@ The port is validated against the **complete httpx test suite** — **1289 tests
 | Logger name | `"httpx"` | `"httpr"` | Logs should identify the actual library |
 | Timeout validation | `Timeout(pool=60.0)` raises | Succeeds | PyO3 framework limitation |
 | Test URLs | Hardcoded port | Dynamic `server.url` | Random OS port in test server |
+| Write timeout | Catches `WriteTimeout` | Catches `TimeoutException` | Rust transport may buffer writes via OS kernel, surfacing timeout on read instead of write |
 
 ---
 
