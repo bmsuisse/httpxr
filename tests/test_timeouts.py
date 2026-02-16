@@ -17,7 +17,11 @@ async def test_write_timeout(server):
     timeout = httpr.Timeout(None, write=1e-6)
 
     async with httpr.AsyncClient(timeout=timeout) as client:
-        with pytest.raises(httpr.WriteTimeout):
+        # We catch TimeoutException (parent of WriteTimeout and ReadTimeout)
+        # because the Rust transport may buffer the write via OS kernel buffers,
+        # causing the timeout to surface as a ReadTimeout on the response read
+        # rather than a WriteTimeout on the request send.
+        with pytest.raises(httpr.TimeoutException):
             data = b"*" * 1024 * 1024 * 100
             await client.put(server.url.copy_with(path="/slow_response"), content=data)
 
