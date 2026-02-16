@@ -246,7 +246,10 @@ async def echo_body(scope: Scope, receive: Receive, send: Send) -> None:
         {
             "type": "http.response.start",
             "status": 200,
-            "headers": [[b"content-type", b"application/octet-stream"]],
+            "headers": [
+                [b"content-type", b"application/octet-stream"],
+                [b"content-length", str(len(body)).encode()],
+            ],
         }
     )
     await send({"type": "http.response.body", "body": body})

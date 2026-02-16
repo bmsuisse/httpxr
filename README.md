@@ -17,7 +17,7 @@ The networking layer is reimplemented in Rust:
 | :--- | :--- |
 | Python bindings | [PyO3](https://pyo3.rs/) |
 | Async HTTP | [reqwest](https://github.com/seanmonstar/reqwest) + [tokio](https://tokio.rs/) |
-| Sync HTTP | [ureq](https://github.com/algesten/ureq) |
+| Sync HTTP | [reqwest](https://github.com/seanmonstar/reqwest) + [tokio](https://tokio.rs/) |
 | TLS | rustls + native-tls |
 | Compression | gzip, brotli, zstd, deflate (native Rust) |
 
@@ -31,6 +31,12 @@ Unlike httpx (which depends on `httpcore`, `certifi`, `anyio`, `idna`, and optio
 
 ```bash
 pip install httpr
+```
+
+To also install the **optional CLI**:
+
+```bash
+pip install "httpr[cli]"
 ```
 
 **Sync:**
@@ -70,7 +76,54 @@ asyncio.run(main())
 - `MockTransport`, `ASGITransport`, `WSGITransport` — test transports
 - Authentication flows, redirects, streaming, event hooks
 - HTTP/1.1 & HTTP/2, SOCKS proxy support
-- CLI via `httpr` command
+- CLI via `httpr` command (requires `pip install "httpr[cli]"`)
+---
+
+## httpr Extensions
+
+Beyond the standard httpx API, `httpr` adds features that leverage the Rust runtime:
+
+### `gather()` — Concurrent Batch Requests
+
+Dispatch multiple requests concurrently with a single call. Requests are built in Python, then sent in parallel via Rust's tokio runtime with zero GIL contention.
+
+```python
+with httpr.Client() as client:
+    requests = [
+        client.build_request("GET", f"https://api.example.com/items/{i}")
+        for i in range(100)
+    ]
+    responses = client.gather(requests, max_concurrency=10)
+```
+
+| Parameter | Default | Description |
+| :--- | :--- | :--- |
+| `max_concurrency` | `10` | Max simultaneous in-flight requests |
+| `return_exceptions` | `False` | Return errors inline instead of raising |
+
+### `paginate()` — Auto-Follow Pagination
+
+Automatically follow pagination links across multiple API responses.
+
+```python
+# Follow @odata.nextLink in JSON body (Microsoft Graph)
+pages = client.paginate("GET", url, next_url="@odata.nextLink")
+
+# Follow Link header (GitHub-style)
+pages = client.paginate("GET", url, next_header="link")
+
+# Custom extractor function
+pages = client.paginate("GET", url, next_func=my_extractor)
+```
+
+| Parameter | Default | Description |
+| :--- | :--- | :--- |
+| `next_url` | — | JSON key containing the next page URL |
+| `next_header` | — | HTTP header to parse for `rel="next"` links |
+| `next_func` | — | Custom `Callable[[Response], str \| None]` |
+| `max_pages` | `100` | Stop after N pages |
+
+Both methods are available on `Client` (sync) and `AsyncClient` (async). See [`examples/gather.py`](examples/gather.py) and [`examples/paginate.py`](examples/paginate.py) for full examples.
 
 ---
 

@@ -8,7 +8,7 @@ use crate::urls::URL;
 
 use super::common::*;
 
-/// Synchronous HTTP Client backed by ureq.
+/// Synchronous HTTP Client backed by reqwest::blocking.
 #[pyclass]
 pub struct Client {
     pub(crate) base_url: Option<URL>,
@@ -1019,6 +1019,143 @@ impl Client {
         })
     }
 
+    /// Dispatch multiple requests concurrently using Rust's tokio runtime.
+    /// Returns a list of Response objects (or exceptions if return_exceptions=True).
+    /// This is an httpr extension — not available in httpx.
+    #[pyo3(signature = (requests, *, max_concurrency=10, return_exceptions=false))]
+    fn gather(
+        &self,
+        py: Python<'_>,
+        requests: Vec<Py<Request>>,
+        max_concurrency: usize,
+        return_exceptions: bool,
+    ) -> PyResult<Py<pyo3::types::PyList>> {
+        if self.is_closed {
+            return Err(pyo3::exceptions::PyRuntimeError::new_err(
+                "Cannot send requests, as the client has been closed.",
+            ));
+        }
+        if requests.is_empty() {
+            return Ok(pyo3::types::PyList::empty(py).unbind());
+        }
+
+        // Extract Request objects
+        let request_refs: Vec<Request> = requests
+            .iter()
+            .map(|r| {
+                let bound = r.bind(py);
+                let borrowed = bound.borrow();
+                borrowed.clone()
+            })
+            .collect();
+
+        // Try to downcast transport to HTTPTransport for batch dispatch
+        let transport_bound = self.transport.bind(py);
+        if let Ok(transport) = transport_bound.cast::<crate::transports::default::HTTPTransport>() {
+            let transport_ref = transport.borrow();
+            let results = transport_ref.send_batch_requests(py, &request_refs, max_concurrency)?;
+
+            let py_list = pyo3::types::PyList::empty(py);
+            for (i, result) in results.into_iter().enumerate() {
+                match result {
+                    Ok(mut response) => {
+                        response.request = Some(request_refs[i].clone());
+                        if let Some(ref de) = self.default_encoding {
+                            response.default_encoding = de.clone_ref(py);
+                        }
+                        py_list.append(Py::new(py, response)?)?;
+                    }
+                    Err(err) => {
+                        if return_exceptions {
+                            let err_str = format!("{}", err);
+                            py_list.append(pyo3::exceptions::PyRuntimeError::new_err(err_str).value(py))?;
+                        } else {
+                            return Err(err);
+                        }
+                    }
+                }
+            }
+            Ok(py_list.unbind())
+        } else {
+            // Fallback: non-native transport, send sequentially
+            let py_list = pyo3::types::PyList::empty(py);
+            for req in &request_refs {
+                let req_py = Py::new(py, req.clone())?;
+                match transport_bound.call_method1("handle_request", (req_py,)) {
+                    Ok(res_py) => {
+                        py_list.append(res_py)?;
+                    }
+                    Err(err) => {
+                        if return_exceptions {
+                            let err_str = format!("{}", err);
+                            py_list.append(pyo3::exceptions::PyRuntimeError::new_err(err_str).value(py))?;
+                        } else {
+                            return Err(err);
+                        }
+                    }
+                }
+            }
+            Ok(py_list.unbind())
+        }
+    }
+
+    /// Auto-follow pagination links, returning a lazy iterator.
+    /// Each iteration fetches the next page — memory-efficient for large result sets.
+    /// Supports JSON key extraction, Link header parsing, and custom callables.
+    /// This is an httpr extension — not available in httpx.
+    ///
+    /// Usage:
+    ///   for page in client.paginate("GET", url, next_header="link"):
+    ///       process(page.json())
+    #[pyo3(signature = (method, url, *, next_url=None, next_header=None, next_func=None, max_pages=100, params=None, headers=None, cookies=None, timeout=None, extensions=None, **kwargs))]
+    #[allow(clippy::too_many_arguments)]
+    fn paginate(
+        slf: &Bound<'_, Self>,
+        _py: Python<'_>,
+        method: &str,
+        url: &Bound<'_, PyAny>,
+        next_url: Option<&str>,
+        next_header: Option<&str>,
+        next_func: Option<&Bound<'_, PyAny>>,
+        max_pages: usize,
+        params: Option<&Bound<'_, PyAny>>,
+        headers: Option<&Bound<'_, PyAny>>,
+        cookies: Option<&Bound<'_, PyAny>>,
+        timeout: Option<&Bound<'_, PyAny>>,
+        extensions: Option<&Bound<'_, PyAny>>,
+        kwargs: Option<&Bound<'_, PyDict>>,
+    ) -> PyResult<PageIterator> {
+        let this = slf.borrow();
+        if this.is_closed {
+            return Err(pyo3::exceptions::PyRuntimeError::new_err(
+                "Cannot send requests, as the client has been closed.",
+            ));
+        }
+        if next_url.is_none() && next_header.is_none() && next_func.is_none() {
+            return Err(pyo3::exceptions::PyValueError::new_err(
+                "Must specify one of: next_url, next_header, or next_func",
+            ));
+        }
+
+        Ok(PageIterator {
+            client: slf.clone().unbind().into_any(),
+            method: method.to_string(),
+            current_url: Some(url.clone().unbind()),
+            next_url_key: next_url.map(|s| s.to_string()),
+            next_header_name: next_header.map(|s| s.to_string()),
+            next_func: next_func.map(|f| f.clone().unbind()),
+            max_pages,
+            page_count: 0,
+            done: false,
+            params: params.map(|p| p.clone().unbind()),
+            headers: headers.map(|h| h.clone().unbind()),
+            cookies: cookies.map(|c| c.clone().unbind()),
+            timeout: timeout.map(|t| t.clone().unbind()),
+            extensions: extensions.map(|e| e.clone().unbind()),
+            _kwargs: kwargs.map(|k| k.clone().unbind()),
+        })
+    }
+
     #[pyo3(signature = (request, *, auth=None, follow_redirects=None))]
     fn send(
         &self,
@@ -1565,4 +1702,168 @@ impl Client {
 
         Ok(current_response)
     }
+}
+
+/// Lazy iterator that fetches one page per `__next__()` call.
+/// Created by `Client.paginate()`.
+#[pyclass]
+pub struct PageIterator {
+    client: Py<PyAny>,
+    method: String,
+    current_url: Option<Py<PyAny>>,
+    next_url_key: Option<String>,
+    next_header_name: Option<String>,
+    next_func: Option<Py<PyAny>>,
+    max_pages: usize,
+    page_count: usize,
+    done: bool,
+    params: Option<Py<PyAny>>,
+    headers: Option<Py<PyAny>>,
+    cookies: Option<Py<PyAny>>,
+    timeout: Option<Py<PyAny>>,
+    extensions: Option<Py<PyAny>>,
+    _kwargs: Option<Py<PyDict>>,
+}
+
+#[pymethods]
+impl PageIterator {
+    fn __iter__(slf: PyRef<'_, Self>) -> PyRef<'_, Self> {
+        slf
+    }
+
+    fn __next__(&mut self, py: Python<'_>) -> PyResult<Option<Response>> {
+        if self.done || self.page_count >= self.max_pages {
+            return Ok(None);
+        }
+
+        let current_url = match &self.current_url {
+            Some(url) => url.clone_ref(py),
+            None => {
+                self.done = true;
+                return Ok(None);
+            }
+        };
+
+        // Call client.request() to fetch the page
+        let client_bound = self.client.bind(py);
+
+        // Only pass params on the first page
+        let params_arg = if self.page_count == 0 {
+            self.params.as_ref().map(|p| p.bind(py).clone())
+        } else {
+            None
+        };
+
+        let response: Response = client_bound
+            .call_method(
+                "request",
+                (self.method.as_str(), current_url.bind(py)),
+                Some(
+                    &{
+                        let kw = PyDict::new(py);
+                        if let Some(ref p) = params_arg {
+                            kw.set_item("params", p)?;
+                        }
+                        if let Some(ref h) = self.headers {
+                            kw.set_item("headers", h)?;
+                        }
+                        if let Some(ref c) = self.cookies {
+                            kw.set_item("cookies", c)?;
+                        }
+                        if let Some(ref t) = self.timeout {
+                            kw.set_item("timeout", t)?;
+                        }
+                        if let Some(ref e) = self.extensions {
+                            kw.set_item("extensions", e)?;
+                        }
+                        kw
+                    },
+                ),
+            )?
+            .extract()?;
+
+        self.page_count += 1;
+
+        // Extract next URL from response
+        let next: Option<String> = if let Some(ref json_key) = self.next_url_key {
+            let resp_py = Py::new(py, response.clone())?;
+            let json_val = resp_py.call_method0(py, "json")?;
+            let json_bound = json_val.bind(py);
+            if let Ok(val) = json_bound.get_item(json_key.as_str()) {
+                if !val.is_none() {
+                    val.extract::<String>().ok()
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        } else if let Some(ref header_name) = self.next_header_name {
+            let hdrs = response.headers.bind(py).borrow();
+            if let Some(header_val) = hdrs.get_first_value(header_name) {
+                parse_link_next(&header_val)
+            } else {
+                None
+            }
+        } else if let Some(ref func) = self.next_func {
+            let resp_py = Py::new(py, response.clone())?;
+            let result = func.call1(py, (resp_py,))?;
+            let result_bound = result.bind(py);
+            if result_bound.is_none() {
+                None
+            } else {
+                result_bound.extract::<String>().ok()
+            }
+        } else {
+            None
+        };
+
+        // Update URL for next iteration
+        match next {
+            Some(next_url_str) => {
+                self.current_url =
+                    Some(pyo3::types::PyString::new(py, &next_url_str).into_any().unbind());
+            }
+            None => {
+                self.done = true;
+            }
+        }
+
+        Ok(Some(response))
+    }
+
+    /// Collect all remaining pages into a list (convenience method).
+    fn collect(&mut self, py: Python<'_>) -> PyResult<Vec<Response>> {
+        let mut pages = Vec::new();
+        while let Some(page) = self.__next__(py)? {
+            pages.push(page);
+        }
+        Ok(pages)
+    }
+
+    /// The number of pages fetched so far.
+    #[getter]
+    fn pages_fetched(&self) -> usize {
+        self.page_count
+    }
+}
+
+/// Parse a Link header value to extract the URL with rel="next".
+/// Example: `<https://api.example.com/items?page=2>; rel="next", <...>; rel="prev"`
+fn parse_link_next(header: &str) -> Option<String> {
+    for part in header.split(',') {
+        let part = part.trim();
+        // Check if this part contains rel="next"
+        if part.contains("rel=\"next\"") || part.contains("rel='next'") {
+            // Extract URL from angle brackets
+            if let Some(start) = part.find('<') {
+                if let Some(end) = part.find('>') {
+                    if start < end {
+                        return Some(part[start + 1..end].to_string());
+                    }
+                }
+            }
+        }
+    }
+    None
 }

@@ -1,7 +1,21 @@
 from . import _exceptions  # noqa: F401
 from ._httpr import *
 from ._transports import ASGITransport, WSGITransport
-from .cli import main
+
+try:
+    from .cli import main
+except ImportError:
+
+    def main() -> None:  # type: ignore[misc]
+        import sys
+
+        print(
+            'The "httpr" command requires the CLI extra. '
+            'Install it with: pip install "httpr[cli]"',
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
 
 __all__ = sorted(
     (
