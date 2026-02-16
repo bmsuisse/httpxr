@@ -1,0 +1,26 @@
+# Python
+*.pyc
+.coverage
+.pytest_cache/
+.mypy_cache/
+__pycache__/
+htmlcov/
+site/
+*.egg-info/
+venv*/
+.venv/
+.python-version
+build/
+dist/
+
+# Rust / Cargo
+target/
+.cargo/
+
+# Compiled extension modules (PyO3 / maturin)
+*.so
+*.pyd
+*.dylib
+
+# Reference files (original Python source)
+_reference/
