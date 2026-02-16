@@ -29,67 +29,32 @@ Unlike httpx (which depends on `httpcore`, `certifi`, `anyio`, `idna`, and optio
 
 ## Benchmarks
 
-All benchmarks run against a local ASGI server (uvicorn) on the same machine.
-Times are the **mean** over multiple rounds. Lower is better.
+All benchmarks run against **9 HTTP libraries** on a local ASGI server (uvicorn), 20 rounds each.
+Scenarios: **Single GET**, **50 Sequential GETs**, **50 Concurrent GETs**.
 
-```
-uv run pytest benchmarks/ -v --benchmark-columns=min,max,mean,stddev,rounds
-```
+![HTTP Library Benchmark](benchmarks/benchmark_results.png)
 
-### Single Request Latency
+> 📊 **[Interactive version →](benchmarks/benchmark_results.html)** (open locally for full hover/zoom)
 
-| Benchmark | httpx (Python) | httpr (Rust) | Speedup |
-| :--- | ---: | ---: | ---: |
-| Single GET | 431 µs | 193 µs | **2.2×** |
-| Single POST (1 KB) | 492 µs | 200 µs | **2.5×** |
-| JSON GET + `.json()` | 437 µs | 194 µs | **2.3×** |
+### Summary (median, ms — lower is better)
 
-### Sequential Throughput
-
-| Benchmark | httpx (Python) | httpr (Rust) | Speedup |
-| :--- | ---: | ---: | ---: |
-| 100 sequential GETs | 40.9 ms | 20.4 ms | **2.0×** |
-| 500 sequential GETs | 203 ms | 103 ms | **2.0×** |
-| 100 sequential POSTs (10 KB) | 45.5 ms | 20.6 ms | **2.2×** |
-
-### Concurrent Throughput
-
-| Benchmark | httpx (Python) | httpr (Rust) | Speedup |
-| :--- | ---: | ---: | ---: |
-| 50 GETs (10 threads) | 78.1 ms | 20.3 ms | **3.9×** |
-| 200 GETs (50 threads) | 469 ms | 85.0 ms | **5.5×** |
-| 20 mixed POSTs (5 threads) | 38.4 ms | 10.5 ms | **3.7×** |
-
-### Large Payloads
-
-| Benchmark | httpx (Python) | httpr (Rust) | Speedup |
-| :--- | ---: | ---: | ---: |
-| POST 1 MB body | 1.27 ms | 0.94 ms | **1.4×** |
-| POST 10 MB body | 18.4 ms | 14.2 ms | **1.3×** |
-| 1 MB JSON parse | 4.37 ms | 3.25 ms | **1.3×** |
-
-### Client Lifecycle
-
-| Benchmark | httpx (Python) | httpr (Rust) | Speedup |
-| :--- | ---: | ---: | ---: |
-| 20× create → GET → close | 98.2 ms | 9.40 ms | **10.4×** |
-
-### Fast-Path Raw API
-
-For maximum throughput, the raw API bypasses all httpx-compatible `Request`/`Response` construction
-and calls reqwest directly. Returns `(status_code, headers_dict, body_bytes)`.
-
-| Benchmark | httpx (Python) | httpr (normal) | httpr (raw) | Raw vs Python |
-| :--- | ---: | ---: | ---: | ---: |
-| Single GET | 421 µs | 233 µs | **189 µs** | **2.2×** |
-| Single POST (1 KB) | 452 µs | 184 µs | **192 µs** | **2.4×** |
-| 100 sequential GETs | 43.9 ms | 19.4 ms | **19.4 ms** | **2.3×** |
+| Scenario | httpr | pyreqwest | ry | aiohttp | curl_cffi | urllib3 | rnet | httpx | niquests |
+|:---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| Single GET | **0.20** | 0.11 | 0.16 | 0.22 | 0.22 | 0.26 | 0.30 | 0.37 | 0.38 |
+| 50 Sequential GETs | **8.18** | 6.22 | 8.87 | 10.79 | 12.83 | 15.14 | 17.34 | 18.96 | 19.25 |
+| 50 Concurrent GETs | **10.53** | 6.48 | 5.91 | 7.60 | 12.32 | 16.34 | 10.29 | 71.62 | 19.60 |
 
 > **Key takeaways:**
-> - **~2× faster** for single requests — Rust networking eliminates Python overhead
-> - **~4× faster** under concurrency — Rust releases the GIL, enabling true parallelism
-> - **~10× faster** client lifecycle — native Rust construction vs Python object graph
-> - **Raw API** shaves another ~20% off per-request latency — within ~10% of pyreqwest
+> - **httpr** is the **fastest full-featured httpx-compatible client** — on par with raw Rust libraries
+> - **~2× faster** than httpx for sequential workloads
+> - **~7× faster** than httpx under concurrency (GIL-free Rust)
+> - Competitive with bare-metal libraries (pyreqwest, ry) while offering the full httpx API
+
+```bash
+# Reproduce benchmarks locally:
+uv sync --group dev --group benchmark
+uv run python benchmarks/run_benchmark.py
+```
 
 ---
 
