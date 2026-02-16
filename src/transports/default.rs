@@ -110,8 +110,18 @@ impl HTTPTransport {
         let stream_response = request.stream_response;
         let raw_headers = request.headers.bind(py).borrow().get_raw_items_owned();
 
-        let method = reqwest::Method::from_bytes(request.method.as_bytes())
-            .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("Invalid method: {}", e)))?;
+        let method_str = request.method.as_str();
+        let method = match method_str {
+            "GET" => reqwest::Method::GET,
+            "POST" => reqwest::Method::POST,
+            "PUT" => reqwest::Method::PUT,
+            "DELETE" => reqwest::Method::DELETE,
+            "PATCH" => reqwest::Method::PATCH,
+            "HEAD" => reqwest::Method::HEAD,
+            "OPTIONS" => reqwest::Method::OPTIONS,
+            _ => reqwest::Method::from_bytes(method_str.as_bytes())
+                .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("Invalid method: {}", e)))?,
+        };
 
         // Release GIL for blocking I/O — run async reqwest on the persistent runtime
         let (status_code, resp_headers, body_bytes_result) = py
@@ -444,9 +454,18 @@ impl AsyncHTTPTransport {
                 None
             };
 
-            let method = reqwest::Method::from_bytes(method_str.as_bytes()).map_err(|e| {
-                pyo3::exceptions::PyValueError::new_err(format!("Invalid method: {}", e))
-            })?;
+            let method = match method_str.as_str() {
+                "GET" => reqwest::Method::GET,
+                "POST" => reqwest::Method::POST,
+                "PUT" => reqwest::Method::PUT,
+                "DELETE" => reqwest::Method::DELETE,
+                "PATCH" => reqwest::Method::PATCH,
+                "HEAD" => reqwest::Method::HEAD,
+                "OPTIONS" => reqwest::Method::OPTIONS,
+                _ => reqwest::Method::from_bytes(method_str.as_bytes()).map_err(|e| {
+                    pyo3::exceptions::PyValueError::new_err(format!("Invalid method: {}", e))
+                })?,
+            };
 
             let mut req_builder = client.request(method, &url_str);
             for (key, value) in &raw_headers {
