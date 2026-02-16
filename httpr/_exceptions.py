@@ -32,7 +32,9 @@ _HTTPError.__init__ = _httperror_init  # type: ignore[assignment]
 _HTTPError.request = property(_httperror_request_get, _httperror_request_set)  # type: ignore[attr-defined]
 
 
-def _requesterror_init(self: _RequestError, message: str, *, request: typing.Any = None) -> None:
+def _requesterror_init(
+    self: _RequestError, message: str, *, request: typing.Any = None
+) -> None:
     _original_httperror_init(self, message)
     self._request = request
 

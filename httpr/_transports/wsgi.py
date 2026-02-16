@@ -25,9 +25,7 @@ def _skip_leading_empty_chunks(body: typing.Iterable[_T]) -> typing.Iterable[_T]
     return typing.cast(typing.Iterable[_T], [])
 
 
-
 class WSGITransport(BaseTransport):
-
     def __init__(
         self,
         app: WSGIApplication,
@@ -110,6 +108,4 @@ class WSGITransport(BaseTransport):
             for key, value in seen_response_headers
         ]
 
-        return Response(
-            status_code, headers=headers, content=b"".join(body_parts)
-        )
+        return Response(status_code, headers=headers, content=b"".join(body_parts))

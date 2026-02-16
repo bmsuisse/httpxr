@@ -1,54 +1,194 @@
-use pyo3::prelude::*;
 use pyo3::create_exception;
 use pyo3::exceptions::PyException;
+use pyo3::prelude::*;
 
 // Base exception
-create_exception!(_httpr, HTTPError, PyException, "Base class for RequestError and HTTPStatusError.");
+create_exception!(
+    _httpr,
+    HTTPError,
+    PyException,
+    "Base class for RequestError and HTTPStatusError."
+);
 
 // Request errors
-create_exception!(_httpr, RequestError, HTTPError, "Base class for all exceptions that may occur when issuing a .request().");
-create_exception!(_httpr, TransportError, RequestError, "Base class for all exceptions that occur at the level of the Transport API.");
+create_exception!(
+    _httpr,
+    RequestError,
+    HTTPError,
+    "Base class for all exceptions that may occur when issuing a .request()."
+);
+create_exception!(
+    _httpr,
+    TransportError,
+    RequestError,
+    "Base class for all exceptions that occur at the level of the Transport API."
+);
 
 // Timeout exceptions
-create_exception!(_httpr, TimeoutException, TransportError, "The base class for timeout errors.");
-create_exception!(_httpr, ConnectTimeout, TimeoutException, "Timed out while connecting to the host.");
-create_exception!(_httpr, ReadTimeout, TimeoutException, "Timed out while receiving data from the host.");
-create_exception!(_httpr, WriteTimeout, TimeoutException, "Timed out while sending data to the host.");
-create_exception!(_httpr, PoolTimeout, TimeoutException, "Timed out waiting to acquire a connection from the pool.");
+create_exception!(
+    _httpr,
+    TimeoutException,
+    TransportError,
+    "The base class for timeout errors."
+);
+create_exception!(
+    _httpr,
+    ConnectTimeout,
+    TimeoutException,
+    "Timed out while connecting to the host."
+);
+create_exception!(
+    _httpr,
+    ReadTimeout,
+    TimeoutException,
+    "Timed out while receiving data from the host."
+);
+create_exception!(
+    _httpr,
+    WriteTimeout,
+    TimeoutException,
+    "Timed out while sending data to the host."
+);
+create_exception!(
+    _httpr,
+    PoolTimeout,
+    TimeoutException,
+    "Timed out waiting to acquire a connection from the pool."
+);
 
 // Network errors
-create_exception!(_httpr, NetworkError, TransportError, "The base class for network-related errors.");
-create_exception!(_httpr, ReadError, NetworkError, "Failed to receive data from the network.");
-create_exception!(_httpr, WriteError, NetworkError, "Failed to send data through the network.");
-create_exception!(_httpr, ConnectError, NetworkError, "Failed to establish a connection.");
-create_exception!(_httpr, CloseError, NetworkError, "Failed to close a connection.");
+create_exception!(
+    _httpr,
+    NetworkError,
+    TransportError,
+    "The base class for network-related errors."
+);
+create_exception!(
+    _httpr,
+    ReadError,
+    NetworkError,
+    "Failed to receive data from the network."
+);
+create_exception!(
+    _httpr,
+    WriteError,
+    NetworkError,
+    "Failed to send data through the network."
+);
+create_exception!(
+    _httpr,
+    ConnectError,
+    NetworkError,
+    "Failed to establish a connection."
+);
+create_exception!(
+    _httpr,
+    CloseError,
+    NetworkError,
+    "Failed to close a connection."
+);
 
 // Other transport exceptions
-create_exception!(_httpr, ProxyError, TransportError, "An error occurred while establishing a proxy connection.");
-create_exception!(_httpr, UnsupportedProtocol, TransportError, "Attempted to make a request to an unsupported protocol.");
-create_exception!(_httpr, ProtocolError, TransportError, "The protocol was violated.");
-create_exception!(_httpr, LocalProtocolError, ProtocolError, "A protocol was violated by the client.");
-create_exception!(_httpr, RemoteProtocolError, ProtocolError, "The protocol was violated by the server.");
+create_exception!(
+    _httpr,
+    ProxyError,
+    TransportError,
+    "An error occurred while establishing a proxy connection."
+);
+create_exception!(
+    _httpr,
+    UnsupportedProtocol,
+    TransportError,
+    "Attempted to make a request to an unsupported protocol."
+);
+create_exception!(
+    _httpr,
+    ProtocolError,
+    TransportError,
+    "The protocol was violated."
+);
+create_exception!(
+    _httpr,
+    LocalProtocolError,
+    ProtocolError,
+    "A protocol was violated by the client."
+);
+create_exception!(
+    _httpr,
+    RemoteProtocolError,
+    ProtocolError,
+    "The protocol was violated by the server."
+);
 
 // Other request exceptions
-create_exception!(_httpr, DecodingError, RequestError, "Decoding of the response failed, due to a malformed encoding.");
-create_exception!(_httpr, TooManyRedirects, RequestError, "Too many redirects.");
+create_exception!(
+    _httpr,
+    DecodingError,
+    RequestError,
+    "Decoding of the response failed, due to a malformed encoding."
+);
+create_exception!(
+    _httpr,
+    TooManyRedirects,
+    RequestError,
+    "Too many redirects."
+);
 
 // HTTP status error
-create_exception!(_httpr, HTTPStatusError, HTTPError, "Response sent an error status code.");
+create_exception!(
+    _httpr,
+    HTTPStatusError,
+    HTTPError,
+    "Response sent an error status code."
+);
 
 // Stream errors
-create_exception!(_httpr, StreamError, PyException, "The base class for stream errors.");
-create_exception!(_httpr, StreamConsumed, StreamError, "Attempted to read or stream content, but the content has already been streamed.");
-create_exception!(_httpr, StreamClosed, StreamError, "Attempted to read or stream response content, but the request has been closed.");
-create_exception!(_httpr, ResponseNotRead, StreamError, "Attempted to access streaming response content, without having called `read()`.");
-create_exception!(_httpr, RequestNotRead, StreamError, "Attempted to access streaming request content, without having called `read()`.");
+create_exception!(
+    _httpr,
+    StreamError,
+    PyException,
+    "The base class for stream errors."
+);
+create_exception!(
+    _httpr,
+    StreamConsumed,
+    StreamError,
+    "Attempted to read or stream content, but the content has already been streamed."
+);
+create_exception!(
+    _httpr,
+    StreamClosed,
+    StreamError,
+    "Attempted to read or stream response content, but the request has been closed."
+);
+create_exception!(
+    _httpr,
+    ResponseNotRead,
+    StreamError,
+    "Attempted to access streaming response content, without having called `read()`."
+);
+create_exception!(
+    _httpr,
+    RequestNotRead,
+    StreamError,
+    "Attempted to access streaming request content, without having called `read()`."
+);
 
 // Invalid URL
-create_exception!(_httpr, InvalidURL, PyException, "URL was missing a hostname, or included an unsupported scheme.");
+create_exception!(
+    _httpr,
+    InvalidURL,
+    PyException,
+    "URL was missing a hostname, or included an unsupported scheme."
+);
 
 // Cookie conflict
-create_exception!(_httpr, CookieConflict, PyException, "Attempted to access a cookie by name, but multiple cookies existed.");
+create_exception!(
+    _httpr,
+    CookieConflict,
+    PyException,
+    "Attempted to access a cookie by name, but multiple cookies existed."
+);
 
 pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add("HTTPError", m.py().get_type::<HTTPError>())?;
@@ -65,10 +205,19 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add("ConnectError", m.py().get_type::<ConnectError>())?;
     m.add("CloseError", m.py().get_type::<CloseError>())?;
     m.add("ProxyError", m.py().get_type::<ProxyError>())?;
-    m.add("UnsupportedProtocol", m.py().get_type::<UnsupportedProtocol>())?;
+    m.add(
+        "UnsupportedProtocol",
+        m.py().get_type::<UnsupportedProtocol>(),
+    )?;
     m.add("ProtocolError", m.py().get_type::<ProtocolError>())?;
-    m.add("LocalProtocolError", m.py().get_type::<LocalProtocolError>())?;
-    m.add("RemoteProtocolError", m.py().get_type::<RemoteProtocolError>())?;
+    m.add(
+        "LocalProtocolError",
+        m.py().get_type::<LocalProtocolError>(),
+    )?;
+    m.add(
+        "RemoteProtocolError",
+        m.py().get_type::<RemoteProtocolError>(),
+    )?;
     m.add("DecodingError", m.py().get_type::<DecodingError>())?;
     m.add("TooManyRedirects", m.py().get_type::<TooManyRedirects>())?;
     m.add("HTTPStatusError", m.py().get_type::<HTTPStatusError>())?;

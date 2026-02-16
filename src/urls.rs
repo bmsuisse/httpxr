@@ -1,8 +1,8 @@
 use pyo3::prelude::*;
 use pyo3::types::{PyBytes, PyDict, PyList, PyTuple};
 
-use crate::urlparse::{urlparse_impl, ParseResult, validate_host, quote, path_safe, userinfo_safe};
 use crate::exceptions::InvalidURL;
+use crate::urlparse::{path_safe, quote, urlparse_impl, userinfo_safe, validate_host, ParseResult};
 
 fn check_control_chars(s: &str, position_offset: usize, component: Option<&str>) -> PyResult<()> {
     for (i, c) in s.char_indices() {
@@ -10,7 +10,11 @@ fn check_control_chars(s: &str, position_offset: usize, component: Option<&str>)
             let msg = if let Some(comp) = component {
                 format!("Invalid non-printable ASCII character in URL {} component, {:?} at position {}.", comp, c, i + position_offset)
             } else {
-                format!("Invalid non-printable ASCII character in URL, {:?} at position {}.", c, i + position_offset)
+                format!(
+                    "Invalid non-printable ASCII character in URL, {:?} at position {}.",
+                    c,
+                    i + position_offset
+                )
             };
             return Err(InvalidURL::new_err(msg));
         }
@@ -30,7 +34,6 @@ fn check_length(s: &str, limit: usize, component: Option<&str>) -> PyResult<()> 
     Ok(())
 }
 
-
 /// A URL class that wraps a ParseResult and provides a friendly API.
 #[pyclass(from_py_object)]
 #[derive(Clone, Debug)]
@@ -48,7 +51,9 @@ fn extract_str_or_bytes(obj: &Bound<'_, PyAny>) -> PyResult<String> {
             .map(|s| s.to_string())
             .map_err(|e| pyo3::exceptions::PyUnicodeDecodeError::new_err(e.to_string()))
     } else {
-        Err(pyo3::exceptions::PyTypeError::new_err("Expected str or bytes"))
+        Err(pyo3::exceptions::PyTypeError::new_err(
+            "Expected str or bytes",
+        ))
     }
 }
 
@@ -70,19 +75,20 @@ impl URL {
         &self.parsed.host
     }
 
-
     pub fn is_relative_internal(&self) -> bool {
         self.parsed.scheme.is_empty() && self.parsed.host.is_empty()
     }
 
     pub fn join_relative(&self, url: &str) -> PyResult<URL> {
-
         let base_str = self.to_string();
         // Handle relative base URL by prepending dummy scheme/host
         let (is_relative, parse_base) = match url::Url::parse(&base_str) {
             Ok(u) => (false, u),
             Err(url::ParseError::RelativeUrlWithoutBase) => {
-                let dummy = format!("http://dummy{}", if base_str.starts_with('/') { "" } else { "/" });
+                let dummy = format!(
+                    "http://dummy{}",
+                    if base_str.starts_with('/') { "" } else { "/" }
+                );
                 let u = url::Url::parse(&format!("{}{}", dummy, base_str))
                     .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
                 (true, u)
@@ -115,32 +121,38 @@ impl URL {
                 if let Some(base_host) = parse_base.host_str() {
                     if url.starts_with("https://:") {
                         let new_url = format!("https://{}{}", base_host, &url[8..]);
-                        parse_base.join(&new_url).map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?
+                        parse_base
+                            .join(&new_url)
+                            .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?
                     } else if url.starts_with("http://:") {
                         let new_url = format!("http://{}{}", base_host, &url[7..]);
-                        parse_base.join(&new_url).map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?
+                        parse_base
+                            .join(&new_url)
+                            .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?
                     } else {
                         return Err(pyo3::exceptions::PyValueError::new_err("Empty host"));
                     }
                 } else {
                     return Err(pyo3::exceptions::PyValueError::new_err("Empty host"));
                 }
-            },
+            }
             Err(e) => return Err(pyo3::exceptions::PyValueError::new_err(e.to_string())),
         };
-        
-        let final_url_obj = if joined.host_str().unwrap_or("").is_empty() && (joined.scheme() == "http" || joined.scheme() == "https") {
+
+        let final_url_obj = if joined.host_str().unwrap_or("").is_empty()
+            && (joined.scheme() == "http" || joined.scheme() == "https")
+        {
             // Existing fallback (if join succeeded but host empty)
-             if let Some(base_host) = parse_base.host_str() {
-                 let mut j = joined.clone();
-                 if let Err(_) = j.set_host(Some(base_host)) {
-                     joined 
-                 } else {
-                     j
-                 }
-             } else {
-                 joined
-             }
+            if let Some(base_host) = parse_base.host_str() {
+                let mut j = joined.clone();
+                if let Err(_) = j.set_host(Some(base_host)) {
+                    joined
+                } else {
+                    j
+                }
+            } else {
+                joined
+            }
         } else {
             joined
         };
@@ -155,14 +167,14 @@ impl URL {
         };
 
         let mut parsed_url = urlparse_impl(final_url, None)?;
-        
+
         // Restore explicit port if it was stripped by url::Url normalization
         if let Some(port) = explicit_port {
             if parsed_url.port.is_none() {
                 parsed_url.port = Some(port);
             }
         }
-        
+
         Ok(URL { parsed: parsed_url })
     }
 
@@ -172,10 +184,12 @@ impl URL {
 
     /// Internal Rust helper: returns raw_path as a String (path + query + fragment)
     pub fn raw_path_str(&self) -> String {
-        let mut rp = if self.parsed.path.is_empty() && (self.parsed.scheme == "http" || self.parsed.scheme == "https") {
-             "/".to_string()
+        let mut rp = if self.parsed.path.is_empty()
+            && (self.parsed.scheme == "http" || self.parsed.scheme == "https")
+        {
+            "/".to_string()
         } else {
-             self.parsed.path.clone()
+            self.parsed.path.clone()
         };
         if let Some(ref q) = self.parsed.query {
             rp.push('?');
@@ -237,18 +251,23 @@ impl URL {
             if !kw.is_empty() {
                 let key = kw.keys().get_item(0)?;
                 let key_str: String = key.extract()?;
-                return Err(pyo3::exceptions::PyTypeError::new_err(format!("'{}' is an invalid keyword argument for URL()", key_str)));
+                return Err(pyo3::exceptions::PyTypeError::new_err(format!(
+                    "'{}' is an invalid keyword argument for URL()",
+                    key_str
+                )));
             }
         }
         let url_str = if let Some(u) = url {
             if let Ok(existing) = u.extract::<URL>() {
                 // Clone existing URL, then apply kwargs
                 let mut parsed = existing.parsed.clone();
-                if let Some(s) = scheme { parsed.scheme = s.to_lowercase(); }
-                if let Some(h) = host { 
+                if let Some(s) = scheme {
+                    parsed.scheme = s.to_lowercase();
+                }
+                if let Some(h) = host {
                     let h_lower = h.to_lowercase();
                     parsed.host = if h_lower.starts_with('[') && h_lower.ends_with(']') {
-                        h_lower[1..h_lower.len()-1].to_string()
+                        h_lower[1..h_lower.len() - 1].to_string()
                     } else {
                         h_lower
                     };
@@ -263,12 +282,18 @@ impl URL {
                         parsed.port = Some(p);
                     }
                 }
-                if let Some(p) = path { 
+                if let Some(p) = path {
                     parsed.path = quote(p, &path_safe());
                 }
-                if let Some(q) = query { parsed.query = Some(q.to_string()); }
-                if let Some(f) = fragment { parsed.fragment = Some(f.to_string()); }
-                if let Some(u) = userinfo { parsed.userinfo = u.to_string(); }
+                if let Some(q) = query {
+                    parsed.query = Some(q.to_string());
+                }
+                if let Some(f) = fragment {
+                    parsed.fragment = Some(f.to_string());
+                }
+                if let Some(u) = userinfo {
+                    parsed.userinfo = u.to_string();
+                }
 
                 // Apply query params if provided
                 if let Some(p) = params {
@@ -284,45 +309,63 @@ impl URL {
                 check_control_chars(&s, 0, None)?;
                 s
             } else if let Ok(b) = u.cast::<PyBytes>() {
-                 let s = std::str::from_utf8(b.as_bytes())
+                let s = std::str::from_utf8(b.as_bytes())
                     .map_err(|e| pyo3::exceptions::PyUnicodeDecodeError::new_err(e.to_string()))?
                     .to_string();
                 check_length(&s, 65536, None)?;
                 check_control_chars(&s, 0, None)?;
                 s
             } else {
-                 return Err(pyo3::exceptions::PyTypeError::new_err("Expected str, bytes or URL instance"));
+                return Err(pyo3::exceptions::PyTypeError::new_err(
+                    "Expected str, bytes or URL instance",
+                ));
             }
         } else {
             String::new()
         };
 
         // Component validation
-        if let Some(p) = path { check_length(p, 65536, Some("path"))?; check_control_chars(p, 0, Some("path"))?; }
-        if let Some(h) = host { check_length(h, 65536, Some("host"))?; }
-        
+        if let Some(p) = path {
+            check_length(p, 65536, Some("path"))?;
+            check_control_chars(p, 0, Some("path"))?;
+        }
+        if let Some(h) = host {
+            check_length(h, 65536, Some("host"))?;
+        }
+
         if let Some(s) = scheme {
             // Validate scheme characters
-            if !s.chars().all(|c| c.is_ascii_alphanumeric() || c == '+' || c == '-' || c == '.') {
-                 return Err(InvalidURL::new_err(format!("Invalid URL component 'scheme'")));
+            if !s
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '+' || c == '-' || c == '.')
+            {
+                return Err(InvalidURL::new_err(format!(
+                    "Invalid URL component 'scheme'"
+                )));
             }
         }
-        
+
         if let Some(p) = path {
             // Absolute URL checks
             match (scheme, host) {
                 (Some(_), Some(_)) | (Some(_), None) => {
-                     if !p.is_empty() && !p.starts_with('/') {
-                         return Err(InvalidURL::new_err("For absolute URLs, path must be empty or begin with '/'"));
-                     }
+                    if !p.is_empty() && !p.starts_with('/') {
+                        return Err(InvalidURL::new_err(
+                            "For absolute URLs, path must be empty or begin with '/'",
+                        ));
+                    }
                 }
                 (None, _) => {
-                     if p.starts_with("//") {
-                         return Err(InvalidURL::new_err("Relative URLs cannot have a path starting with '//'"));
-                     }
-                     if p.starts_with(":") {
-                        return Err(InvalidURL::new_err("Relative URLs cannot have a path starting with ':'"));
-                     }
+                    if p.starts_with("//") {
+                        return Err(InvalidURL::new_err(
+                            "Relative URLs cannot have a path starting with '//'",
+                        ));
+                    }
+                    if p.starts_with(":") {
+                        return Err(InvalidURL::new_err(
+                            "Relative URLs cannot have a path starting with ':'",
+                        ));
+                    }
                 }
             }
         }
@@ -330,16 +373,18 @@ impl URL {
         let mut parsed = urlparse_impl(&url_str, None)?;
 
         // Apply kwargs overrides
-        if let Some(s) = scheme { parsed.scheme = s.to_lowercase(); }
+        if let Some(s) = scheme {
+            parsed.scheme = s.to_lowercase();
+        }
         // Validate host if it's not an IP address (heuristic: contains :) or encoded
         if !parsed.host.contains(':') && !parsed.host.contains('%') {
             validate_host(&parsed.host)?;
         }
-        if let Some(h) = host { 
+        if let Some(h) = host {
             let h_lower = h.to_lowercase();
             // Strip brackets from IPv6 host if present
             parsed.host = if h_lower.starts_with('[') && h_lower.ends_with(']') {
-                h_lower[1..h_lower.len()-1].to_string()
+                h_lower[1..h_lower.len() - 1].to_string()
             } else {
                 h_lower
             };
@@ -354,12 +399,18 @@ impl URL {
                 parsed.port = Some(p);
             }
         }
-        if let Some(p) = path { 
+        if let Some(p) = path {
             parsed.path = quote(p, &path_safe());
         }
-        if let Some(q) = query { parsed.query = Some(q.to_string()); }
-        if let Some(f) = fragment { parsed.fragment = Some(f.to_string()); }
-        if let Some(u) = userinfo { parsed.userinfo = u.to_string(); }
+        if let Some(q) = query {
+            parsed.query = Some(q.to_string());
+        }
+        if let Some(f) = fragment {
+            parsed.fragment = Some(f.to_string());
+        }
+        if let Some(u) = userinfo {
+            parsed.userinfo = u.to_string();
+        }
 
         // Apply query params if provided
         if let Some(p) = params {
@@ -372,37 +423,56 @@ impl URL {
         Ok(URL { parsed })
     }
 
-    #[getter] fn scheme(&self) -> &str { &self.parsed.scheme }
-    #[getter] fn raw_scheme<'py>(&self, py: Python<'py>) -> Bound<'py, PyBytes> {
+    #[getter]
+    fn scheme(&self) -> &str {
+        &self.parsed.scheme
+    }
+    #[getter]
+    fn raw_scheme<'py>(&self, py: Python<'py>) -> Bound<'py, PyBytes> {
         PyBytes::new(py, self.parsed.scheme.as_bytes())
     }
-    #[getter] 
+    #[getter]
     fn host(&self) -> String {
         let (decoded, _) = idna::domain_to_unicode(&self.parsed.host);
         decoded
     }
-    #[getter] fn port(&self) -> Option<u16> {
+    #[getter]
+    fn port(&self) -> Option<u16> {
         self.parsed.port
     }
-    #[getter] #[pyo3(name = "path")] fn get_path(&self) -> String { 
+    #[getter]
+    #[pyo3(name = "path")]
+    fn get_path(&self) -> String {
         let p = percent_decode(&self.parsed.path);
-        if p.is_empty() && (!self.parsed.host.is_empty() || self.parsed.scheme == "http" || self.parsed.scheme == "https") {
+        if p.is_empty()
+            && (!self.parsed.host.is_empty()
+                || self.parsed.scheme == "http"
+                || self.parsed.scheme == "https")
+        {
             "/".to_string()
         } else {
             p
         }
     }
-    #[getter] fn query<'py>(&self, py: Python<'py>) -> Bound<'py, PyBytes> {
+    #[getter]
+    fn query<'py>(&self, py: Python<'py>) -> Bound<'py, PyBytes> {
         if let Some(ref q) = self.parsed.query {
             PyBytes::new(py, q.as_bytes())
         } else {
             PyBytes::new(py, b"")
         }
     }
-    #[getter] #[pyo3(name = "fragment")] fn fragment_py(&self) -> String { 
-        self.parsed.fragment.as_deref().map(|s| percent_decode(s)).unwrap_or_else(String::new)
+    #[getter]
+    #[pyo3(name = "fragment")]
+    fn fragment_py(&self) -> String {
+        self.parsed
+            .fragment
+            .as_deref()
+            .map(|s| percent_decode(s))
+            .unwrap_or_else(String::new)
     }
-    #[getter] fn userinfo<'py>(&self, py: Python<'py>) -> Bound<'py, PyBytes> {
+    #[getter]
+    fn userinfo<'py>(&self, py: Python<'py>) -> Bound<'py, PyBytes> {
         PyBytes::new(py, self.parsed.userinfo.as_bytes())
     }
 
@@ -412,20 +482,28 @@ impl URL {
         PyBytes::new(py, rp.as_bytes())
     }
 
-    #[getter] fn username(&self) -> String { percent_decode(self.get_username()) }
-    #[getter] fn password(&self) -> Option<String> { self.get_password().map(|s| percent_decode(s)) }
+    #[getter]
+    fn username(&self) -> String {
+        percent_decode(self.get_username())
+    }
+    #[getter]
+    fn password(&self) -> Option<String> {
+        self.get_password().map(|s| percent_decode(s))
+    }
 
-    #[getter] fn netloc<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyBytes>> {
+    #[getter]
+    fn netloc<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyBytes>> {
         let host = &self.parsed.host;
         // If it looks like an IPv6 literal (contains colon), don't IDNA encode
         // Note: parsed.host is unbracketed for IPv6
         let encoded_host = if host.contains(':') {
-             format!("[{}]", host)
+            format!("[{}]", host)
         } else {
-             idna::domain_to_ascii(host)
-                .map_err(|e| crate::exceptions::InvalidURL::new_err(format!("Invalid host: {}", e)))?
+            idna::domain_to_ascii(host).map_err(|e| {
+                crate::exceptions::InvalidURL::new_err(format!("Invalid host: {}", e))
+            })?
         };
-        
+
         let mut netloc = encoded_host;
         if let Some(port) = self.parsed.port {
             netloc.push(':');
@@ -434,15 +512,17 @@ impl URL {
         Ok(PyBytes::new(py, netloc.as_bytes()))
     }
 
-    #[getter] fn authority<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyBytes>> {
+    #[getter]
+    fn authority<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyBytes>> {
         let host = &self.parsed.host;
         let encoded_host = if host.contains(':') {
-             format!("[{}]", host)
+            format!("[{}]", host)
         } else {
-             idna::domain_to_ascii(host)
-                .map_err(|e| crate::exceptions::InvalidURL::new_err(format!("Invalid host: {}", e)))?
+            idna::domain_to_ascii(host).map_err(|e| {
+                crate::exceptions::InvalidURL::new_err(format!("Invalid host: {}", e))
+            })?
         };
-        
+
         let mut authority = String::new();
         if !self.parsed.userinfo.is_empty() {
             authority.push_str(&self.parsed.userinfo);
@@ -456,19 +536,26 @@ impl URL {
         Ok(PyBytes::new(py, authority.as_bytes()))
     }
 
-    #[getter] fn is_absolute(&self) -> bool { !self.parsed.scheme.is_empty() }
-    #[getter] fn is_relative(&self) -> bool { self.parsed.scheme.is_empty() }
+    #[getter]
+    fn is_absolute(&self) -> bool {
+        !self.parsed.scheme.is_empty()
+    }
+    #[getter]
+    fn is_relative(&self) -> bool {
+        self.parsed.scheme.is_empty()
+    }
 
     #[getter]
     fn raw_host<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyBytes>> {
         let host = &self.parsed.host;
         if host.contains(':') {
-             // IPv6 literal - return as bytes (unbracketed for raw_host?)
-             Ok(PyBytes::new(py, host.as_bytes()))
+            // IPv6 literal - return as bytes (unbracketed for raw_host?)
+            Ok(PyBytes::new(py, host.as_bytes()))
         } else {
-             let ascii = idna::domain_to_ascii(host)
-                .map_err(|e| crate::exceptions::InvalidURL::new_err(format!("Invalid host: {}", e)))?;
-             Ok(PyBytes::new(py, ascii.as_bytes()))
+            let ascii = idna::domain_to_ascii(host).map_err(|e| {
+                crate::exceptions::InvalidURL::new_err(format!("Invalid host: {}", e))
+            })?;
+            Ok(PyBytes::new(py, ascii.as_bytes()))
         }
     }
 
@@ -492,21 +579,27 @@ impl URL {
                         let s = extract_str_or_bytes(&value)?;
                         // Validate scheme chars: a-z A-Z 0-9 + . - and must start with alpha
                         if s.is_empty() || !s.chars().next().unwrap().is_ascii_alphabetic() {
-                             return Err(crate::exceptions::InvalidURL::new_err(format!("Invalid URL: scheme '{}' is invalid", s)));
+                            return Err(crate::exceptions::InvalidURL::new_err(format!(
+                                "Invalid URL: scheme '{}' is invalid",
+                                s
+                            )));
                         }
                         for c in s.chars() {
-                             if !c.is_ascii_alphanumeric() && c != '+' && c != '.' && c != '-' {
-                                  return Err(crate::exceptions::InvalidURL::new_err(format!("Invalid URL: scheme '{}' is invalid", s)));
-                             }
+                            if !c.is_ascii_alphanumeric() && c != '+' && c != '.' && c != '-' {
+                                return Err(crate::exceptions::InvalidURL::new_err(format!(
+                                    "Invalid URL: scheme '{}' is invalid",
+                                    s
+                                )));
+                            }
                         }
                         new_parsed.scheme = s;
                     }
                     "host" => {
                         let h: String = extract_str_or_bytes(&value)?;
                         let h_lower = h.to_lowercase();
-                         // Strip brackets from IPv6 host if present
+                        // Strip brackets from IPv6 host if present
                         new_parsed.host = if h_lower.starts_with('[') && h_lower.ends_with(']') {
-                            h_lower[1..h_lower.len()-1].to_string()
+                            h_lower[1..h_lower.len() - 1].to_string()
                         } else {
                             h_lower
                         };
@@ -515,15 +608,16 @@ impl URL {
                         }
                     }
                     "port" => {
-                        if value.is_none() { new_parsed.port = None; }
-                        else {
+                        if value.is_none() {
+                            new_parsed.port = None;
+                        } else {
                             let port_val: i64 = value.extract()?;
                             new_parsed.port = Some(port_val as u16);
                         }
                     }
                     "path" => {
-                         let p = extract_str_or_bytes(&value)?;
-                         new_parsed.path = quote(&p, &path_safe());
+                        let p = extract_str_or_bytes(&value)?;
+                        new_parsed.path = quote(&p, &path_safe());
                     }
                     "raw_path" => {
                         let rp_str = extract_str_or_bytes(&value)?;
@@ -534,20 +628,28 @@ impl URL {
                         new_parsed.fragment = partial.fragment;
                     }
                     "query" => {
-                        if value.is_none() { new_parsed.query = None; }
-                        else { new_parsed.query = Some(extract_str_or_bytes(&value)?); }
+                        if value.is_none() {
+                            new_parsed.query = None;
+                        } else {
+                            new_parsed.query = Some(extract_str_or_bytes(&value)?);
+                        }
                     }
                     "fragment" => {
-                        if value.is_none() { new_parsed.fragment = None; }
-                        else { new_parsed.fragment = Some(extract_str_or_bytes(&value)?); }
+                        if value.is_none() {
+                            new_parsed.fragment = None;
+                        } else {
+                            new_parsed.fragment = Some(extract_str_or_bytes(&value)?);
+                        }
                     }
                     "userinfo" => {
                         // Enforce bytes for userinfo as per httpx semantic expectations
                         if !value.is_instance_of::<pyo3::types::PyBytes>() {
-                             return Err(pyo3::exceptions::PyTypeError::new_err("userinfo must be bytes"));
+                            return Err(pyo3::exceptions::PyTypeError::new_err(
+                                "userinfo must be bytes",
+                            ));
                         }
                         new_parsed.userinfo = extract_str_or_bytes(&value)?;
-                    },
+                    }
                     "netloc" => {
                         let netloc_str = extract_str_or_bytes(&value)?;
                         // Parse as http://<netloc> to extract components
@@ -579,10 +681,15 @@ impl URL {
                         };
                         new_parsed.userinfo = format!("{}:{}", user, pass);
                     }
-                    _ => return Err(pyo3::exceptions::PyTypeError::new_err(format!("'{}' is an invalid keyword argument for copy_with()", key_str))),
+                    _ => {
+                        return Err(pyo3::exceptions::PyTypeError::new_err(format!(
+                            "'{}' is an invalid keyword argument for copy_with()",
+                            key_str
+                        )))
+                    }
                 }
             }
-            
+
             // Normalize port after potential scheme change
             if let Some(p) = new_parsed.port {
                 if Some(p) == crate::urlparse::default_port(&new_parsed.scheme) {
@@ -597,7 +704,9 @@ impl URL {
         self.join_relative(url)
     }
 
-    fn __str__(&self) -> String { self.to_string() }
+    fn __str__(&self) -> String {
+        self.to_string()
+    }
     fn __repr__(&self) -> String {
         // Mask password in repr for security
         if !self.parsed.userinfo.is_empty() && self.parsed.userinfo.contains(':') {
@@ -616,8 +725,7 @@ impl URL {
         } else if let Ok(s) = other.extract::<String>() {
             let self_str = self.to_string();
             // Allow comparison with/without trailing slash
-            self_str == s
-                || self_str.trim_end_matches('/') == s.trim_end_matches('/')
+            self_str == s || self_str.trim_end_matches('/') == s.trim_end_matches('/')
         } else {
             false
         }
@@ -663,7 +771,8 @@ impl URL {
         } else {
             QueryParams { items: Vec::new() }
         };
-        let mut items: Vec<(String, String)> = qp.items.into_iter().filter(|(k, _)| k != key).collect();
+        let mut items: Vec<(String, String)> =
+            qp.items.into_iter().filter(|(k, _)| k != key).collect();
         items.push((key.to_string(), value.to_string()));
         let mut parsed = self.parsed.clone();
         parsed.query = Some(QueryParams { items }.encode());
@@ -693,11 +802,15 @@ pub struct QueryParams {
 
 impl QueryParams {
     pub fn from_query_string(query: &str) -> Self {
-        let items: Vec<(String, String)> = query.split('&')
+        let items: Vec<(String, String)> = query
+            .split('&')
             .filter(|s| !s.is_empty())
             .map(|pair| {
                 if let Some(pos) = pair.find('=') {
-                    (percent_decode(&pair[..pos]), percent_decode(&pair[pos + 1..]))
+                    (
+                        percent_decode(&pair[..pos]),
+                        percent_decode(&pair[pos + 1..]),
+                    )
                 } else {
                     (percent_decode(pair), String::new())
                 }
@@ -718,7 +831,11 @@ impl QueryParams {
         if v.is_none() {
             Ok(String::new())
         } else if let Ok(b) = v.extract::<bool>() {
-            Ok(if b { "true".to_string() } else { "false".to_string() })
+            Ok(if b {
+                "true".to_string()
+            } else {
+                "false".to_string()
+            })
         } else if let Ok(i) = v.extract::<i64>() {
             Ok(i.to_string())
         } else if let Ok(f) = v.extract::<f64>() {
@@ -795,7 +912,9 @@ fn percent_encode(s: &str) -> String {
 }
 
 fn percent_decode(s: &str) -> String {
-    percent_encoding::percent_decode_str(s).decode_utf8_lossy().to_string()
+    percent_encoding::percent_decode_str(s)
+        .decode_utf8_lossy()
+        .to_string()
 }
 
 #[pymethods]
@@ -836,21 +955,34 @@ impl QueryParams {
         }
         result
     }
-    fn multi_items(&self) -> Vec<(String, String)> { self.items.clone() }
+    fn multi_items(&self) -> Vec<(String, String)> {
+        self.items.clone()
+    }
 
     #[pyo3(signature = (key, default=None))]
     fn get(&self, key: &str, default: Option<&str>) -> Option<String> {
-        self.items.iter().find(|(k, _)| k == key).map(|(_, v)| v.clone())
+        self.items
+            .iter()
+            .find(|(k, _)| k == key)
+            .map(|(_, v)| v.clone())
             .or_else(|| default.map(|s| s.to_string()))
     }
 
     fn get_list(&self, key: &str) -> Vec<String> {
-        self.items.iter().filter(|(k, _)| k == key).map(|(_, v)| v.clone()).collect()
+        self.items
+            .iter()
+            .filter(|(k, _)| k == key)
+            .map(|(_, v)| v.clone())
+            .collect()
     }
 
     fn set(&self, key: &str, value: &str) -> Self {
-        let mut items: Vec<(String, String)> = self.items.iter()
-            .filter(|(k, _)| k != key).cloned().collect();
+        let mut items: Vec<(String, String)> = self
+            .items
+            .iter()
+            .filter(|(k, _)| k != key)
+            .cloned()
+            .collect();
         items.push((key.to_string(), value.to_string()));
         QueryParams { items }
     }
@@ -862,15 +994,20 @@ impl QueryParams {
     }
 
     fn remove(&self, key: &str) -> Self {
-        let items: Vec<(String, String)> = self.items.iter()
-            .filter(|(k, _)| k != key).cloned().collect();
+        let items: Vec<(String, String)> = self
+            .items
+            .iter()
+            .filter(|(k, _)| k != key)
+            .cloned()
+            .collect();
         QueryParams { items }
     }
 
     fn merge(&self, other: &Bound<'_, PyAny>) -> PyResult<Self> {
         let other_qp = Self::create(Some(other))?;
         let mut items = Vec::new();
-        let other_keys: std::collections::HashSet<String> = other_qp.items.iter().map(|(k, _)| k.clone()).collect();
+        let other_keys: std::collections::HashSet<String> =
+            other_qp.items.iter().map(|(k, _)| k.clone()).collect();
         // Keep existing items whose keys are not in other
         for (k, v) in &self.items {
             if !other_keys.contains(k) {
@@ -882,23 +1019,34 @@ impl QueryParams {
         Ok(QueryParams { items })
     }
 
-    fn __str__(&self) -> String { self.encode() }
-    fn __repr__(&self) -> String { format!("QueryParams('{}')", self.encode()) }
+    fn __str__(&self) -> String {
+        self.encode()
+    }
+    fn __repr__(&self) -> String {
+        format!("QueryParams('{}')", self.encode())
+    }
     fn __getitem__(&self, key: &str) -> PyResult<String> {
-        self.get(key, None).ok_or_else(|| pyo3::exceptions::PyKeyError::new_err(key.to_string()))
+        self.get(key, None)
+            .ok_or_else(|| pyo3::exceptions::PyKeyError::new_err(key.to_string()))
     }
     fn __setitem__(&self, _key: &str, _value: &str) -> PyResult<()> {
         Err(pyo3::exceptions::PyRuntimeError::new_err(
-            "QueryParams are immutable"
+            "QueryParams are immutable",
         ))
     }
-    fn __contains__(&self, key: &str) -> bool { self.items.iter().any(|(k, _)| k == key) }
+    fn __contains__(&self, key: &str) -> bool {
+        self.items.iter().any(|(k, _)| k == key)
+    }
     fn __len__(&self) -> usize {
         let mut seen = std::collections::HashSet::new();
-        for (k, _) in &self.items { seen.insert(k); }
+        for (k, _) in &self.items {
+            seen.insert(k);
+        }
         seen.len()
     }
-    fn __bool__(&self) -> bool { !self.items.is_empty() }
+    fn __bool__(&self) -> bool {
+        !self.items.is_empty()
+    }
     fn __eq__(&self, other: &Bound<'_, PyAny>) -> bool {
         if let Ok(other_qp) = other.extract::<QueryParams>() {
             // Compare sorted for order-independent equality
@@ -927,12 +1075,10 @@ impl QueryParams {
 
     fn update(&self, _params: &Bound<'_, PyAny>) -> PyResult<Self> {
         Err(pyo3::exceptions::PyRuntimeError::new_err(
-            "QueryParams are immutable"
+            "QueryParams are immutable",
         ))
     }
 }
-
-
 
 pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<URL>()?;

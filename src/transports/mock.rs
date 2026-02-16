@@ -15,10 +15,15 @@ impl MockTransport {
         (MockTransport { handler }, super::base::BaseTransport)
     }
 
-    fn handle_request(&self, py: Python<'_>, request: crate::models::Request) -> PyResult<crate::models::Response> {
+    fn handle_request(
+        &self,
+        py: Python<'_>,
+        request: crate::models::Request,
+    ) -> PyResult<crate::models::Response> {
         let result = self.handler.call1(py, (request,))?;
         let bound = result.bind(py);
-        let response: crate::models::Response = bound.cast::<crate::models::Response>()?.borrow().clone();
+        let response: crate::models::Response =
+            bound.cast::<crate::models::Response>()?.borrow().clone();
         Ok(response)
     }
 
@@ -38,7 +43,8 @@ impl MockTransport {
             pyo3_async_runtimes::tokio::future_into_py(py, async move {
                 Python::attach(|py| {
                     let bound = result.bind(py);
-                    let response: crate::models::Response = bound.cast::<crate::models::Response>()?.borrow().clone();
+                    let response: crate::models::Response =
+                        bound.cast::<crate::models::Response>()?.borrow().clone();
                     Ok(response)
                 })
             })
@@ -50,19 +56,28 @@ impl MockTransport {
         self.handler.clone_ref(py)
     }
 
-    fn close(&self) -> PyResult<()> { Ok(()) }
-    fn aclose(&self) -> PyResult<()> { Ok(()) }
+    fn close(&self) -> PyResult<()> {
+        Ok(())
+    }
+    fn aclose(&self) -> PyResult<()> {
+        Ok(())
+    }
 
-    fn __enter__(slf: PyRef<'_, Self>) -> PyRef<'_, Self> { slf }
-    fn __exit__(&self, _e1: Option<&Bound<'_, PyAny>>, _e2: Option<&Bound<'_, PyAny>>, _e3: Option<&Bound<'_, PyAny>>) -> PyResult<()> {
+    fn __enter__(slf: PyRef<'_, Self>) -> PyRef<'_, Self> {
+        slf
+    }
+    fn __exit__(
+        &self,
+        _e1: Option<&Bound<'_, PyAny>>,
+        _e2: Option<&Bound<'_, PyAny>>,
+        _e3: Option<&Bound<'_, PyAny>>,
+    ) -> PyResult<()> {
         self.close()
     }
 
     fn __aenter__<'py>(slf: Bound<'py, Self>, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
         let slf_py = slf.unbind();
-        pyo3_async_runtimes::tokio::future_into_py(py, async move {
-            Ok(slf_py)
-        })
+        pyo3_async_runtimes::tokio::future_into_py(py, async move { Ok(slf_py) })
     }
 
     fn __aexit__<'py>(
@@ -72,9 +87,7 @@ impl MockTransport {
         _exc_value: Option<Bound<'py, PyAny>>,
         _traceback: Option<Bound<'py, PyAny>>,
     ) -> PyResult<Bound<'py, PyAny>> {
-        pyo3_async_runtimes::tokio::future_into_py(py, async move {
-             Ok(())
-        })
+        pyo3_async_runtimes::tokio::future_into_py(py, async move { Ok(()) })
     }
 }
 
@@ -90,7 +103,10 @@ pub struct AsyncMockTransport {
 impl AsyncMockTransport {
     #[new]
     fn new(handler: Py<PyAny>) -> (Self, super::base::AsyncBaseTransport) {
-        (AsyncMockTransport { handler }, super::base::AsyncBaseTransport)
+        (
+            AsyncMockTransport { handler },
+            super::base::AsyncBaseTransport,
+        )
     }
 
     fn handle_async_request<'py>(

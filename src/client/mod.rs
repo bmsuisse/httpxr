@@ -1,13 +1,12 @@
+pub mod async_client;
 pub mod common;
 pub mod sync_client;
-pub mod async_client;
 
 use pyo3::prelude::*;
 
+pub use async_client::AsyncClient;
 pub use common::UseClientDefault;
 pub use sync_client::Client;
-pub use async_client::AsyncClient;
-
 
 pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<UseClientDefault>()?;

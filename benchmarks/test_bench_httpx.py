@@ -4,6 +4,7 @@ Benchmark: httpx Python (pure) vs httpr Rust (PyO3)
 Run with:
     uv run pytest benchmarks/ -v --benchmark-columns=min,max,mean,stddev,rounds
 """
+
 from __future__ import annotations
 
 import typing
@@ -63,9 +64,7 @@ def test_sequential_gets__python(
     benchmark(_sequential_gets, python_client, SEQUENTIAL_N)
 
 
-def test_sequential_gets__rust(
-    benchmark: typing.Any, rust_client: typing.Any
-) -> None:
+def test_sequential_gets__rust(benchmark: typing.Any, rust_client: typing.Any) -> None:
     """100 sequential GET / — Rust httpr."""
     benchmark(_sequential_gets, rust_client, SEQUENTIAL_N)
 
@@ -82,6 +81,7 @@ def _concurrent_gets(
     httpx_mod: typing.Any, base_url: str, n: int, workers: int
 ) -> None:
     """Each thread creates its own client (connection-pool isolation)."""
+
     def _do_get(_: int) -> int:
         with httpx_mod.Client(base_url=base_url) as c:
             resp = c.get("/")
@@ -97,7 +97,9 @@ def test_concurrent_gets__python(
     benchmark: typing.Any, python_httpx: typing.Any, base_url: str
 ) -> None:
     """50 concurrent GET / (10 threads) — pure-Python httpx."""
-    benchmark(_concurrent_gets, python_httpx, base_url, CONCURRENT_N, CONCURRENT_WORKERS)
+    benchmark(
+        _concurrent_gets, python_httpx, base_url, CONCURRENT_N, CONCURRENT_WORKERS
+    )
 
 
 def test_concurrent_gets__rust(
@@ -180,8 +182,11 @@ def test_heavy_concurrent_gets__python(
 ) -> None:
     """200 concurrent GET / (50 threads) — pure-Python httpx."""
     benchmark(
-        _concurrent_gets, python_httpx, base_url,
-        HEAVY_CONCURRENT_N, HEAVY_CONCURRENT_WORKERS,
+        _concurrent_gets,
+        python_httpx,
+        base_url,
+        HEAVY_CONCURRENT_N,
+        HEAVY_CONCURRENT_WORKERS,
     )
 
 
@@ -190,8 +195,11 @@ def test_heavy_concurrent_gets__rust(
 ) -> None:
     """200 concurrent GET / (50 threads) — Rust httpr."""
     benchmark(
-        _concurrent_gets, rust_httpx, base_url,
-        HEAVY_CONCURRENT_N, HEAVY_CONCURRENT_WORKERS,
+        _concurrent_gets,
+        rust_httpx,
+        base_url,
+        HEAVY_CONCURRENT_N,
+        HEAVY_CONCURRENT_WORKERS,
     )
 
 
@@ -285,9 +293,7 @@ def test_large_json_parse__python(
     assert "data" in result
 
 
-def test_large_json_parse__rust(
-    benchmark: typing.Any, rust_client: typing.Any
-) -> None:
+def test_large_json_parse__rust(benchmark: typing.Any, rust_client: typing.Any) -> None:
     """GET /large_json (1 MB) + .json() parse — Rust httpr."""
     result = benchmark(_get_large_json, rust_client)
     assert "data" in result
@@ -299,7 +305,9 @@ def test_large_json_parse__rust(
 
 MIXED_CONCURRENT_N = 20
 MIXED_WORKERS = 5
-MIXED_BODIES = [b"a" * s for s in (1_024, 10_240, 51_200, 102_400)]  # 1K, 10K, 50K, 100K
+MIXED_BODIES = [
+    b"a" * s for s in (1_024, 10_240, 51_200, 102_400)
+]  # 1K, 10K, 50K, 100K
 
 
 def _concurrent_mixed_posts(
@@ -322,8 +330,11 @@ def test_concurrent_mixed_posts__python(
 ) -> None:
     """100 concurrent POSTs (mixed 1K–100K, 20 threads) — pure-Python httpx."""
     benchmark(
-        _concurrent_mixed_posts, python_httpx, base_url,
-        MIXED_CONCURRENT_N, MIXED_WORKERS,
+        _concurrent_mixed_posts,
+        python_httpx,
+        base_url,
+        MIXED_CONCURRENT_N,
+        MIXED_WORKERS,
     )
 
 
@@ -332,10 +343,12 @@ def test_concurrent_mixed_posts__rust(
 ) -> None:
     """100 concurrent POSTs (mixed 1K–100K, 20 threads) — Rust httpr."""
     benchmark(
-        _concurrent_mixed_posts, rust_httpx, base_url,
-        MIXED_CONCURRENT_N, MIXED_WORKERS,
+        _concurrent_mixed_posts,
+        rust_httpx,
+        base_url,
+        MIXED_CONCURRENT_N,
+        MIXED_WORKERS,
     )
-
 
 
 # ============================================================================
@@ -378,9 +391,7 @@ def test_nested_deep_json__python(
     assert len(data) == 500
 
 
-def test_nested_deep_json__rust(
-    benchmark: typing.Any, rust_client: typing.Any
-) -> None:
+def test_nested_deep_json__rust(benchmark: typing.Any, rust_client: typing.Any) -> None:
     """GET /nested_json/deep (500, 5-deep) → .json() — Rust httpr."""
     data = benchmark(_parse_nested_json, rust_client, "/nested_json/deep")
     assert len(data) == 500
@@ -399,10 +410,7 @@ def test_nested_wide_json__python(
     assert len(data) == 500
 
 
-def test_nested_wide_json__rust(
-    benchmark: typing.Any, rust_client: typing.Any
-) -> None:
+def test_nested_wide_json__rust(benchmark: typing.Any, rust_client: typing.Any) -> None:
     """GET /nested_json/wide (500, 20+ keys) → .json() — Rust httpr."""
     data = benchmark(_parse_nested_json, rust_client, "/nested_json/wide")
     assert len(data) == 500
-

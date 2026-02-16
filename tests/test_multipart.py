@@ -415,7 +415,7 @@ def test_multipart_encode_non_seekable_filelike() -> None:
         expected_headers["Content-Length"] = request.headers["Content-Length"]
     else:
         expected_headers["Transfer-Encoding"] = "chunked"
-    
+
     assert request.headers == expected_headers
     assert request.content == (
         b"--BOUNDARY\r\n"

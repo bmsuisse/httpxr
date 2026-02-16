@@ -19,10 +19,10 @@ def main() -> None:
     # ── Granular timeout configuration ───────────────────────────────────
     print("── Granular timeouts ──────────────────────────────────────────")
     timeout = httpr.Timeout(
-        connect=5.0,       # Time to establish a connection
-        read=10.0,         # Time to receive a response
-        write=5.0,         # Time to send the request
-        pool=5.0,          # Time waiting for a connection from the pool
+        connect=5.0,  # Time to establish a connection
+        read=10.0,  # Time to receive a response
+        write=5.0,  # Time to send the request
+        pool=5.0,  # Time waiting for a connection from the pool
     )
     with httpr.Client(timeout=timeout) as client:
         response = client.get("https://httpbin.org/get")
@@ -51,7 +51,7 @@ def main() -> None:
     # ── Connection pool limits ───────────────────────────────────────────
     print("── Connection limits ──────────────────────────────────────────")
     limits = httpr.Limits(
-        max_connections=100,        # Max total connections in the pool
+        max_connections=100,  # Max total connections in the pool
         max_keepalive_connections=20,  # Max idle keepalive connections
     )
     with httpr.Client(limits=limits) as client:

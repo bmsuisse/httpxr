@@ -1,14 +1,12 @@
 use pyo3::prelude::*;
-use pyo3::types::{PyAnyMethods, PyDictMethods, PyDict, PyBytes};
+use pyo3::types::{PyAnyMethods, PyBytes, PyDict, PyDictMethods};
 use std::time::Instant;
 
 use crate::config::{Limits, Timeout};
-use crate::models::{Headers, Request, Response, Cookies};
+use crate::models::{Cookies, Headers, Request, Response};
 use crate::urls::URL;
 
 use super::common::*;
-
-
 
 /// Synchronous HTTP Client backed by ureq.
 #[pyclass]
@@ -77,7 +75,10 @@ impl Client {
         let mut hdrs = Headers::create(headers, "utf-8")?;
         // Add default headers if not already present
         if !hdrs.contains_header("user-agent") {
-            hdrs.set_header("user-agent", &format!("python-httpr/{}", env!("CARGO_PKG_VERSION")));
+            hdrs.set_header(
+                "user-agent",
+                &format!("python-httpr/{}", env!("CARGO_PKG_VERSION")),
+            );
         }
         if !hdrs.contains_header("accept") {
             hdrs.set_header("accept", "*/*");
@@ -105,7 +106,16 @@ impl Client {
 
         Ok(Client {
             base_url: base,
-            auth: auth.map(|a| if let AuthArg::Custom(p) = a { Some(p) } else { None }).flatten(), params,
+            auth: auth
+                .map(|a| {
+                    if let AuthArg::Custom(p) = a {
+                        Some(p)
+                    } else {
+                        None
+                    }
+                })
+                .flatten(),
+            params,
             default_headers: hdrs_py,
             cookies: ckies,
             max_redirects: max_redirects.unwrap_or(DEFAULT_MAX_REDIRECTS),
@@ -141,7 +151,7 @@ impl Client {
         // Enforce closed state
         if self.is_closed {
             return Err(pyo3::exceptions::PyRuntimeError::new_err(
-                "Cannot send a request, as the client has been closed."
+                "Cannot send a request, as the client has been closed.",
             ));
         }
 
@@ -153,14 +163,19 @@ impl Client {
             Ok(u) => u,
             Err(e) => {
                 let msg = e.to_string();
-                if msg.contains("RelativeUrlWithoutBase") || msg.contains("EmptyHost") || msg.contains("empty host") {
-                    return Err(crate::exceptions::LocalProtocolError::new_err(
-                        format!("Invalid URL '{}'", url_str)
-                    ));
+                if msg.contains("RelativeUrlWithoutBase")
+                    || msg.contains("EmptyHost")
+                    || msg.contains("empty host")
+                {
+                    return Err(crate::exceptions::LocalProtocolError::new_err(format!(
+                        "Invalid URL '{}'",
+                        url_str
+                    )));
                 }
-                return Err(crate::exceptions::UnsupportedProtocol::new_err(
-                    format!("Request URL has an unsupported protocol '{}': {}", url_str, msg)
-                ));
+                return Err(crate::exceptions::UnsupportedProtocol::new_err(format!(
+                    "Request URL has an unsupported protocol '{}': {}",
+                    url_str, msg
+                )));
             }
         };
 
@@ -168,21 +183,27 @@ impl Client {
         let scheme = target_url.get_scheme();
         let host = target_url.get_host();
         if scheme.is_empty() || scheme == "://" {
-            return Err(crate::exceptions::UnsupportedProtocol::new_err(
-                format!("Request URL is missing a scheme for URL '{}'", url_str)
-            ));
+            return Err(crate::exceptions::UnsupportedProtocol::new_err(format!(
+                "Request URL is missing a scheme for URL '{}'",
+                url_str
+            )));
         }
         if !["http", "https", "ws", "wss"].contains(&&*scheme)
-            && !self.mounts.iter().any(|(p, _)| url_matches_pattern(&target_url.to_string(), p))
+            && !self
+                .mounts
+                .iter()
+                .any(|(p, _)| url_matches_pattern(&target_url.to_string(), p))
         {
-            return Err(crate::exceptions::UnsupportedProtocol::new_err(
-                format!("Request URL has an unsupported protocol '{}': for URL '{}'", scheme, url_str)
-            ));
+            return Err(crate::exceptions::UnsupportedProtocol::new_err(format!(
+                "Request URL has an unsupported protocol '{}': for URL '{}'",
+                scheme, url_str
+            )));
         }
         if host.is_empty() && ["http", "https"].contains(&&*scheme) {
-            return Err(crate::exceptions::LocalProtocolError::new_err(
-                format!("Invalid URL '{}'", url_str)
-            ));
+            return Err(crate::exceptions::LocalProtocolError::new_err(format!(
+                "Invalid URL '{}'",
+                url_str
+            )));
         }
 
         // Merge client-level params and per-request params into URL
@@ -223,10 +244,16 @@ impl Client {
 
         // For POST/PUT/PATCH with no body, set content-length: 0
         let method_upper = method.to_uppercase();
-        if body.is_none() && content.is_none() && data.is_none() && files.is_none() && json.is_none()
+        if body.is_none()
+            && content.is_none()
+            && data.is_none()
+            && files.is_none()
+            && json.is_none()
             && ["POST", "PUT", "PATCH"].contains(&method_upper.as_str())
         {
-            if !merged_headers.contains_header("content-length") && !merged_headers.contains_header("transfer-encoding") {
+            if !merged_headers.contains_header("content-length")
+                && !merged_headers.contains_header("transfer-encoding")
+            {
                 merged_headers.set_header("content-length", "0");
             }
         }
@@ -293,29 +320,37 @@ impl Client {
         } else {
             None
         };
-        
+
         let (auth_val, auth_explicitly_none) = match auth_kw {
             None => (None, false), // Not passed -> Default (Use Client Auth) -> (None, false)? Wait.
-                                   // Logic: apply_auth(..., auth_val, client_auth, ..., disable_client_auth)
-                                   // disable_client_auth=false means USE client auth.
-                                   // So (None, false) is correct for Default.
+            // Logic: apply_auth(..., auth_val, client_auth, ..., disable_client_auth)
+            // disable_client_auth=false means USE client auth.
+            // So (None, false) is correct for Default.
             Some(b) => {
                 if b.is_none() {
-                     (None, true) // Explicit None -> Disable Client Auth
+                    (None, true) // Explicit None -> Disable Client Auth
                 } else {
-                     validate_auth_type(py, &b)?;
-                     (Some(b), false) // Object
+                    validate_auth_type(py, &b)?;
+                    (Some(b), false) // Object
                 }
             }
         };
-        let auth_result = apply_auth(py, auth_val.as_ref(), self.auth.as_ref(), &mut request, auth_explicitly_none)?;
-        
-
+        let auth_result = apply_auth(
+            py,
+            auth_val.as_ref(),
+            self.auth.as_ref(),
+            &mut request,
+            auth_explicitly_none,
+        )?;
 
         // Apply cookies (string override)
         if let Some(c) = cookies {
             if let Ok(cookie_val) = c.extract::<String>() {
-                request.headers.bind(py).borrow_mut().set_header("cookie", &cookie_val);
+                request
+                    .headers
+                    .bind(py)
+                    .borrow_mut()
+                    .set_header("cookie", &cookie_val);
             }
         }
 
@@ -388,7 +423,9 @@ impl Client {
             let http_version = {
                 let ext = response.extensions.bind(py);
                 if let Ok(d) = ext.cast::<PyDict>() {
-                    d.get_item("http_version").ok().flatten()
+                    d.get_item("http_version")
+                        .ok()
+                        .flatten()
                         .and_then(|v| v.extract::<Vec<u8>>().ok())
                         .map(|b| String::from_utf8_lossy(&b).to_string())
                         .unwrap_or_else(|| "HTTP/1.1".to_string())
@@ -451,7 +488,9 @@ impl Client {
 
         loop {
             // Check if auth requires_request_body
-            let req_body_needed = flow_bound.getattr("requires_request_body").ok()
+            let req_body_needed = flow_bound
+                .getattr("requires_request_body")
+                .ok()
                 .and_then(|v| v.extract::<bool>().ok())
                 .unwrap_or(false);
             if req_body_needed {
@@ -489,7 +528,9 @@ impl Client {
             extract_cookies_to_jar(py, &response, self.cookies.jar.bind(py))?;
 
             // Check if auth requires_response_body
-            let resp_body_needed = flow_bound.getattr("requires_response_body").ok()
+            let resp_body_needed = flow_bound
+                .getattr("requires_response_body")
+                .ok()
                 .and_then(|v| v.extract::<bool>().ok())
                 .unwrap_or(false);
             if resp_body_needed {
@@ -512,7 +553,13 @@ impl Client {
                             // Result is not a Request, try getting next via __next__
                             match flow_bound.call_method0("__next__") {
                                 Ok(r2) => Some(r2.extract::<Request>()?),
-                                Err(e) if e.is_instance_of::<pyo3::exceptions::PyStopIteration>(py) => None,
+                                Err(e)
+                                    if e.is_instance_of::<pyo3::exceptions::PyStopIteration>(
+                                        py,
+                                    ) =>
+                                {
+                                    None
+                                }
                                 Err(e) => return Err(e),
                             }
                         }
@@ -522,7 +569,9 @@ impl Client {
                     // Flow is done, check if there's another request via __next__
                     match flow_bound.call_method0("__next__") {
                         Ok(r) => Some(r.extract::<Request>()?),
-                        Err(e2) if e2.is_instance_of::<pyo3::exceptions::PyStopIteration>(py) => None,
+                        Err(e2) if e2.is_instance_of::<pyo3::exceptions::PyStopIteration>(py) => {
+                            None
+                        }
                         Err(e2) => return Err(e2),
                     }
                 }
@@ -554,115 +603,240 @@ impl Client {
 impl Client {
     #[pyo3(signature = (url, *, params=None, headers=None, cookies=None, follow_redirects=None, timeout=None, extensions=None, **kwargs))]
     fn get(
-        &self, py: Python<'_>, url: &Bound<'_, PyAny>,
-        params: Option<&Bound<'_, PyAny>>, headers: Option<&Bound<'_, PyAny>>,
+        &self,
+        py: Python<'_>,
+        url: &Bound<'_, PyAny>,
+        params: Option<&Bound<'_, PyAny>>,
+        headers: Option<&Bound<'_, PyAny>>,
         cookies: Option<&Bound<'_, PyAny>>,
-        follow_redirects: Option<bool>, timeout: Option<&Bound<'_, PyAny>>,
-        extensions: Option<&Bound<'_, PyAny>>, kwargs: Option<&Bound<'_, PyDict>>,
+        follow_redirects: Option<bool>,
+        timeout: Option<&Bound<'_, PyAny>>,
+        extensions: Option<&Bound<'_, PyAny>>,
+        kwargs: Option<&Bound<'_, PyDict>>,
     ) -> PyResult<Response> {
         let timeout_kw = extract_from_kwargs(kwargs, "timeout");
-        let t = if let Some(t) = timeout { Some(t) } else { timeout_kw.as_ref() };
-        let f = if let Some(f) = follow_redirects { Some(f) } else { extract_from_kwargs(kwargs, "follow_redirects").and_then(|v| v.extract::<bool>().ok()) };
-        self.request(py, "GET", url, None, None, None, None, params, headers, cookies, f, t, extensions, kwargs)
+        let t = if let Some(t) = timeout {
+            Some(t)
+        } else {
+            timeout_kw.as_ref()
+        };
+        let f = if let Some(f) = follow_redirects {
+            Some(f)
+        } else {
+            extract_from_kwargs(kwargs, "follow_redirects").and_then(|v| v.extract::<bool>().ok())
+        };
+        self.request(
+            py, "GET", url, None, None, None, None, params, headers, cookies, f, t, extensions,
+            kwargs,
+        )
     }
 
     #[pyo3(signature = (url, *, params=None, headers=None, cookies=None, follow_redirects=None, timeout=None, extensions=None, **kwargs))]
     fn head(
-        &self, py: Python<'_>, url: &Bound<'_, PyAny>,
-        params: Option<&Bound<'_, PyAny>>, headers: Option<&Bound<'_, PyAny>>,
+        &self,
+        py: Python<'_>,
+        url: &Bound<'_, PyAny>,
+        params: Option<&Bound<'_, PyAny>>,
+        headers: Option<&Bound<'_, PyAny>>,
         cookies: Option<&Bound<'_, PyAny>>,
-        follow_redirects: Option<bool>, timeout: Option<&Bound<'_, PyAny>>,
-        extensions: Option<&Bound<'_, PyAny>>, kwargs: Option<&Bound<'_, PyDict>>,
+        follow_redirects: Option<bool>,
+        timeout: Option<&Bound<'_, PyAny>>,
+        extensions: Option<&Bound<'_, PyAny>>,
+        kwargs: Option<&Bound<'_, PyDict>>,
     ) -> PyResult<Response> {
         let timeout_kw = extract_from_kwargs(kwargs, "timeout");
-        let t = if let Some(t) = timeout { Some(t) } else { timeout_kw.as_ref() };
-        let f = if let Some(f) = follow_redirects { Some(f) } else { extract_from_kwargs(kwargs, "follow_redirects").and_then(|v| v.extract::<bool>().ok()) };
-        self.request(py, "HEAD", url, None, None, None, None, params, headers, cookies, f, t, extensions, kwargs)
+        let t = if let Some(t) = timeout {
+            Some(t)
+        } else {
+            timeout_kw.as_ref()
+        };
+        let f = if let Some(f) = follow_redirects {
+            Some(f)
+        } else {
+            extract_from_kwargs(kwargs, "follow_redirects").and_then(|v| v.extract::<bool>().ok())
+        };
+        self.request(
+            py, "HEAD", url, None, None, None, None, params, headers, cookies, f, t, extensions,
+            kwargs,
+        )
     }
 
     #[pyo3(signature = (url, *, params=None, headers=None, cookies=None, follow_redirects=None, timeout=None, extensions=None, **kwargs))]
     fn options(
-        &self, py: Python<'_>, url: &Bound<'_, PyAny>,
-        params: Option<&Bound<'_, PyAny>>, headers: Option<&Bound<'_, PyAny>>,
+        &self,
+        py: Python<'_>,
+        url: &Bound<'_, PyAny>,
+        params: Option<&Bound<'_, PyAny>>,
+        headers: Option<&Bound<'_, PyAny>>,
         cookies: Option<&Bound<'_, PyAny>>,
-        follow_redirects: Option<bool>, timeout: Option<&Bound<'_, PyAny>>,
-        extensions: Option<&Bound<'_, PyAny>>, kwargs: Option<&Bound<'_, PyDict>>,
+        follow_redirects: Option<bool>,
+        timeout: Option<&Bound<'_, PyAny>>,
+        extensions: Option<&Bound<'_, PyAny>>,
+        kwargs: Option<&Bound<'_, PyDict>>,
     ) -> PyResult<Response> {
         let timeout_kw = extract_from_kwargs(kwargs, "timeout");
-        let t = if let Some(t) = timeout { Some(t) } else { timeout_kw.as_ref() };
-        let f = if let Some(f) = follow_redirects { Some(f) } else { extract_from_kwargs(kwargs, "follow_redirects").and_then(|v| v.extract::<bool>().ok()) };
-        self.request(py, "OPTIONS", url, None, None, None, None, params, headers, cookies, f, t, extensions, kwargs)
+        let t = if let Some(t) = timeout {
+            Some(t)
+        } else {
+            timeout_kw.as_ref()
+        };
+        let f = if let Some(f) = follow_redirects {
+            Some(f)
+        } else {
+            extract_from_kwargs(kwargs, "follow_redirects").and_then(|v| v.extract::<bool>().ok())
+        };
+        self.request(
+            py, "OPTIONS", url, None, None, None, None, params, headers, cookies, f, t, extensions,
+            kwargs,
+        )
     }
 
     #[pyo3(signature = (url, *, content=None, data=None, files=None, json=None, params=None, headers=None, cookies=None, follow_redirects=None, timeout=None, extensions=None, **kwargs))]
     fn post(
-        &self, py: Python<'_>, url: &Bound<'_, PyAny>,
-        content: Option<&Bound<'_, PyAny>>, data: Option<&Bound<'_, PyAny>>,
-        files: Option<&Bound<'_, PyAny>>, json: Option<&Bound<'_, PyAny>>,
-        params: Option<&Bound<'_, PyAny>>, headers: Option<&Bound<'_, PyAny>>,
+        &self,
+        py: Python<'_>,
+        url: &Bound<'_, PyAny>,
+        content: Option<&Bound<'_, PyAny>>,
+        data: Option<&Bound<'_, PyAny>>,
+        files: Option<&Bound<'_, PyAny>>,
+        json: Option<&Bound<'_, PyAny>>,
+        params: Option<&Bound<'_, PyAny>>,
+        headers: Option<&Bound<'_, PyAny>>,
         cookies: Option<&Bound<'_, PyAny>>,
-        follow_redirects: Option<bool>, timeout: Option<&Bound<'_, PyAny>>,
-        extensions: Option<&Bound<'_, PyAny>>, kwargs: Option<&Bound<'_, PyDict>>,
+        follow_redirects: Option<bool>,
+        timeout: Option<&Bound<'_, PyAny>>,
+        extensions: Option<&Bound<'_, PyAny>>,
+        kwargs: Option<&Bound<'_, PyDict>>,
     ) -> PyResult<Response> {
         let timeout_kw = extract_from_kwargs(kwargs, "timeout");
-        let t = if let Some(t) = timeout { Some(t) } else { timeout_kw.as_ref() };
-        let f = if let Some(f) = follow_redirects { Some(f) } else { extract_from_kwargs(kwargs, "follow_redirects").and_then(|v| v.extract::<bool>().ok()) };
-        self.request(py, "POST", url, content, data, files, json, params, headers, cookies, f, t, extensions, kwargs)
+        let t = if let Some(t) = timeout {
+            Some(t)
+        } else {
+            timeout_kw.as_ref()
+        };
+        let f = if let Some(f) = follow_redirects {
+            Some(f)
+        } else {
+            extract_from_kwargs(kwargs, "follow_redirects").and_then(|v| v.extract::<bool>().ok())
+        };
+        self.request(
+            py, "POST", url, content, data, files, json, params, headers, cookies, f, t,
+            extensions, kwargs,
+        )
     }
 
     #[pyo3(signature = (url, *, content=None, data=None, files=None, json=None, params=None, headers=None, cookies=None, follow_redirects=None, timeout=None, extensions=None, **kwargs))]
     fn put(
-        &self, py: Python<'_>, url: &Bound<'_, PyAny>,
-        content: Option<&Bound<'_, PyAny>>, data: Option<&Bound<'_, PyAny>>,
-        files: Option<&Bound<'_, PyAny>>, json: Option<&Bound<'_, PyAny>>,
-        params: Option<&Bound<'_, PyAny>>, headers: Option<&Bound<'_, PyAny>>,
+        &self,
+        py: Python<'_>,
+        url: &Bound<'_, PyAny>,
+        content: Option<&Bound<'_, PyAny>>,
+        data: Option<&Bound<'_, PyAny>>,
+        files: Option<&Bound<'_, PyAny>>,
+        json: Option<&Bound<'_, PyAny>>,
+        params: Option<&Bound<'_, PyAny>>,
+        headers: Option<&Bound<'_, PyAny>>,
         cookies: Option<&Bound<'_, PyAny>>,
-        follow_redirects: Option<bool>, timeout: Option<&Bound<'_, PyAny>>,
-        extensions: Option<&Bound<'_, PyAny>>, kwargs: Option<&Bound<'_, PyDict>>,
+        follow_redirects: Option<bool>,
+        timeout: Option<&Bound<'_, PyAny>>,
+        extensions: Option<&Bound<'_, PyAny>>,
+        kwargs: Option<&Bound<'_, PyDict>>,
     ) -> PyResult<Response> {
         let timeout_kw = extract_from_kwargs(kwargs, "timeout");
-        let t = if let Some(t) = timeout { Some(t) } else { timeout_kw.as_ref() };
-        let f = if let Some(f) = follow_redirects { Some(f) } else { extract_from_kwargs(kwargs, "follow_redirects").and_then(|v| v.extract::<bool>().ok()) };
-        self.request(py, "PUT", url, content, data, files, json, params, headers, cookies, f, t, extensions, kwargs)
+        let t = if let Some(t) = timeout {
+            Some(t)
+        } else {
+            timeout_kw.as_ref()
+        };
+        let f = if let Some(f) = follow_redirects {
+            Some(f)
+        } else {
+            extract_from_kwargs(kwargs, "follow_redirects").and_then(|v| v.extract::<bool>().ok())
+        };
+        self.request(
+            py, "PUT", url, content, data, files, json, params, headers, cookies, f, t, extensions,
+            kwargs,
+        )
     }
 
     #[pyo3(signature = (url, *, content=None, data=None, files=None, json=None, params=None, headers=None, cookies=None, follow_redirects=None, timeout=None, extensions=None, **kwargs))]
     fn patch(
-        &self, py: Python<'_>, url: &Bound<'_, PyAny>,
-        content: Option<&Bound<'_, PyAny>>, data: Option<&Bound<'_, PyAny>>,
-        files: Option<&Bound<'_, PyAny>>, json: Option<&Bound<'_, PyAny>>,
-        params: Option<&Bound<'_, PyAny>>, headers: Option<&Bound<'_, PyAny>>,
+        &self,
+        py: Python<'_>,
+        url: &Bound<'_, PyAny>,
+        content: Option<&Bound<'_, PyAny>>,
+        data: Option<&Bound<'_, PyAny>>,
+        files: Option<&Bound<'_, PyAny>>,
+        json: Option<&Bound<'_, PyAny>>,
+        params: Option<&Bound<'_, PyAny>>,
+        headers: Option<&Bound<'_, PyAny>>,
         cookies: Option<&Bound<'_, PyAny>>,
-        follow_redirects: Option<bool>, timeout: Option<&Bound<'_, PyAny>>,
-        extensions: Option<&Bound<'_, PyAny>>, kwargs: Option<&Bound<'_, PyDict>>,
+        follow_redirects: Option<bool>,
+        timeout: Option<&Bound<'_, PyAny>>,
+        extensions: Option<&Bound<'_, PyAny>>,
+        kwargs: Option<&Bound<'_, PyDict>>,
     ) -> PyResult<Response> {
         let timeout_kw = extract_from_kwargs(kwargs, "timeout");
-        let t = if let Some(t) = timeout { Some(t) } else { timeout_kw.as_ref() };
-        let f = if let Some(f) = follow_redirects { Some(f) } else { extract_from_kwargs(kwargs, "follow_redirects").and_then(|v| v.extract::<bool>().ok()) };
-        self.request(py, "PATCH", url, content, data, files, json, params, headers, cookies, f, t, extensions, kwargs)
+        let t = if let Some(t) = timeout {
+            Some(t)
+        } else {
+            timeout_kw.as_ref()
+        };
+        let f = if let Some(f) = follow_redirects {
+            Some(f)
+        } else {
+            extract_from_kwargs(kwargs, "follow_redirects").and_then(|v| v.extract::<bool>().ok())
+        };
+        self.request(
+            py, "PATCH", url, content, data, files, json, params, headers, cookies, f, t,
+            extensions, kwargs,
+        )
     }
 
     #[pyo3(signature = (url, *, params=None, headers=None, cookies=None, follow_redirects=None, timeout=None, extensions=None, **kwargs))]
     fn delete(
-        &self, py: Python<'_>, url: &Bound<'_, PyAny>,
-        params: Option<&Bound<'_, PyAny>>, headers: Option<&Bound<'_, PyAny>>,
+        &self,
+        py: Python<'_>,
+        url: &Bound<'_, PyAny>,
+        params: Option<&Bound<'_, PyAny>>,
+        headers: Option<&Bound<'_, PyAny>>,
         cookies: Option<&Bound<'_, PyAny>>,
-        follow_redirects: Option<bool>, timeout: Option<&Bound<'_, PyAny>>,
-        extensions: Option<&Bound<'_, PyAny>>, kwargs: Option<&Bound<'_, PyDict>>,
+        follow_redirects: Option<bool>,
+        timeout: Option<&Bound<'_, PyAny>>,
+        extensions: Option<&Bound<'_, PyAny>>,
+        kwargs: Option<&Bound<'_, PyDict>>,
     ) -> PyResult<Response> {
         let timeout_kw = extract_from_kwargs(kwargs, "timeout");
-        let t = if let Some(t) = timeout { Some(t) } else { timeout_kw.as_ref() };
-        let f = if let Some(f) = follow_redirects { Some(f) } else { extract_from_kwargs(kwargs, "follow_redirects").and_then(|v| v.extract::<bool>().ok()) };
-        self.request(py, "DELETE", url, None, None, None, None, params, headers, cookies, f, t, extensions, kwargs)
+        let t = if let Some(t) = timeout {
+            Some(t)
+        } else {
+            timeout_kw.as_ref()
+        };
+        let f = if let Some(f) = follow_redirects {
+            Some(f)
+        } else {
+            extract_from_kwargs(kwargs, "follow_redirects").and_then(|v| v.extract::<bool>().ok())
+        };
+        self.request(
+            py, "DELETE", url, None, None, None, None, params, headers, cookies, f, t, extensions,
+            kwargs,
+        )
     }
 
-    fn close(&mut self) -> PyResult<()> { self.is_closed = true; Ok(()) }
+    fn close(&mut self) -> PyResult<()> {
+        self.is_closed = true;
+        Ok(())
+    }
 
     #[getter]
-    fn is_closed(&self) -> bool { self.is_closed }
+    fn is_closed(&self) -> bool {
+        self.is_closed
+    }
 
     #[getter]
-    fn headers(&self, py: Python<'_>) -> Py<Headers> { self.default_headers.clone_ref(py) }
+    fn headers(&self, py: Python<'_>) -> Py<Headers> {
+        self.default_headers.clone_ref(py)
+    }
     #[setter]
     fn set_headers(&mut self, py: Python<'_>, value: &Bound<'_, PyAny>) -> PyResult<()> {
         let hdrs = Headers::create(Some(value), "utf-8")?;
@@ -681,7 +855,11 @@ impl Client {
     #[setter]
     fn set_base_url(&mut self, value: &Bound<'_, PyAny>) -> PyResult<()> {
         let s = value.str()?.extract::<String>()?;
-        self.base_url = if s.is_empty() { None } else { Some(URL::create_from_str(&s)?) };
+        self.base_url = if s.is_empty() {
+            None
+        } else {
+            Some(URL::create_from_str(&s)?)
+        };
         Ok(())
     }
 
@@ -705,7 +883,9 @@ impl Client {
     }
 
     #[getter]
-    fn get_cookies(&self, _py: Python<'_>) -> Cookies { self.cookies.clone() }
+    fn get_cookies(&self, _py: Python<'_>) -> Cookies {
+        self.cookies.clone()
+    }
     #[setter]
     fn set_cookies(&mut self, py: Python<'_>, value: &Bound<'_, PyAny>) -> PyResult<()> {
         self.cookies = Cookies::create(py, Some(value))?;
@@ -714,7 +894,10 @@ impl Client {
 
     #[getter]
     fn get_timeout(&self, py: Python<'_>) -> Py<PyAny> {
-        self.timeout.as_ref().map(|t| t.clone_ref(py)).unwrap_or_else(|| py.None())
+        self.timeout
+            .as_ref()
+            .map(|t| t.clone_ref(py))
+            .unwrap_or_else(|| py.None())
     }
     #[setter]
     fn set_timeout(&mut self, py: Python<'_>, value: &Bound<'_, PyAny>) -> PyResult<()> {
@@ -725,12 +908,15 @@ impl Client {
 
     #[getter]
     fn get_event_hooks(&self, py: Python<'_>) -> Py<PyAny> {
-        self.event_hooks.as_ref().map(|e| e.clone_ref(py)).unwrap_or_else(|| {
-            let d = PyDict::new(py);
-            let _ = d.set_item("request", pyo3::types::PyList::empty(py));
-            let _ = d.set_item("response", pyo3::types::PyList::empty(py));
-            d.into()
-        })
+        self.event_hooks
+            .as_ref()
+            .map(|e| e.clone_ref(py))
+            .unwrap_or_else(|| {
+                let d = PyDict::new(py);
+                let _ = d.set_item("request", pyo3::types::PyList::empty(py));
+                let _ = d.set_item("response", pyo3::types::PyList::empty(py));
+                d.into()
+            })
     }
     #[setter]
     fn set_event_hooks(&mut self, py: Python<'_>, value: &Bound<'_, PyAny>) {
@@ -746,16 +932,25 @@ impl Client {
     }
 
     #[getter]
-    fn get_trust_env(&self) -> bool { self.trust_env }
+    fn get_trust_env(&self) -> bool {
+        self.trust_env
+    }
 
     #[pyo3(signature = (method, url, *, content=None, data=None, files=None, json=None, params=None, headers=None, cookies=None, extensions=None))]
     #[allow(unused_variables)]
     fn build_request(
-        &self, py: Python<'_>, method: &str, url: &Bound<'_, PyAny>,
-        content: Option<&Bound<'_, PyAny>>, data: Option<&Bound<'_, PyAny>>,
-        files: Option<&Bound<'_, PyAny>>, json: Option<&Bound<'_, PyAny>>,
-        params: Option<&Bound<'_, PyAny>>, headers: Option<&Bound<'_, PyAny>>,
-        cookies: Option<&Bound<'_, PyAny>>, extensions: Option<&Bound<'_, PyAny>>,
+        &self,
+        py: Python<'_>,
+        method: &str,
+        url: &Bound<'_, PyAny>,
+        content: Option<&Bound<'_, PyAny>>,
+        data: Option<&Bound<'_, PyAny>>,
+        files: Option<&Bound<'_, PyAny>>,
+        json: Option<&Bound<'_, PyAny>>,
+        params: Option<&Bound<'_, PyAny>>,
+        headers: Option<&Bound<'_, PyAny>>,
+        cookies: Option<&Bound<'_, PyAny>>,
+        extensions: Option<&Bound<'_, PyAny>>,
     ) -> PyResult<Request> {
         let url_str = url.str()?.extract::<String>()?;
         let target_url = if let Some(ref base) = self.base_url {
@@ -774,7 +969,9 @@ impl Client {
                 Some(b.as_bytes().to_vec())
             } else if let Ok(s) = c.extract::<String>() {
                 Some(s.into_bytes())
-            } else { None }
+            } else {
+                None
+            }
         } else if let Some(j) = json {
             let json_mod = py.import("json")?;
             let s: String = json_mod.call_method1("dumps", (j,))?.extract()?;
@@ -785,14 +982,22 @@ impl Client {
             let s: String = urllib.call_method1("urlencode", (d, true))?.extract()?;
             merged_headers.set_header("content-type", "application/x-www-form-urlencoded");
             Some(s.into_bytes())
-        } else { None };
+        } else {
+            None
+        };
 
         // For POST/PUT/PATCH with no body, set content-length: 0
         let method_upper = method.to_uppercase();
-        if body.is_none() && content.is_none() && data.is_none() && files.is_none() && json.is_none()
+        if body.is_none()
+            && content.is_none()
+            && data.is_none()
+            && files.is_none()
+            && json.is_none()
             && ["POST", "PUT", "PATCH"].contains(&method_upper.as_str())
         {
-            if !merged_headers.contains_header("content-length") && !merged_headers.contains_header("transfer-encoding") {
+            if !merged_headers.contains_header("content-length")
+                && !merged_headers.contains_header("transfer-encoding")
+            {
                 merged_headers.set_header("content-length", "0");
             }
         }
@@ -803,7 +1008,11 @@ impl Client {
             method: method_upper,
             url: target_url,
             headers: Py::new(py, final_headers)?,
-            extensions: if let Some(e) = extensions { e.clone().unbind() } else { PyDict::new(py).into() },
+            extensions: if let Some(e) = extensions {
+                e.clone().unbind()
+            } else {
+                PyDict::new(py).into()
+            },
             content_body: body,
             stream: None,
             stream_response: false,
@@ -812,8 +1021,11 @@ impl Client {
 
     #[pyo3(signature = (request, *, auth=None, follow_redirects=None))]
     fn send(
-        &self, py: Python<'_>, request: &Request,
-        auth: Option<&Bound<'_, PyAny>>, follow_redirects: Option<bool>,
+        &self,
+        py: Python<'_>,
+        request: &Request,
+        auth: Option<&Bound<'_, PyAny>>,
+        follow_redirects: Option<bool>,
     ) -> PyResult<Response> {
         let _ = auth;
         let start = Instant::now();
@@ -830,16 +1042,33 @@ impl Client {
             let mut current_request = request.clone();
             while current_response.has_redirect_check(py) && redirect_count < self.max_redirects {
                 redirect_count += 1;
-                let location = current_response.headers.bind(py).borrow().get_first_value("location")
-                    .ok_or_else(|| pyo3::exceptions::PyValueError::new_err("Redirect without Location header"))?;
+                let location = current_response
+                    .headers
+                    .bind(py)
+                    .borrow()
+                    .get_first_value("location")
+                    .ok_or_else(|| {
+                        pyo3::exceptions::PyValueError::new_err("Redirect without Location header")
+                    })?;
                 let redirect_url = current_request.url.join_relative(&location)?;
-                let redirect_method = if current_response.status_code == 303 { "GET".to_string() } else { current_request.method.clone() };
-                let redirect_body = if redirect_method == "GET" { None } else { current_request.content_body.clone() };
+                let redirect_method = if current_response.status_code == 303 {
+                    "GET".to_string()
+                } else {
+                    current_request.method.clone()
+                };
+                let redirect_body = if redirect_method == "GET" {
+                    None
+                } else {
+                    current_request.content_body.clone()
+                };
                 let redirect_request = Request {
-                    method: redirect_method, url: redirect_url,
+                    method: redirect_method,
+                    url: redirect_url,
                     headers: current_request.headers.clone_ref(py),
                     extensions: PyDict::new(py).into(),
-                    content_body: redirect_body, stream: None, stream_response: false,
+                    content_body: redirect_body,
+                    stream: None,
+                    stream_response: false,
                 };
                 let mut history = current_response.history.clone();
                 history.push(current_response);
@@ -855,9 +1084,10 @@ impl Client {
                 current_request = redirect_request;
             }
             if current_response.has_redirect_check(py) && redirect_count >= self.max_redirects {
-                return Err(crate::exceptions::TooManyRedirects::new_err(
-                    format!("Exceeded maximum number of redirects ({})", self.max_redirects),
-                ));
+                return Err(crate::exceptions::TooManyRedirects::new_err(format!(
+                    "Exceeded maximum number of redirects ({})",
+                    self.max_redirects
+                )));
             }
             return Ok(current_response);
         }
@@ -897,8 +1127,15 @@ impl Client {
         if self.trust_env {
             if let Some(proxy_url) = get_env_proxy_url(&url_str) {
                 let transport = crate::transports::default::HTTPTransport::create(
-                    true, None, false, None,
-                    Some(&crate::config::Proxy { url: proxy_url, auth: None, headers: None }),
+                    true,
+                    None,
+                    false,
+                    None,
+                    Some(&crate::config::Proxy {
+                        url: proxy_url,
+                        auth: None,
+                        headers: None,
+                    }),
                     0,
                 )?;
                 return Ok(Py::new(py, transport)?.into());
@@ -950,7 +1187,12 @@ impl Client {
         Ok(())
     }
 
-    fn _redirect_headers(&self, request: &Request, url: &Bound<'_, PyAny>, _method: &str) -> PyResult<Headers> {
+    fn _redirect_headers(
+        &self,
+        request: &Request,
+        url: &Bound<'_, PyAny>,
+        _method: &str,
+    ) -> PyResult<Headers> {
         Python::attach(|py| {
             let mut hdrs = request.headers.bind(py).borrow().clone();
 
@@ -975,7 +1217,8 @@ impl Client {
             let is_same_port = req_port == red_port;
             // HTTPS upgrade: same host, http -> https, both on default ports
             let is_https_upgrade = is_same_host
-                && req_scheme == "http" && red_scheme == "https"
+                && req_scheme == "http"
+                && red_scheme == "https"
                 && (req_port.is_none() || req_port == Some(80))
                 && (red_port.is_none() || red_port == Some(443));
             let is_same_origin = is_same_host && is_same_port && req_scheme == red_scheme;
@@ -993,24 +1236,43 @@ impl Client {
 
     #[pyo3(signature = (method, url, *, content=None, data=None, files=None, json=None, params=None, headers=None, cookies=None, follow_redirects=None, timeout=None, extensions=None, **kwargs))]
     fn stream(
-        &self, py: Python<'_>, method: &str, url: &Bound<'_, PyAny>,
-        content: Option<&Bound<'_, PyAny>>, data: Option<&Bound<'_, PyAny>>,
-        files: Option<&Bound<'_, PyAny>>, json: Option<&Bound<'_, PyAny>>,
-        params: Option<&Bound<'_, PyAny>>, headers: Option<&Bound<'_, PyAny>>,
+        &self,
+        py: Python<'_>,
+        method: &str,
+        url: &Bound<'_, PyAny>,
+        content: Option<&Bound<'_, PyAny>>,
+        data: Option<&Bound<'_, PyAny>>,
+        files: Option<&Bound<'_, PyAny>>,
+        json: Option<&Bound<'_, PyAny>>,
+        params: Option<&Bound<'_, PyAny>>,
+        headers: Option<&Bound<'_, PyAny>>,
         cookies: Option<&Bound<'_, PyAny>>,
-        follow_redirects: Option<bool>, timeout: Option<&Bound<'_, PyAny>>,
-        extensions: Option<&Bound<'_, PyAny>>, kwargs: Option<&Bound<'_, PyDict>>,
+        follow_redirects: Option<bool>,
+        timeout: Option<&Bound<'_, PyAny>>,
+        extensions: Option<&Bound<'_, PyAny>>,
+        kwargs: Option<&Bound<'_, PyDict>>,
     ) -> PyResult<Response> {
         let timeout_kw = extract_from_kwargs(kwargs, "timeout");
-        let t = if let Some(t) = timeout { Some(t) } else { timeout_kw.as_ref() };
-        let f = if let Some(f) = follow_redirects { Some(f) } else { extract_from_kwargs(kwargs, "follow_redirects").and_then(|v| v.extract::<bool>().ok()) };
-        self.request(py, method, url, content, data, files, json, params, headers, cookies, f, t, extensions, kwargs)
+        let t = if let Some(t) = timeout {
+            Some(t)
+        } else {
+            timeout_kw.as_ref()
+        };
+        let f = if let Some(f) = follow_redirects {
+            Some(f)
+        } else {
+            extract_from_kwargs(kwargs, "follow_redirects").and_then(|v| v.extract::<bool>().ok())
+        };
+        self.request(
+            py, method, url, content, data, files, json, params, headers, cookies, f, t,
+            extensions, kwargs,
+        )
     }
 
     fn __enter__<'py>(slf: PyRef<'py, Self>, py: Python<'py>) -> PyResult<PyRef<'py, Self>> {
         if slf.is_closed {
             return Err(pyo3::exceptions::PyRuntimeError::new_err(
-                "Cannot open a client instance that has been closed."
+                "Cannot open a client instance that has been closed.",
             ));
         }
         let transport = slf.transport.bind(py);
@@ -1026,7 +1288,13 @@ impl Client {
         Ok(slf)
     }
 
-    fn __exit__(&mut self, py: Python<'_>, _e1: Option<&Bound<'_, PyAny>>, _e2: Option<&Bound<'_, PyAny>>, _e3: Option<&Bound<'_, PyAny>>) -> PyResult<()> {
+    fn __exit__(
+        &mut self,
+        py: Python<'_>,
+        _e1: Option<&Bound<'_, PyAny>>,
+        _e2: Option<&Bound<'_, PyAny>>,
+        _e3: Option<&Bound<'_, PyAny>>,
+    ) -> PyResult<()> {
         self.close()?;
         // Call close() on transport explicitly, then __exit__ (proper lifecycle ordering)
         let transport = self.transport.bind(py);
@@ -1051,7 +1319,11 @@ impl Client {
     }
 
     fn __repr__(&self) -> String {
-        if self.is_closed { "<Client [closed]>".to_string() } else { "<Client>".to_string() }
+        if self.is_closed {
+            "<Client [closed]>".to_string()
+        } else {
+            "<Client>".to_string()
+        }
     }
 }
 
@@ -1111,14 +1383,20 @@ impl Client {
             }
         }
 
-        while current_response.has_redirect_check(py)
-            && redirect_count < self.max_redirects
-        {
+        while current_response.has_redirect_check(py) && redirect_count < self.max_redirects {
             redirect_count += 1;
-            let location = current_response.headers.bind(py).borrow().get_first_value("location")
-                .ok_or_else(|| pyo3::exceptions::PyValueError::new_err("Redirect without Location header"))?;
+            let location = current_response
+                .headers
+                .bind(py)
+                .borrow()
+                .get_first_value("location")
+                .ok_or_else(|| {
+                    pyo3::exceptions::PyValueError::new_err("Redirect without Location header")
+                })?;
 
-            let mut redirect_url = current_request.url.join_relative(&location)
+            let mut redirect_url = current_request
+                .url
+                .join_relative(&location)
                 .map_err(|e| crate::exceptions::RemoteProtocolError::new_err(e.to_string()))?;
 
             // Fragment preservation
@@ -1135,11 +1413,17 @@ impl Client {
             // Check for streaming body
             if redirect_method != "GET" && redirect_method != "HEAD" {
                 if current_request.stream.is_some() {
-                    return Err(crate::exceptions::StreamConsumed::new_err("Cannot redirect request with streaming body"));
+                    return Err(crate::exceptions::StreamConsumed::new_err(
+                        "Cannot redirect request with streaming body",
+                    ));
                 }
             }
 
-            let redirect_body = if redirect_method == "GET" { None } else { current_request.content_body.clone() };
+            let redirect_body = if redirect_method == "GET" {
+                None
+            } else {
+                current_request.content_body.clone()
+            };
 
             // Update cookies from response
             extract_cookies_to_jar(py, &current_response, self.cookies.jar.bind(py))?;
@@ -1156,7 +1440,9 @@ impl Client {
                 py.run(&code, None, Some(&locals))?;
                 if let Some(item) = locals.get_item("c")? {
                     item.extract::<Option<String>>()?
-                } else { None }
+                } else {
+                    None
+                }
             };
 
             if let Some(c) = cookie_header_val {
@@ -1164,11 +1450,19 @@ impl Client {
             }
 
             // Preserve body/content headers for 307/308
-            if (current_response.status_code == 307 || current_response.status_code == 308) && redirect_method != "GET" && redirect_method != "HEAD" {
+            if (current_response.status_code == 307 || current_response.status_code == 308)
+                && redirect_method != "GET"
+                && redirect_method != "HEAD"
+            {
                 if let Some(ref body) = redirect_body {
                     redirect_headers.set_header("Content-Length", &body.len().to_string());
                     if !redirect_headers.contains_header("Content-Type") {
-                        if let Some(ct) = current_request.headers.bind(py).borrow().get_first_value("content-type") {
+                        if let Some(ct) = current_request
+                            .headers
+                            .bind(py)
+                            .borrow()
+                            .get_first_value("content-type")
+                        {
                             redirect_headers.set_header("Content-Type", &ct);
                         }
                     }
@@ -1243,7 +1537,9 @@ impl Client {
                 let http_version = {
                     let ext = new_response.extensions.bind(py);
                     if let Ok(d) = ext.cast::<PyDict>() {
-                        d.get_item("http_version").ok().flatten()
+                        d.get_item("http_version")
+                            .ok()
+                            .flatten()
                             .and_then(|v| v.extract::<Vec<u8>>().ok())
                             .map(|b| String::from_utf8_lossy(&b).to_string())
                             .unwrap_or_else(|| "HTTP/1.1".to_string())
@@ -1261,9 +1557,10 @@ impl Client {
         }
 
         if current_response.has_redirect_check(py) && redirect_count >= self.max_redirects {
-            return Err(crate::exceptions::TooManyRedirects::new_err(
-                format!("Exceeded maximum number of redirects ({})", self.max_redirects),
-            ));
+            return Err(crate::exceptions::TooManyRedirects::new_err(format!(
+                "Exceeded maximum number of redirects ({})",
+                self.max_redirects
+            )));
         }
 
         Ok(current_response)

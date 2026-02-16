@@ -62,7 +62,6 @@ class ASGIResponseStream:
 
 
 class ASGITransport(AsyncBaseTransport):
-
     def __init__(
         self,
         app: _ASGIApp,
@@ -81,7 +80,6 @@ class ASGITransport(AsyncBaseTransport):
     ) -> Response:
         assert isinstance(request.stream, AsyncByteStream)
 
-
         scope = {
             "type": "http",
             "asgi": {"version": "3.0"},
@@ -97,17 +95,14 @@ class ASGITransport(AsyncBaseTransport):
             "root_path": self.root_path,
         }
 
-
         request_body_chunks = request.stream.__aiter__()
         request_complete = False
-
 
         status_code = None
         response_headers = None
         body_parts: list[bytes] = []
         response_started = False
         response_complete = _create_event()
-
 
         async def receive() -> dict[str, typing.Any]:
             nonlocal request_complete

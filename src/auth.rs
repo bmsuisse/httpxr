@@ -1,7 +1,7 @@
+use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
+use base64::Engine;
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyTuple};
-use base64::Engine;
-use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
 use sha1::Sha1;
 use sha2::{Sha256, Sha512};
 use std::sync::{Arc, Mutex};
@@ -19,9 +19,15 @@ impl Auth {
         Auth
     }
 
-    fn sync_auth_flow(&self, py: Python<'_>, request: &crate::models::Request) -> PyResult<Py<PyAny>> {
+    fn sync_auth_flow(
+        &self,
+        py: Python<'_>,
+        request: &crate::models::Request,
+    ) -> PyResult<Py<PyAny>> {
         // Default: yield the request unchanged (generator)
-        let flow = SyncAuthFlow { request: Some(request.clone()) };
+        let flow = SyncAuthFlow {
+            request: Some(request.clone()),
+        };
         Ok(Py::new(py, flow)?.into_any())
     }
 }
@@ -33,7 +39,9 @@ struct SyncAuthFlow {
 
 #[pymethods]
 impl SyncAuthFlow {
-    fn __iter__(slf: PyRef<'_, Self>) -> PyRef<'_, Self> { slf }
+    fn __iter__(slf: PyRef<'_, Self>) -> PyRef<'_, Self> {
+        slf
+    }
     fn __next__(&mut self, py: Python<'_>) -> Option<Py<PyAny>> {
         if let Some(req) = self.request.take() {
             Some(req.into_pyobject(py).unwrap().into())
@@ -67,13 +75,23 @@ impl BasicAuth {
         )
     }
 
-    fn sync_auth_flow(&self, py: Python<'_>, request: &mut crate::models::Request) -> PyResult<Py<PyAny>> {
+    fn sync_auth_flow(
+        &self,
+        py: Python<'_>,
+        request: &mut crate::models::Request,
+    ) -> PyResult<Py<PyAny>> {
         let credentials = format!("{}:{}", self.username, self.password);
         let encoded = BASE64_STANDARD.encode(credentials.as_bytes());
         let auth_header = format!("Basic {}", encoded);
-        request.headers.bind(py).borrow_mut().set_header("authorization", &auth_header);
-        
-        let flow = BasicAuthFlow { request: Some(request.clone()) };
+        request
+            .headers
+            .bind(py)
+            .borrow_mut()
+            .set_header("authorization", &auth_header);
+
+        let flow = BasicAuthFlow {
+            request: Some(request.clone()),
+        };
         Ok(Py::new(py, flow)?.into_any())
     }
 }
@@ -85,7 +103,9 @@ struct BasicAuthFlow {
 
 #[pymethods]
 impl BasicAuthFlow {
-    fn __iter__(slf: PyRef<'_, Self>) -> PyRef<'_, Self> { slf }
+    fn __iter__(slf: PyRef<'_, Self>) -> PyRef<'_, Self> {
+        slf
+    }
     fn __next__(&mut self, py: Python<'_>) -> Option<Py<PyAny>> {
         if let Some(req) = self.request.take() {
             Some(req.into_pyobject(py).unwrap().into())
@@ -131,9 +151,13 @@ impl DigestAuth {
         )
     }
 
-    fn sync_auth_flow(slf: PyRef<'_, Self>, py: Python<'_>, request: &crate::models::Request) -> PyResult<Py<PyAny>> {
+    fn sync_auth_flow(
+        slf: PyRef<'_, Self>,
+        py: Python<'_>,
+        request: &crate::models::Request,
+    ) -> PyResult<Py<PyAny>> {
         let auth: Py<DigestAuth> = slf.into();
-        
+
         // Check if we have a cached nonce: if so, build auth header immediately
         let has_cached_nonce = {
             let auth_bound = auth.bind(py);
@@ -141,9 +165,9 @@ impl DigestAuth {
             let last_nonce = auth_ref.last_nonce.lock().unwrap();
             last_nonce.is_some()
         };
-        
+
         let flow = DigestAuthFlow {
-            auth, 
+            auth,
             request: request.clone(),
             state: if has_cached_nonce { 3 } else { 0 }, // 3 = has cached nonce, need to build
             pending_response: None,
@@ -172,7 +196,7 @@ impl DigestAuth {
         nonce_count: u32,
         cnonce: &str,
     ) -> PyResult<String> {
-        use md5::{Md5, Digest as Md5Digest};
+        use md5::{Digest as Md5Digest, Md5};
 
         let algo = algorithm.unwrap_or("MD5");
         let is_sess = algo.to_uppercase().ends_with("-SESS");
@@ -214,7 +238,10 @@ impl DigestAuth {
 
         let response = if let Some(qop_val) = qop {
             let nc = format!("{:08}", nonce_count);
-            let response = hash(&format!("{}:{}:{}:{}:{}:{}", ha1, nonce, nc, cnonce, qop_val, ha2));
+            let response = hash(&format!(
+                "{}:{}:{}:{}:{}:{}",
+                ha1, nonce, nc, cnonce, qop_val, ha2
+            ));
             format!(
                 "Digest username=\"{}\", realm=\"{}\", nonce=\"{}\", uri=\"{}\", qop={}, nc={}, cnonce=\"{}\", response=\"{}\", algorithm={}{}",
                 self.username, realm, nonce, uri, qop_val, nc, cnonce, response, algo,
@@ -243,7 +270,9 @@ struct DigestAuthFlow {
 
 #[pymethods]
 impl DigestAuthFlow {
-    fn __iter__(slf: PyRef<'_, Self>) -> PyRef<'_, Self> { slf }
+    fn __iter__(slf: PyRef<'_, Self>) -> PyRef<'_, Self> {
+        slf
+    }
 
     fn __next__(&mut self, py: Python<'_>) -> PyResult<Option<Py<PyAny>>> {
         match self.state {
@@ -301,20 +330,21 @@ impl DigestAuthFlow {
         }
 
         let headers = response.getattr("headers")?;
-        let www_authenticate: Option<String> = if let Ok(val) = headers.call_method1("get", ("www-authenticate",)) {
-             val.extract::<Option<String>>()?
-        } else {
-            None
-        };
+        let www_authenticate: Option<String> =
+            if let Ok(val) = headers.call_method1("get", ("www-authenticate",)) {
+                val.extract::<Option<String>>()?
+            } else {
+                None
+            };
 
         let challenge = if let Some(c) = www_authenticate {
             c
         } else {
-             return Err(pyo3::exceptions::PyStopIteration::new_err(()));
+            return Err(pyo3::exceptions::PyStopIteration::new_err(()));
         };
-        
+
         if !challenge.to_lowercase().starts_with("digest") {
-             return Err(pyo3::exceptions::PyStopIteration::new_err(()));
+            return Err(pyo3::exceptions::PyStopIteration::new_err(()));
         }
 
         // Parse challenge
@@ -325,26 +355,27 @@ impl DigestAuthFlow {
         let mut algorithm = None;
 
         let params_str = challenge[7..].trim();
-        
+
         let mut parts = Vec::new();
         let mut start = 0;
         let mut in_quote = false;
         let chars: Vec<char> = params_str.chars().collect();
         for (i, &c) in chars.iter().enumerate() {
-            if c == '"' { in_quote = !in_quote; }
-            else if c == ',' && !in_quote {
+            if c == '"' {
+                in_quote = !in_quote;
+            } else if c == ',' && !in_quote {
                 parts.push(params_str[start..i].trim());
                 start = i + 1;
             }
         }
         if start < params_str.len() {
-             parts.push(params_str[start..].trim());
+            parts.push(params_str[start..].trim());
         }
 
         for part in parts {
             if let Some(idx) = part.find('=') {
                 let key = part[..idx].trim();
-                let val = part[idx+1..].trim().trim_matches('"');
+                let val = part[idx + 1..].trim().trim_matches('"');
                 match key {
                     "realm" => realm = Some(val.to_string()),
                     "nonce" => nonce = Some(val.to_string()),
@@ -355,14 +386,15 @@ impl DigestAuthFlow {
                             qop = Some("auth".to_string());
                         } else if qop_options.iter().any(|q| *q == "auth-int") {
                             return Err(pyo3::exceptions::PyNotImplementedError::new_err(
-                                "Digest auth with qop='auth-int' is not implemented"
+                                "Digest auth with qop='auth-int' is not implemented",
                             ));
                         } else {
-                            return Err(crate::exceptions::ProtocolError::new_err(
-                                format!("Unexpected qop value in digest challenge: {}", val)
-                            ));
+                            return Err(crate::exceptions::ProtocolError::new_err(format!(
+                                "Unexpected qop value in digest challenge: {}",
+                                val
+                            )));
                         }
-                    },
+                    }
                     "opaque" => opaque = Some(val.to_string()),
                     "algorithm" => algorithm = Some(val.to_string()),
                     _ => {}
@@ -371,11 +403,11 @@ impl DigestAuthFlow {
         }
 
         if realm.is_none() || nonce.is_none() {
-             return Err(crate::exceptions::ProtocolError::new_err(
-                 "Malformed Digest authentication challenge: missing required fields (realm, nonce)"
-             ));
+            return Err(crate::exceptions::ProtocolError::new_err(
+                "Malformed Digest authentication challenge: missing required fields (realm, nonce)",
+            ));
         }
-        
+
         let realm_val = realm.unwrap();
         let nonce_val = nonce.unwrap();
 
@@ -386,24 +418,26 @@ impl DigestAuthFlow {
             let auth_rust = auth_bound.borrow();
             let mut nc_lock = auth_rust.nonce_count.lock().unwrap();
             let mut last_nonce_lock = auth_rust.last_nonce.lock().unwrap();
-            
+
             if last_nonce_lock.as_deref() != Some(&nonce_val) {
                 *last_nonce_lock = Some(nonce_val.clone());
                 *nc_lock = 1;
             } else {
                 *nc_lock += 1;
             }
-            
+
             // Cache challenge values for subsequent flows
             *auth_rust.cached_realm.lock().unwrap() = Some(realm_val.clone());
             *auth_rust.cached_qop.lock().unwrap() = qop.clone();
             *auth_rust.cached_opaque.lock().unwrap() = opaque.clone();
             *auth_rust.cached_algorithm.lock().unwrap() = algorithm.clone();
-            
+
             *nc_lock
         };
 
-        let cnonce: String = if let Ok(res) = auth_bound.call_method1("_get_client_nonce", (nc, nonce_val.as_bytes())) {
+        let cnonce: String = if let Ok(res) =
+            auth_bound.call_method1("_get_client_nonce", (nc, nonce_val.as_bytes()))
+        {
             // The method may return bytes or str
             if let Ok(s) = res.extract::<String>() {
                 s
@@ -415,73 +449,109 @@ impl DigestAuthFlow {
         } else {
             auth_bound.borrow()._get_client_nonce(nc, &nonce_val)
         };
-        
+
         let auth_header = auth_bound.borrow().build_auth_header(
             &self.request.method,
-            &self.request.url.raw_path_str(), 
+            &self.request.url.raw_path_str(),
             &realm_val,
             &nonce_val,
             qop.as_deref(),
             opaque.as_deref(),
             algorithm.as_deref(),
             nc,
-            &cnonce
+            &cnonce,
         )?;
 
         let new_request = self.request.clone();
-        new_request.headers.bind(py).borrow_mut().set_header("authorization", &auth_header);
-        
+        new_request
+            .headers
+            .bind(py)
+            .borrow_mut()
+            .set_header("authorization", &auth_header);
+
         if let Ok(cookies) = response.getattr("cookies") {
-             if let Ok(jar) = cookies.getattr("jar") {
-                 let mut cookie_list = Vec::new();
-                 if let Ok(iterator) = jar.try_iter() {
-                     for cookie in iterator {
-                         if let Ok(cookie) = cookie {
-                             if let (Ok(name), Ok(value)) = (cookie.getattr("name"), cookie.getattr("value")) {
-                                 if let (Ok(n), Ok(v)) = (name.extract::<String>(), value.extract::<String>()) {
-                                     cookie_list.push(format!("{}={}", n, v));
-                                 }
-                             }
-                         }
-                     }
-                 }
-                 if !cookie_list.is_empty() {
-                     let cookie_str = cookie_list.join("; ");
-                     if new_request.headers.bind(py).borrow().contains_header("cookie") {
-                          if let Some(existing) = new_request.headers.bind(py).borrow().get_first_value("cookie") {
-                              new_request.headers.bind(py).borrow_mut().set_header("cookie", &format!("{}; {}", existing, cookie_str));
-                          } else {
-                              new_request.headers.bind(py).borrow_mut().set_header("cookie", &cookie_str);
-                          }
-                     } else {
-                          new_request.headers.bind(py).borrow_mut().set_header("cookie", &cookie_str);
-                     }
-                 }
-             }
+            if let Ok(jar) = cookies.getattr("jar") {
+                let mut cookie_list = Vec::new();
+                if let Ok(iterator) = jar.try_iter() {
+                    for cookie in iterator {
+                        if let Ok(cookie) = cookie {
+                            if let (Ok(name), Ok(value)) =
+                                (cookie.getattr("name"), cookie.getattr("value"))
+                            {
+                                if let (Ok(n), Ok(v)) =
+                                    (name.extract::<String>(), value.extract::<String>())
+                                {
+                                    cookie_list.push(format!("{}={}", n, v));
+                                }
+                            }
+                        }
+                    }
+                }
+                if !cookie_list.is_empty() {
+                    let cookie_str = cookie_list.join("; ");
+                    if new_request
+                        .headers
+                        .bind(py)
+                        .borrow()
+                        .contains_header("cookie")
+                    {
+                        if let Some(existing) = new_request
+                            .headers
+                            .bind(py)
+                            .borrow()
+                            .get_first_value("cookie")
+                        {
+                            new_request
+                                .headers
+                                .bind(py)
+                                .borrow_mut()
+                                .set_header("cookie", &format!("{}; {}", existing, cookie_str));
+                        } else {
+                            new_request
+                                .headers
+                                .bind(py)
+                                .borrow_mut()
+                                .set_header("cookie", &cookie_str);
+                        }
+                    } else {
+                        new_request
+                            .headers
+                            .bind(py)
+                            .borrow_mut()
+                            .set_header("cookie", &cookie_str);
+                    }
+                }
+            }
         }
 
         Ok(new_request.into_pyobject(response.py()).unwrap().into())
     }
 
-    fn build_cached_auth_request(&mut self, py: Python<'_>, nonce_val: &str) -> PyResult<Py<PyAny>> {
+    fn build_cached_auth_request(
+        &mut self,
+        py: Python<'_>,
+        nonce_val: &str,
+    ) -> PyResult<Py<PyAny>> {
         let auth_bound = self.auth.bind(py);
-        
+
         let (realm_val, qop, opaque, algorithm, nc) = {
             let auth_ref = auth_bound.borrow();
             let realm = auth_ref.cached_realm.lock().unwrap().clone();
             let qop = auth_ref.cached_qop.lock().unwrap().clone();
             let opaque = auth_ref.cached_opaque.lock().unwrap().clone();
             let algorithm = auth_ref.cached_algorithm.lock().unwrap().clone();
-            
+
             // Increment nonce count
             let mut nc_lock = auth_ref.nonce_count.lock().unwrap();
             *nc_lock += 1;
             let nc = *nc_lock;
-            
+
             (realm.unwrap_or_default(), qop, opaque, algorithm, nc)
         };
-        
-        let cnonce: String = if let Ok(res) = auth_bound.call_method1("_get_client_nonce", (nc, nonce_val.as_bytes())) {
+
+        let cnonce: String = if let Ok(res) =
+            auth_bound.call_method1("_get_client_nonce", (nc, nonce_val.as_bytes()))
+        {
             if let Ok(s) = res.extract::<String>() {
                 s
             } else if let Ok(b) = res.extract::<Vec<u8>>() {
@@ -492,7 +562,7 @@ impl DigestAuthFlow {
         } else {
             auth_bound.borrow()._get_client_nonce(nc, nonce_val)
         };
-        
+
         let auth_header = auth_bound.borrow().build_auth_header(
             &self.request.method,
             &self.request.url.raw_path_str(),
@@ -502,16 +572,19 @@ impl DigestAuthFlow {
             opaque.as_deref(),
             algorithm.as_deref(),
             nc,
-            &cnonce
+            &cnonce,
         )?;
-        
+
         let new_request = self.request.clone();
-        new_request.headers.bind(py).borrow_mut().set_header("authorization", &auth_header);
-        
+        new_request
+            .headers
+            .bind(py)
+            .borrow_mut()
+            .set_header("authorization", &auth_header);
+
         Ok(new_request.into_pyobject(py).unwrap().into())
     }
 }
-
 
 /// Function-based authentication.
 #[pyclass(extends=Auth)]
@@ -526,7 +599,11 @@ impl FunctionAuth {
         (FunctionAuth { func }, Auth)
     }
 
-    fn sync_auth_flow(&self, py: Python<'_>, request: &mut crate::models::Request) -> PyResult<Py<PyAny>> {
+    fn sync_auth_flow(
+        &self,
+        py: Python<'_>,
+        request: &mut crate::models::Request,
+    ) -> PyResult<Py<PyAny>> {
         let result = self.func.call1(py, (request.clone(),))?;
         // Logic for function auth might need to be wrapped in a generator if it returns one?
         // Standard httpx FunctionAuth usually expects the function to yield requests.
@@ -535,18 +612,18 @@ impl FunctionAuth {
         // Check if result is iterator?
         // For now, assume it behaves like existing implementation but we need to return iterator.
         // Existing impl returned a list. We can wrap that list in an iterator.
-        
+
         // Actually, if `self.func` returns a generator, we just return it.
         // If it returns a request/None, we probably need to handle it.
         // Let's assume for now the user function follows the protocol.
         // But to be safe and compatible with previous list-return implementation:
         // If it returns a Request or list, we make an iterator.
-        
+
         let iter_check = result.call_method0(py, "__iter__");
         if iter_check.is_ok() {
-            return Ok(result)
+            return Ok(result);
         }
-        
+
         // Wrap single result in 1-item iterator
         let list = pyo3::types::PyList::new(py, &[result])?;
         let iter = list.call_method0("__iter__")?;
@@ -572,12 +649,18 @@ impl NetRCAuth {
             netrc.call_method0("netrc")?
         };
         Ok((
-            NetRCAuth { netrc_info: info.into() },
+            NetRCAuth {
+                netrc_info: info.into(),
+            },
             Auth,
         ))
     }
 
-    fn sync_auth_flow(&self, py: Python<'_>, request: &mut crate::models::Request) -> PyResult<Py<PyAny>> {
+    fn sync_auth_flow(
+        &self,
+        py: Python<'_>,
+        request: &mut crate::models::Request,
+    ) -> PyResult<Py<PyAny>> {
         let host = request.url.get_raw_host();
         let info = self.netrc_info.bind(py);
         let auth_tuple = info.call_method1("authenticators", (host,))?;
@@ -589,10 +672,16 @@ impl NetRCAuth {
             let credentials = format!("{}:{}", username, password);
             let encoded = BASE64_STANDARD.encode(credentials.as_bytes());
             let auth_header = format!("Basic {}", encoded);
-            request.headers.bind(py).borrow_mut().set_header("authorization", &auth_header);
+            request
+                .headers
+                .bind(py)
+                .borrow_mut()
+                .set_header("authorization", &auth_header);
         }
 
-        let flow = BasicAuthFlow { request: Some(request.clone()) };
+        let flow = BasicAuthFlow {
+            request: Some(request.clone()),
+        };
         Ok(Py::new(py, flow)?.into_any())
     }
 }

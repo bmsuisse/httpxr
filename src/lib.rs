@@ -1,21 +1,21 @@
 use pyo3::prelude::*;
 
+mod api;
+mod auth;
+mod client;
+mod config;
+mod content;
+mod decoders;
 mod exceptions;
+mod models;
+mod multipart;
 mod status_codes;
+mod stream_ctx;
+mod transports;
 mod types;
 mod urlparse;
 mod urls;
 mod utils;
-mod models;
-mod decoders;
-mod content;
-mod multipart;
-mod config;
-mod auth;
-mod transports;
-mod stream_ctx;
-mod client;
-mod api;
 
 /// The native Rust extension module for httpr.
 pub mod logger;
@@ -25,7 +25,7 @@ pub use logger::Python as PythonHelper;
 fn _httpr(m: &Bound<'_, PyModule>) -> PyResult<()> {
     // Initialize logging
     let _ = logger::init();
-    
+
     m.add("__version__", env!("CARGO_PKG_VERSION"))?;
     // Register submodules
     exceptions::register(m)?;

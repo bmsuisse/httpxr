@@ -1,7 +1,6 @@
 use pyo3::prelude::*;
 use pyo3::types::PyBytes;
 
-
 /// AsyncByteStream base class
 #[pyclass(subclass)]
 pub struct AsyncByteStream;
@@ -15,7 +14,8 @@ impl AsyncByteStream {
 
     fn aclose<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
         let asyncio = py.import("asyncio")?;
-        let future = asyncio.call_method1("ensure_future", (asyncio.call_method1("sleep", (0,))?,))?;
+        let future =
+            asyncio.call_method1("ensure_future", (asyncio.call_method1("sleep", (0,))?,))?;
         Ok(future)
     }
 
@@ -68,23 +68,36 @@ impl ByteStream {
     fn new(data: Option<Vec<u8>>) -> PyClassInitializer<Self> {
         PyClassInitializer::from(AsyncByteStream)
             .add_subclass(SyncByteStream)
-            .add_subclass(ByteStream { data: data.unwrap_or_default(), pos: 0 })
+            .add_subclass(ByteStream {
+                data: data.unwrap_or_default(),
+                pos: 0,
+            })
     }
 
     fn __iter__(slf: PyRef<'_, Self>) -> ByteStreamIter {
-        ByteStreamIter { data: slf.data.clone(), done: false }
+        ByteStreamIter {
+            data: slf.data.clone(),
+            done: false,
+        }
     }
 
     fn __aiter__(slf: PyRef<'_, Self>) -> ByteStreamAsyncIter {
-        ByteStreamAsyncIter { data: slf.data.clone(), done: false }
+        ByteStreamAsyncIter {
+            data: slf.data.clone(),
+            done: false,
+        }
     }
 
     fn __repr__(&self) -> String {
         format!("<ByteStream [{} bytes]>", self.data.len())
     }
 
-    fn close(&self) -> PyResult<()> { Ok(()) }
-    fn read(&self) -> Vec<u8> { self.data.clone() }
+    fn close(&self) -> PyResult<()> {
+        Ok(())
+    }
+    fn read(&self) -> Vec<u8> {
+        self.data.clone()
+    }
 }
 
 #[pyclass]
@@ -95,9 +108,13 @@ pub struct ByteStreamIter {
 
 #[pymethods]
 impl ByteStreamIter {
-    fn __iter__(slf: PyRef<'_, Self>) -> PyRef<'_, Self> { slf }
+    fn __iter__(slf: PyRef<'_, Self>) -> PyRef<'_, Self> {
+        slf
+    }
     fn __next__(&mut self, py: Python<'_>) -> Option<Py<PyAny>> {
-        if self.done { return None; }
+        if self.done {
+            return None;
+        }
         self.done = true;
         Some(PyBytes::new(py, &self.data).into())
     }
@@ -111,14 +128,16 @@ pub struct ByteStreamAsyncIter {
 
 #[pymethods]
 impl ByteStreamAsyncIter {
-    fn __aiter__(slf: PyRef<'_, Self>) -> PyRef<'_, Self> { slf }
+    fn __aiter__(slf: PyRef<'_, Self>) -> PyRef<'_, Self> {
+        slf
+    }
     fn __anext__<'py>(&mut self, py: Python<'py>) -> PyResult<Option<Bound<'py, PyAny>>> {
-        if self.done { return Ok(None); }
+        if self.done {
+            return Ok(None);
+        }
         self.done = true;
         let data = self.data.clone();
-        let result = pyo3_async_runtimes::tokio::future_into_py(py, async move {
-            Ok(data)
-        })?;
+        let result = pyo3_async_runtimes::tokio::future_into_py(py, async move { Ok(data) })?;
         Ok(Some(result))
     }
 }
@@ -146,15 +165,17 @@ impl BlockingBytesIterator {
 
 #[pymethods]
 impl BlockingBytesIterator {
-    fn __iter__(slf: PyRef<'_, Self>) -> PyRef<'_, Self> { slf }
-    
+    fn __iter__(slf: PyRef<'_, Self>) -> PyRef<'_, Self> {
+        slf
+    }
+
     fn __next__(&mut self, py: Python<'_>) -> PyResult<Option<Py<PyAny>>> {
         if let Some(reader) = &mut self.reader {
             let mut buf = vec![0u8; self.buffer_size];
             // Release GIL during blocking read
             // TODO: Restore allow_threads when pyo3 version compatibility is resolved
             let n = reader.read(&mut buf)?;
-            
+
             if n == 0 {
                 self.reader = None; // Close/Drop reader
                 Ok(None)
@@ -168,19 +189,24 @@ impl BlockingBytesIterator {
     }
 }
 
-
 #[pyclass]
 pub struct AsyncResponseStream {
-    stream: std::sync::Arc<tokio::sync::Mutex<Box<dyn futures::Stream<Item = reqwest::Result<bytes::Bytes>> + Send + Unpin>>>,
+    stream: std::sync::Arc<
+        tokio::sync::Mutex<
+            Box<dyn futures::Stream<Item = reqwest::Result<bytes::Bytes>> + Send + Unpin>,
+        >,
+    >,
     #[allow(dead_code)]
     pool_permit: Option<tokio::sync::OwnedSemaphorePermit>,
 }
 
 impl AsyncResponseStream {
-    pub fn new(stream: Box<dyn futures::Stream<Item = reqwest::Result<bytes::Bytes>> + Send + Unpin>) -> Self {
+    pub fn new(
+        stream: Box<dyn futures::Stream<Item = reqwest::Result<bytes::Bytes>> + Send + Unpin>,
+    ) -> Self {
         AsyncResponseStream {
-             stream: std::sync::Arc::new(tokio::sync::Mutex::new(stream)),
-             pool_permit: None,
+            stream: std::sync::Arc::new(tokio::sync::Mutex::new(stream)),
+            pool_permit: None,
         }
     }
 
@@ -189,27 +215,30 @@ impl AsyncResponseStream {
         permit: tokio::sync::OwnedSemaphorePermit,
     ) -> Self {
         AsyncResponseStream {
-             stream: std::sync::Arc::new(tokio::sync::Mutex::new(stream)),
-             pool_permit: Some(permit),
+            stream: std::sync::Arc::new(tokio::sync::Mutex::new(stream)),
+            pool_permit: Some(permit),
         }
     }
 }
 
 #[pymethods]
 impl AsyncResponseStream {
-    fn __aiter__(slf: PyRef<'_, Self>) -> PyRef<'_, Self> { slf }
-    
+    fn __aiter__(slf: PyRef<'_, Self>) -> PyRef<'_, Self> {
+        slf
+    }
+
     fn __anext__<'py>(&mut self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
         let stream = self.stream.clone();
         pyo3_async_runtimes::tokio::future_into_py(py, async move {
             let mut s = stream.lock().await;
             match futures::StreamExt::next(&mut *s).await {
                 Some(Ok(chunk)) => {
-                     pyo3::Python::attach(|py| {
-                         Ok(PyBytes::new(py, &chunk).into_any().unbind())
-                     })
-                },
-                Some(Err(e)) => Err(pyo3::exceptions::PyIOError::new_err(format!("Stream error: {}", e))),
+                    pyo3::Python::attach(|py| Ok(PyBytes::new(py, &chunk).into_any().unbind()))
+                }
+                Some(Err(e)) => Err(pyo3::exceptions::PyIOError::new_err(format!(
+                    "Stream error: {}",
+                    e
+                ))),
                 None => Err(pyo3::exceptions::PyStopAsyncIteration::new_err("")),
             }
         })
@@ -230,9 +259,13 @@ pub struct ChunkedIter {
 
 #[pymethods]
 impl ChunkedIter {
-    fn __iter__(slf: PyRef<'_, Self>) -> PyRef<'_, Self> { slf }
+    fn __iter__(slf: PyRef<'_, Self>) -> PyRef<'_, Self> {
+        slf
+    }
     fn __next__(&mut self, py: Python<'_>) -> Option<Py<PyAny>> {
-        if self.pos >= self.chunks.len() { return None; }
+        if self.pos >= self.chunks.len() {
+            return None;
+        }
         let chunk = self.chunks[self.pos].clone_ref(py);
         if let (Some(counter), Some(sizes)) = (&self.byte_counter, &self.chunk_byte_sizes) {
             counter.fetch_add(sizes[self.pos], std::sync::atomic::Ordering::Relaxed);
@@ -240,17 +273,19 @@ impl ChunkedIter {
         self.pos += 1;
         Some(chunk)
     }
-    fn __aiter__(slf: PyRef<'_, Self>) -> PyRef<'_, Self> { slf }
+    fn __aiter__(slf: PyRef<'_, Self>) -> PyRef<'_, Self> {
+        slf
+    }
     fn __anext__<'py>(&mut self, py: Python<'py>) -> PyResult<Option<Bound<'py, PyAny>>> {
-        if self.pos >= self.chunks.len() { return Ok(None); }
+        if self.pos >= self.chunks.len() {
+            return Ok(None);
+        }
         let chunk = self.chunks[self.pos].clone_ref(py);
         if let (Some(counter), Some(sizes)) = (&self.byte_counter, &self.chunk_byte_sizes) {
             counter.fetch_add(sizes[self.pos], std::sync::atomic::Ordering::Relaxed);
         }
         self.pos += 1;
-        let result = pyo3_async_runtimes::tokio::future_into_py(py, async move {
-            Ok(chunk)
-        })?;
+        let result = pyo3_async_runtimes::tokio::future_into_py(py, async move { Ok(chunk) })?;
         Ok(Some(result))
     }
 }
@@ -270,23 +305,27 @@ impl IteratorByteStream {
             .add_subclass(IteratorByteStream { iterator })
     }
 
-    fn __iter__(slf: PyRef<'_, Self>) -> PyRef<'_, Self> { slf }
+    fn __iter__(slf: PyRef<'_, Self>) -> PyRef<'_, Self> {
+        slf
+    }
 
     fn __next__(&self, py: Python<'_>) -> PyResult<Option<Py<PyAny>>> {
-         // Call __next__ on iterator
-         match self.iterator.call_method0(py, "__next__") {
-             Ok(val) => Ok(Some(val)),
-             Err(e) => {
-                 if e.is_instance_of::<pyo3::exceptions::PyStopIteration>(py) {
-                     Ok(None)
-                 } else {
-                     Err(e)
-                 }
-             }
-         }
+        // Call __next__ on iterator
+        match self.iterator.call_method0(py, "__next__") {
+            Ok(val) => Ok(Some(val)),
+            Err(e) => {
+                if e.is_instance_of::<pyo3::exceptions::PyStopIteration>(py) {
+                    Ok(None)
+                } else {
+                    Err(e)
+                }
+            }
+        }
     }
-    
-    fn close(&self) -> PyResult<()> { Ok(()) }
+
+    fn close(&self) -> PyResult<()> {
+        Ok(())
+    }
 }
 
 /// Wrapper for Python sync iterators used in Response that tracks consumption.
@@ -315,10 +354,11 @@ impl ResponseIteratorStream {
     fn __iter__<'a>(slf: PyRef<'a, Self>, py: Python<'_>) -> PyResult<PyRef<'a, Self>> {
         if slf.consumed.load(std::sync::atomic::Ordering::Relaxed) {
             return Err(crate::exceptions::StreamConsumed::new_err(
-                "Attempted to read or stream content, but the stream has already been consumed."
+                "Attempted to read or stream content, but the stream has already been consumed.",
             ));
         }
-        slf.started.store(true, std::sync::atomic::Ordering::Relaxed);
+        slf.started
+            .store(true, std::sync::atomic::Ordering::Relaxed);
         // Get the actual iterator by calling __iter__ on the original iterable
         {
             let mut guard = slf.actual_iter.lock().unwrap();
@@ -333,7 +373,7 @@ impl ResponseIteratorStream {
     fn __next__(&self, py: Python<'_>) -> PyResult<Option<Py<PyAny>>> {
         if self.consumed.load(std::sync::atomic::Ordering::Relaxed) {
             return Err(crate::exceptions::StreamConsumed::new_err(
-                "Attempted to read or stream content, but the stream has already been consumed."
+                "Attempted to read or stream content, but the stream has already been consumed.",
             ));
         }
         let guard = self.actual_iter.lock().unwrap();
@@ -344,7 +384,8 @@ impl ResponseIteratorStream {
             Ok(val) => Ok(Some(val)),
             Err(e) => {
                 if e.is_instance_of::<pyo3::exceptions::PyStopIteration>(py) {
-                    self.consumed.store(true, std::sync::atomic::Ordering::Relaxed);
+                    self.consumed
+                        .store(true, std::sync::atomic::Ordering::Relaxed);
                     Ok(None)
                 } else {
                     Err(e)
@@ -365,12 +406,11 @@ pub struct ResponseAsyncIteratorStream {
 
 impl ResponseAsyncIteratorStream {
     pub fn new(original: Py<PyAny>) -> PyClassInitializer<Self> {
-        PyClassInitializer::from(AsyncByteStream)
-            .add_subclass(ResponseAsyncIteratorStream {
-                original,
-                actual_iterator: std::sync::Mutex::new(None),
-                started: std::sync::atomic::AtomicBool::new(false),
-            })
+        PyClassInitializer::from(AsyncByteStream).add_subclass(ResponseAsyncIteratorStream {
+            original,
+            actual_iterator: std::sync::Mutex::new(None),
+            started: std::sync::atomic::AtomicBool::new(false),
+        })
     }
 }
 
@@ -380,10 +420,11 @@ impl ResponseAsyncIteratorStream {
         // If __aiter__ was already called (stream was started), raise StreamConsumed
         if slf.started.load(std::sync::atomic::Ordering::Relaxed) {
             return Err(crate::exceptions::StreamConsumed::new_err(
-                "Attempted to read or stream content, but the stream has already been consumed."
+                "Attempted to read or stream content, but the stream has already been consumed.",
             ));
         }
-        slf.started.store(true, std::sync::atomic::Ordering::Relaxed);
+        slf.started
+            .store(true, std::sync::atomic::Ordering::Relaxed);
         // Call __aiter__ on the original to get the actual async iterator
         {
             let mut guard = slf.actual_iterator.lock().unwrap();
@@ -392,7 +433,7 @@ impl ResponseAsyncIteratorStream {
                 *guard = Some(iter);
             }
         } // drop guard before converting slf
-        // Return self as the object to iterate (we implement __anext__)
+          // Return self as the object to iterate (we implement __anext__)
         Ok(slf.into())
     }
 
@@ -405,7 +446,7 @@ impl ResponseAsyncIteratorStream {
             Ok(val) => {
                 let bound = val.bind(py);
                 Ok(Some(bound.clone()))
-            },
+            }
             Err(e) => {
                 if e.is_instance_of::<pyo3::exceptions::PyStopAsyncIteration>(py) {
                     Ok(None)
@@ -416,7 +457,6 @@ impl ResponseAsyncIteratorStream {
         }
     }
 }
-
 
 pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<AsyncByteStream>()?;

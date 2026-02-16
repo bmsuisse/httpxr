@@ -1,5 +1,5 @@
-use pyo3::prelude::*;
 use log::{Metadata, Record};
+use pyo3::prelude::*;
 
 /// A simple wrapper around pyo3::Python::with_gil
 pub struct Python;
@@ -27,7 +27,7 @@ impl log::Log for PyLogger {
                     Ok(l) => l,
                     Err(_) => return,
                 };
-                
+
                 let level = match record.level() {
                     log::Level::Error => 40,
                     log::Level::Warn => 30,
@@ -38,16 +38,16 @@ impl log::Log for PyLogger {
 
                 let logger_name = record.target();
                 let logger_name = if logger_name.starts_with("httpr") {
-                     "httpr"
+                    "httpr"
                 } else {
-                     logger_name
+                    logger_name
                 };
 
                 let logger = match logging.call_method1("getLogger", (logger_name,)) {
                     Ok(l) => l,
                     Err(_) => return,
                 };
-                
+
                 let msg = format!("{}", record.args());
                 let _ = logger.call_method1("log", (level, msg));
             });

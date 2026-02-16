@@ -49,7 +49,11 @@ pub fn to_str(value: &Bound<'_, PyAny>, encoding: Option<&str>) -> PyResult<Stri
 }
 
 #[pyfunction]
-pub fn to_bytes_or_str(py: Python<'_>, value: &str, match_type_of: &Bound<'_, PyAny>) -> PyResult<Py<PyAny>> {
+pub fn to_bytes_or_str(
+    py: Python<'_>,
+    value: &str,
+    match_type_of: &Bound<'_, PyAny>,
+) -> PyResult<Py<PyAny>> {
     if match_type_of.cast::<PyString>().is_ok() {
         Ok(PyString::new(py, value).into())
     } else {
@@ -60,7 +64,7 @@ pub fn to_bytes_or_str(py: Python<'_>, value: &str, match_type_of: &Bound<'_, Py
 #[pyfunction]
 pub fn unquote(value: &str) -> String {
     if value.len() >= 2 && value.starts_with('"') && value.ends_with('"') {
-        value[1..value.len()-1].to_string()
+        value[1..value.len() - 1].to_string()
     } else {
         value.to_string()
     }

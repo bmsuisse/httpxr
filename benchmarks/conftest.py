@@ -5,6 +5,7 @@ Terminology:
   - "python" = original pure-Python httpx from _reference/
   - "rust"   = httpr — the Rust-backed rewrite (current project)
 """
+
 from __future__ import annotations
 
 import json
@@ -27,7 +28,9 @@ from uvicorn.server import Server
 
 Message = typing.Dict[str, typing.Any]
 Receive = typing.Callable[[], typing.Awaitable[Message]]
-Send = typing.Callable[[typing.Dict[str, typing.Any]], typing.Coroutine[None, None, None]]
+Send = typing.Callable[
+    [typing.Dict[str, typing.Any]], typing.Coroutine[None, None, None]
+]
 Scope = typing.Dict[str, typing.Any]
 
 
@@ -49,9 +52,7 @@ async def app(scope: Scope, receive: Receive, send: Send) -> None:
         await hello_world(scope, receive, send)
 
 
-async def hello_world(
-    scope: Scope, receive: Receive, send: Send
-) -> None:
+async def hello_world(scope: Scope, receive: Receive, send: Send) -> None:
     await send(
         {
             "type": "http.response.start",
@@ -62,9 +63,7 @@ async def hello_world(
     await send({"type": "http.response.body", "body": b"Hello, world!"})
 
 
-async def json_response(
-    scope: Scope, receive: Receive, send: Send
-) -> None:
+async def json_response(scope: Scope, receive: Receive, send: Send) -> None:
     payload = json.dumps({"message": "Hello", "numbers": list(range(100))}).encode()
     await send(
         {
@@ -79,9 +78,7 @@ async def json_response(
     await send({"type": "http.response.body", "body": payload})
 
 
-async def large_json_response(
-    scope: Scope, receive: Receive, send: Send
-) -> None:
+async def large_json_response(scope: Scope, receive: Receive, send: Send) -> None:
     payload = json.dumps({"data": "x" * 1_000_000}).encode()
     await send(
         {
@@ -99,6 +96,7 @@ async def large_json_response(
 # Pre-generate tabular JSON payloads (array-of-objects, like a typical API)
 _TABULAR_SIZES = {"small": 1_000, "medium": 10_000, "large": 50_000}
 _TABULAR_CACHE: dict[str, bytes] = {}
+
 
 def _get_tabular_payload(size_name: str) -> bytes:
     if size_name not in _TABULAR_CACHE:
@@ -119,9 +117,7 @@ def _get_tabular_payload(size_name: str) -> bytes:
     return _TABULAR_CACHE[size_name]
 
 
-async def tabular_json_response(
-    scope: Scope, receive: Receive, send: Send
-) -> None:
+async def tabular_json_response(scope: Scope, receive: Receive, send: Send) -> None:
     # /tabular_json/small, /tabular_json/medium, /tabular_json/large
     parts = scope["path"].rstrip("/").split("/")
     size_name = parts[-1] if len(parts) > 1 else "small"
@@ -159,9 +155,7 @@ def _build_nested_payload(variant: str) -> bytes:
                         "age": rng.randint(18, 80),
                     },
                     "address": {
-                        "city": rng.choice(
-                            ["Zurich", "Bern", "Basel", "Geneva"]
-                        ),
+                        "city": rng.choice(["Zurich", "Bern", "Basel", "Geneva"]),
                         "zip": str(rng.randint(1000, 9999)),
                         "country": "CH",
                     },
@@ -183,16 +177,10 @@ def _build_nested_payload(variant: str) -> bytes:
                                 "l3": {
                                     "c": rng.random(),
                                     "l4": {
-                                        "d": rng.choice(
-                                            [True, False]
-                                        ),
+                                        "d": rng.choice([True, False]),
                                         "l5": {
-                                            "val": rng.gauss(
-                                                0, 1
-                                            ),
-                                            "tag": rng.choice(
-                                                ["x", "y", "z"]
-                                            ),
+                                            "val": rng.gauss(0, 1),
+                                            "tag": rng.choice(["x", "y", "z"]),
                                         },
                                     },
                                 },
@@ -208,23 +196,16 @@ def _build_nested_payload(variant: str) -> bytes:
                     {
                         "id": i,
                         "metrics": {
-                            f"m{j}": round(
-                                rng.uniform(-100, 100), 4
-                            )
-                            for j in range(20)
+                            f"m{j}": round(rng.uniform(-100, 100), 4) for j in range(20)
                         },
                         "tags": [
-                            rng.choice(
-                                ["alpha", "beta", "gamma", "delta"]
-                            )
+                            rng.choice(["alpha", "beta", "gamma", "delta"])
                             for _ in range(10)
                         ],
                         "history": [
                             {
                                 "ts": 1700000000 + k * 3600,
-                                "val": round(
-                                    rng.gauss(50, 15), 2
-                                ),
+                                "val": round(rng.gauss(50, 15), 2),
                             }
                             for k in range(5)
                         ],
@@ -234,9 +215,7 @@ def _build_nested_payload(variant: str) -> bytes:
     return _NESTED_CACHE[variant]
 
 
-async def nested_json_response(
-    scope: Scope, receive: Receive, send: Send
-) -> None:
+async def nested_json_response(scope: Scope, receive: Receive, send: Send) -> None:
     parts = scope["path"].rstrip("/").split("/")
     variant = parts[-1] if len(parts) > 1 else "shallow"
     if variant not in ("shallow", "deep", "wide"):
@@ -255,9 +234,7 @@ async def nested_json_response(
     await send({"type": "http.response.body", "body": payload})
 
 
-async def echo_body(
-    scope: Scope, receive: Receive, send: Send
-) -> None:
+async def echo_body(scope: Scope, receive: Receive, send: Send) -> None:
     body = b""
     more_body = True
     while more_body:
@@ -279,6 +256,7 @@ async def echo_body(
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _find_free_port() -> int:
     """Find a free TCP port on localhost."""
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
@@ -290,6 +268,7 @@ def _find_free_port() -> int:
 # Test server running in a background thread
 # ---------------------------------------------------------------------------
 
+
 class BenchmarkServer(Server):
     def install_signal_handlers(self) -> None:
         pass  # Cannot install signal handlers outside main thread
@@ -298,7 +277,9 @@ class BenchmarkServer(Server):
 @pytest.fixture(scope="session")
 def server() -> typing.Iterator[BenchmarkServer]:
     port = _find_free_port()
-    config = Config(app=app, lifespan="off", loop="asyncio", host="127.0.0.1", port=port)
+    config = Config(
+        app=app, lifespan="off", loop="asyncio", host="127.0.0.1", port=port
+    )
     srv = BenchmarkServer(config=config)
     thread = threading.Thread(target=srv.run)
     thread.start()
@@ -320,10 +301,12 @@ def base_url(server: BenchmarkServer) -> str:
 # Reference (pure-Python) httpx — imported from _reference/
 # ---------------------------------------------------------------------------
 
+
 @pytest.fixture(scope="session")
 def python_httpx() -> typing.Any:
     """Import the original pure-Python httpx from _reference/ as a standalone module."""
     import importlib
+
     ref_path = str(Path(__file__).resolve().parent.parent / "_reference")
 
     # Save and remove the existing httpx module (if any) to avoid conflicts
@@ -351,7 +334,9 @@ def python_httpx() -> typing.Any:
 
 
 @pytest.fixture(scope="session")
-def python_client(python_httpx: typing.Any, base_url: str) -> typing.Iterator[typing.Any]:
+def python_client(
+    python_httpx: typing.Any, base_url: str
+) -> typing.Iterator[typing.Any]:
     """Sync Client from the original pure-Python httpx."""
     client = python_httpx.Client(base_url=base_url)
     yield client
@@ -362,10 +347,12 @@ def python_client(python_httpx: typing.Any, base_url: str) -> typing.Iterator[ty
 # Rust-backed httpr — the current project
 # ---------------------------------------------------------------------------
 
+
 @pytest.fixture(scope="session")
 def rust_httpx() -> typing.Any:
     """Import the Rust-backed httpr (the installed package)."""
     import httpr
+
     return httpr
 
 

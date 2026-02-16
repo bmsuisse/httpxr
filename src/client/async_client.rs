@@ -1,19 +1,13 @@
 use pyo3::prelude::*;
-use pyo3::types::{PyAnyMethods, PyDictMethods, PyDict, PyBytes};
+use pyo3::types::{PyAnyMethods, PyBytes, PyDict, PyDictMethods};
 use std::time::Instant;
 
 use crate::config::{Limits, Timeout};
-use crate::models::{Headers, Request, Response, Cookies};
-use crate::urls::URL;
+use crate::models::{Cookies, Headers, Request, Response};
 use crate::stream_ctx::StreamContextManager;
+use crate::urls::URL;
 
 use super::common::*;
-
-
-
-
-
-
 
 /// Async HTTP Client backed by reqwest + tokio.
 #[pyclass]
@@ -83,7 +77,10 @@ impl AsyncClient {
         let mut hdrs = Headers::create(headers, "utf-8")?;
         // Add default headers if not already present
         if !hdrs.contains_header("user-agent") {
-            hdrs.set_header("user-agent", &format!("python-httpr/{}", env!("CARGO_PKG_VERSION")));
+            hdrs.set_header(
+                "user-agent",
+                &format!("python-httpr/{}", env!("CARGO_PKG_VERSION")),
+            );
         }
         if !hdrs.contains_header("accept") {
             hdrs.set_header("accept", "*/*");
@@ -116,17 +113,20 @@ impl AsyncClient {
 
         Ok(AsyncClient {
             base_url: base,
-            auth: auth.map(|a| {
-                if let AuthArg::Custom(p) = a {
-                    // Validate custom auth
-                    if let Err(e) = validate_auth_type(py, p.bind(py)) {
-                        return Err(e);
+            auth: auth
+                .map(|a| {
+                    if let AuthArg::Custom(p) = a {
+                        // Validate custom auth
+                        if let Err(e) = validate_auth_type(py, p.bind(py)) {
+                            return Err(e);
+                        }
+                        Ok(Some(p))
+                    } else {
+                        Ok(None)
                     }
-                    Ok(Some(p))
-                } else {
-                    Ok(None)
-                }
-            }).transpose()?.flatten(),
+                })
+                .transpose()?
+                .flatten(),
             params,
             default_headers: hdrs_py,
             cookies: ckies,
@@ -134,7 +134,11 @@ impl AsyncClient {
             follow_redirects,
             transport: transport_obj,
             mounts: mounts_dict,
-            timeout: if let Some(t) = timeout { t.extract::<Timeout>().ok() } else { None },
+            timeout: if let Some(t) = timeout {
+                t.extract::<Timeout>().ok()
+            } else {
+                None
+            },
             is_closed: false,
             trust_env,
             event_hooks: event_hooks.map(|e| e.clone().unbind()),
@@ -152,7 +156,9 @@ impl AsyncClient {
         follow_redirects: Option<bool>,
     ) -> PyResult<Bound<'py, PyAny>> {
         let mut req = request.extract::<Request>()?;
-        if stream { req.stream_response = true; }
+        if stream {
+            req.stream_response = true;
+        }
 
         // Apply client-level timeout to request if it doesn't already have one
         if let Some(ref t) = self.timeout {
@@ -177,9 +183,11 @@ impl AsyncClient {
         // tokio-managed thread (e.g., StreamContextManager.__aenter__) where
         // there is no running event loop.
         let event_loop: Option<Py<PyAny>> = if !is_streaming {
-            Some(py.import("asyncio")?
-                .call_method0("get_running_loop")?
-                .unbind())
+            Some(
+                py.import("asyncio")?
+                    .call_method0("get_running_loop")?
+                    .unbind(),
+            )
         } else {
             None
         };
@@ -190,9 +198,17 @@ impl AsyncClient {
             // If we have an auth flow, drive it
             if let Some(flow) = auth {
                 return Self::_send_with_auth_flow(
-                    start, flow, req, transport, mounts, max_redirects,
-                    follow_redirects, event_hooks, None,
-                ).await;
+                    start,
+                    flow,
+                    req,
+                    transport,
+                    mounts,
+                    max_redirects,
+                    follow_redirects,
+                    event_hooks,
+                    None,
+                )
+                .await;
             }
 
             // No auth flow, send normally with redirect handling
@@ -223,7 +239,10 @@ impl AsyncClient {
                             let h = hook.bind(py);
                             let req = Py::new(py, current_req.clone())?;
                             let ret = h.call1((req,))?;
-                            let is_awaitable = py.import("inspect")?.call_method1("isawaitable", (&ret,))?.extract::<bool>()?;
+                            let is_awaitable = py
+                                .import("inspect")?
+                                .call_method1("isawaitable", (&ret,))?
+                                .extract::<bool>()?;
                             if is_awaitable {
                                 Ok(Some(pyo3_async_runtimes::tokio::into_future(ret)?))
                             } else {
@@ -237,10 +256,16 @@ impl AsyncClient {
                 }
 
                 let response_coro = Python::attach(|py| {
-                    let transport_to_use = select_transport(mounts.bind(py).clone(), transport.clone_ref(py), &current_req.url)?;
+                    let transport_to_use = select_transport(
+                        mounts.bind(py).clone(),
+                        transport.clone_ref(py),
+                        &current_req.url,
+                    )?;
                     let t_bound = transport_to_use.bind(py);
                     let req_py = Py::new(py, current_req.clone())?;
-                    t_bound.call_method1("handle_async_request", (req_py,)).map(|b| b.unbind())
+                    t_bound
+                        .call_method1("handle_async_request", (req_py,))
+                        .map(|b| b.unbind())
                 })?;
 
                 let future = Python::attach(|py| {
@@ -291,7 +316,10 @@ impl AsyncClient {
                             let h = hook.bind(py);
                             let r = response.bind(py);
                             let ret = h.call1((r,))?;
-                            let is_awaitable = py.import("inspect")?.call_method1("isawaitable", (&ret,))?.extract::<bool>()?;
+                            let is_awaitable = py
+                                .import("inspect")?
+                                .call_method1("isawaitable", (&ret,))?
+                                .extract::<bool>()?;
                             if is_awaitable {
                                 Ok(Some(pyo3_async_runtimes::tokio::into_future(ret)?))
                             } else {
@@ -310,12 +338,28 @@ impl AsyncClient {
                     }
 
                     if redirect_count >= max_redirects {
-                        return Err(crate::exceptions::TooManyRedirects::new_err(format!("Exceeded maximum number of redirects ({})", max_redirects)));
+                        return Err(crate::exceptions::TooManyRedirects::new_err(format!(
+                            "Exceeded maximum number of redirects ({})",
+                            max_redirects
+                        )));
                     }
 
-                    let location = response.bind(py).borrow().headers.bind(py).borrow().get_first_value("location").ok_or_else(|| pyo3::exceptions::PyValueError::new_err("Redirect without Location header"))?;
-                    let mut redirect_url = current_req.url.join_relative(&location)
-                        .map_err(|e| crate::exceptions::RemoteProtocolError::new_err(e.to_string()))?;
+                    let location = response
+                        .bind(py)
+                        .borrow()
+                        .headers
+                        .bind(py)
+                        .borrow()
+                        .get_first_value("location")
+                        .ok_or_else(|| {
+                            pyo3::exceptions::PyValueError::new_err(
+                                "Redirect without Location header",
+                            )
+                        })?;
+                    let mut redirect_url =
+                        current_req.url.join_relative(&location).map_err(|e| {
+                            crate::exceptions::RemoteProtocolError::new_err(e.to_string())
+                        })?;
 
                     // Fragment preservation
                     if redirect_url.parsed.fragment.is_none() {
@@ -323,8 +367,16 @@ impl AsyncClient {
                     }
 
                     let status_code = response.bind(py).borrow().status_code;
-                    let redirect_method = if status_code == 303 { "GET".to_string() } else { current_req.method.clone() };
-                    let redirect_body = if redirect_method == "GET" { None } else { current_req.content_body.clone() };
+                    let redirect_method = if status_code == 303 {
+                        "GET".to_string()
+                    } else {
+                        current_req.method.clone()
+                    };
+                    let redirect_body = if redirect_method == "GET" {
+                        None
+                    } else {
+                        current_req.content_body.clone()
+                    };
 
                     // Strip authorization on cross-origin redirect
                     let mut redirect_headers = current_req.headers.bind(py).borrow().clone();
@@ -434,15 +486,15 @@ _task.add_done_callback(_on_done)
                                 )?;
                                 let result_fut = ns.get_item("_result_fut")?.unwrap();
                                 let exc_holder = ns.get_item("_exc_holder")?.unwrap().unbind();
-                                let fut = pyo3_async_runtimes::tokio::into_future(result_fut.clone())?;
+                                let fut =
+                                    pyo3_async_runtimes::tokio::into_future(result_fut.clone())?;
                                 Ok::<_, PyErr>((fut, exc_holder))
                             })?;
                             // Await the result future — it resolves with True/False,
                             // never with an exception (to avoid KeyboardInterrupt escaping)
                             let success_obj = result_future.0.await?;
-                            let success = Python::attach(|py| {
-                                success_obj.bind(py).extract::<bool>()
-                            })?;
+                            let success =
+                                Python::attach(|py| success_obj.bind(py).extract::<bool>())?;
                             if !success {
                                 // Retrieve the stored exception from exc_holder
                                 let err = Python::attach(|py| -> PyResult<PyErr> {
@@ -481,24 +533,33 @@ impl AsyncClient {
 
         // Get the first request from the flow
         let first_req = if is_async_flow {
-             let coro = Python::attach(|py| flow.bind(py).call_method0("__anext__").map(|b| b.unbind()))?;
-             let fut = Python::attach(|py| pyo3_async_runtimes::tokio::into_future(coro.bind(py).clone()))?;
-             match fut.await {
-                 Ok(v) => Python::attach(|py| Ok(Some(v.bind(py).extract::<Request>()?))),
-                 Err(e) => {
-                     let is_stop = Python::attach(|py| e.is_instance_of::<pyo3::exceptions::PyStopAsyncIteration>(py));
-                     if is_stop { Ok(None) } else { Err(e) }
-                 }
-             }?
+            let coro =
+                Python::attach(|py| flow.bind(py).call_method0("__anext__").map(|b| b.unbind()))?;
+            let fut = Python::attach(|py| {
+                pyo3_async_runtimes::tokio::into_future(coro.bind(py).clone())
+            })?;
+            match fut.await {
+                Ok(v) => Python::attach(|py| Ok(Some(v.bind(py).extract::<Request>()?))),
+                Err(e) => {
+                    let is_stop = Python::attach(|py| {
+                        e.is_instance_of::<pyo3::exceptions::PyStopAsyncIteration>(py)
+                    });
+                    if is_stop {
+                        Ok(None)
+                    } else {
+                        Err(e)
+                    }
+                }
+            }?
         } else {
-             Python::attach(|py| {
-                 let flow_bound = flow.bind(py);
-                 match flow_bound.call_method0("__next__") {
+            Python::attach(|py| {
+                let flow_bound = flow.bind(py);
+                match flow_bound.call_method0("__next__") {
                     Ok(r) => Ok(Some(r.extract::<Request>()?)),
                     Err(e) if e.is_instance_of::<pyo3::exceptions::PyStopIteration>(py) => Ok(None),
                     Err(e) => Err(e),
                 }
-             })?
+            })?
         };
 
         let mut current_req = match first_req {
@@ -506,18 +567,29 @@ impl AsyncClient {
             None => {
                 // Empty flow, send original request directly
                 return Self::_send_single_async(
-                    start, original_req, transport, mounts, default_encoding,
-                ).await;
+                    start,
+                    original_req,
+                    transport,
+                    mounts,
+                    default_encoding,
+                )
+                .await;
             }
         };
 
         loop {
             // Send the request
             let response_coro = Python::attach(|py| {
-                let transport_to_use = select_transport(mounts.bind(py).clone(), transport.clone_ref(py), &current_req.url)?;
+                let transport_to_use = select_transport(
+                    mounts.bind(py).clone(),
+                    transport.clone_ref(py),
+                    &current_req.url,
+                )?;
                 let t_bound = transport_to_use.bind(py);
                 let req_py = Py::new(py, current_req.clone())?;
-                t_bound.call_method1("handle_async_request", (req_py,)).map(|b| b.unbind())
+                t_bound
+                    .call_method1("handle_async_request", (req_py,))
+                    .map(|b| b.unbind())
             })?;
 
             let future = Python::attach(|py| {
@@ -533,9 +605,12 @@ impl AsyncClient {
 
                 if let Some(ref de) = default_encoding {
                     let current_encoding: String = resp.default_encoding.bind(py).extract()?;
-                    if current_encoding == "utf-8" { // Only override if default
+                    if current_encoding == "utf-8" {
+                        // Only override if default
                         let new_encoding: String = de.bind(py).extract()?;
-                        resp.default_encoding = pyo3::types::PyString::new(py, &new_encoding).into_any().unbind();
+                        resp.default_encoding = pyo3::types::PyString::new(py, &new_encoding)
+                            .into_any()
+                            .unbind();
                     }
                 }
 
@@ -552,7 +627,9 @@ impl AsyncClient {
             // Check requires_response_body
             let resp_body_needed = Python::attach(|py| {
                 let flow_bound = flow.bind(py);
-                flow_bound.getattr("requires_response_body").ok()
+                flow_bound
+                    .getattr("requires_response_body")
+                    .ok()
                     .and_then(|v| v.extract::<bool>().ok())
                     .unwrap_or(false)
             });
@@ -569,23 +646,37 @@ impl AsyncClient {
 
             // Feed response to the flow and get next request
             let next_req = if is_async_flow {
-                 let coro = Python::attach(|py| flow.bind(py).call_method1("asend", (response_obj.bind(py),)).map(|b| b.unbind()))?;
-                 let fut = Python::attach(|py| pyo3_async_runtimes::tokio::into_future(coro.bind(py).clone()))?;
-                 match fut.await {
-                     Ok(v) => Python::attach(|py| Ok(Some(v.bind(py).extract::<Request>()?))),
-                     Err(e) => {
-                         let is_stop = Python::attach(|py| e.is_instance_of::<pyo3::exceptions::PyStopAsyncIteration>(py));
-                         if is_stop { Ok(None) } else { Err(e) }
-                     }
-                 }?
+                let coro = Python::attach(|py| {
+                    flow.bind(py)
+                        .call_method1("asend", (response_obj.bind(py),))
+                        .map(|b| b.unbind())
+                })?;
+                let fut = Python::attach(|py| {
+                    pyo3_async_runtimes::tokio::into_future(coro.bind(py).clone())
+                })?;
+                match fut.await {
+                    Ok(v) => Python::attach(|py| Ok(Some(v.bind(py).extract::<Request>()?))),
+                    Err(e) => {
+                        let is_stop = Python::attach(|py| {
+                            e.is_instance_of::<pyo3::exceptions::PyStopAsyncIteration>(py)
+                        });
+                        if is_stop {
+                            Ok(None)
+                        } else {
+                            Err(e)
+                        }
+                    }
+                }?
             } else {
-                 Python::attach(|py| {
+                Python::attach(|py| {
                     match flow.bind(py).call_method1("send", (response_obj.bind(py),)) {
                         Ok(r) => Ok(Some(r.extract::<Request>()?)),
-                        Err(e) if e.is_instance_of::<pyo3::exceptions::PyStopIteration>(py) => Ok(None),
+                        Err(e) if e.is_instance_of::<pyo3::exceptions::PyStopIteration>(py) => {
+                            Ok(None)
+                        }
                         Err(e) => Err(e),
                     }
-                 })?
+                })?
             };
 
             if let Some(next) = next_req {
@@ -594,9 +685,7 @@ impl AsyncClient {
                 current_req = next;
             } else {
                 response.history = history;
-                return Python::attach(|py| {
-                    Py::new(py, response)
-                });
+                return Python::attach(|py| Py::new(py, response));
             }
         }
     }
@@ -609,10 +698,16 @@ impl AsyncClient {
         default_encoding: Option<Py<PyAny>>,
     ) -> PyResult<Py<Response>> {
         let response_coro = Python::attach(|py| {
-            let transport_to_use = select_transport(mounts.bind(py).clone(), transport.clone_ref(py), &request.url)?;
+            let transport_to_use = select_transport(
+                mounts.bind(py).clone(),
+                transport.clone_ref(py),
+                &request.url,
+            )?;
             let t_bound = transport_to_use.bind(py);
             let req_py = Py::new(py, request.clone())?;
-            t_bound.call_method1("handle_async_request", (req_py,)).map(|b| b.unbind())
+            t_bound
+                .call_method1("handle_async_request", (req_py,))
+                .map(|b| b.unbind())
         })?;
 
         let future = Python::attach(|py| {
@@ -639,12 +734,22 @@ impl AsyncClient {
 
             // Log the request/response
             {
-                let method = &resp.request.as_ref().map(|r| r.method.clone()).unwrap_or_default();
-                let url = resp.request.as_ref().map(|r| r.url.to_string()).unwrap_or_default();
+                let method = &resp
+                    .request
+                    .as_ref()
+                    .map(|r| r.method.clone())
+                    .unwrap_or_default();
+                let url = resp
+                    .request
+                    .as_ref()
+                    .map(|r| r.url.to_string())
+                    .unwrap_or_default();
                 let http_version = {
                     let ext = resp.extensions.bind(py);
                     if let Ok(d) = ext.cast::<PyDict>() {
-                        d.get_item("http_version").ok().flatten()
+                        d.get_item("http_version")
+                            .ok()
+                            .flatten()
                             .and_then(|v| v.extract::<Vec<u8>>().ok())
                             .map(|b| String::from_utf8_lossy(&b).to_string())
                             .unwrap_or_else(|| "HTTP/1.1".to_string())
@@ -672,7 +777,10 @@ impl AsyncClient {
         url: Bound<'py, PyAny>,
         kwargs: Option<Bound<'py, PyDict>>,
     ) -> PyResult<StreamContextManager> {
-        let mut request = client.call_method1("build_request", (method, url)).map_err(|e| e)?.extract::<Request>()?;
+        let mut request = client
+            .call_method1("build_request", (method, url))
+            .map_err(|e| e)?
+            .extract::<Request>()?;
         request.stream_response = true;
 
         Ok(StreamContextManager {
@@ -704,7 +812,9 @@ impl AsyncClient {
         kwargs: Option<&Bound<'_, PyDict>>,
     ) -> PyResult<Bound<'py, PyAny>> {
         if self.is_closed {
-            return Err(pyo3::exceptions::PyRuntimeError::new_err("The client is closed"));
+            return Err(pyo3::exceptions::PyRuntimeError::new_err(
+                "The client is closed",
+            ));
         }
         let _files = files;
         let method_str = method.to_uppercase();
@@ -715,14 +825,19 @@ impl AsyncClient {
             Ok(u) => u,
             Err(e) => {
                 let msg = e.to_string();
-                if msg.contains("RelativeUrlWithoutBase") || msg.contains("EmptyHost") || msg.contains("empty host") {
-                    return Err(crate::exceptions::LocalProtocolError::new_err(
-                        format!("Invalid URL '{}'", url_str)
-                    ));
+                if msg.contains("RelativeUrlWithoutBase")
+                    || msg.contains("EmptyHost")
+                    || msg.contains("empty host")
+                {
+                    return Err(crate::exceptions::LocalProtocolError::new_err(format!(
+                        "Invalid URL '{}'",
+                        url_str
+                    )));
                 }
-                return Err(crate::exceptions::UnsupportedProtocol::new_err(
-                    format!("Request URL has an unsupported protocol '{}': {}", url_str, msg)
-                ));
+                return Err(crate::exceptions::UnsupportedProtocol::new_err(format!(
+                    "Request URL has an unsupported protocol '{}': {}",
+                    url_str, msg
+                )));
             }
         };
 
@@ -757,9 +872,10 @@ impl AsyncClient {
         let scheme = target_url.get_scheme();
         let host = target_url.get_host();
         if scheme.is_empty() || scheme == "://" {
-            return Err(crate::exceptions::UnsupportedProtocol::new_err(
-                format!("Request URL is missing a scheme for URL '{}'", url_str)
-            ));
+            return Err(crate::exceptions::UnsupportedProtocol::new_err(format!(
+                "Request URL is missing a scheme for URL '{}'",
+                url_str
+            )));
         }
         {
             let url_full = target_url.to_string();
@@ -771,15 +887,17 @@ impl AsyncClient {
                 }
             });
             if !["http", "https", "ws", "wss"].contains(&&*scheme) && !has_mount {
-                return Err(crate::exceptions::UnsupportedProtocol::new_err(
-                    format!("Request URL has an unsupported protocol '{}': for URL '{}'", scheme, url_str)
-                ));
+                return Err(crate::exceptions::UnsupportedProtocol::new_err(format!(
+                    "Request URL has an unsupported protocol '{}': for URL '{}'",
+                    scheme, url_str
+                )));
             }
         }
         if host.is_empty() && ["http", "https"].contains(&&*scheme) {
-            return Err(crate::exceptions::LocalProtocolError::new_err(
-                format!("Invalid URL '{}'", url_str)
-            ));
+            return Err(crate::exceptions::LocalProtocolError::new_err(format!(
+                "Invalid URL '{}'",
+                url_str
+            )));
         }
 
         // Build merged headers
@@ -804,7 +922,7 @@ impl AsyncClient {
                 let is_iter = c.call_method0("__iter__").is_ok();
                 if !is_async_iter && is_iter {
                     return Err(pyo3::exceptions::PyRuntimeError::new_err(
-                        "The content argument must be an async iterator."
+                        "The content argument must be an async iterator.",
                     ));
                 }
                 // It is an async iterator (or treated as such)
@@ -826,10 +944,15 @@ impl AsyncClient {
                     } else {
                         Some(remainder.trim_matches('"').to_string())
                     }
-                } else { None }
-            } else { None };
+                } else {
+                    None
+                }
+            } else {
+                None
+            };
 
-            let multipart = crate::multipart::MultipartStream::new(py, data, Some(f), boundary.as_deref())?;
+            let multipart =
+                crate::multipart::MultipartStream::new(py, data, Some(f), boundary.as_deref())?;
             if !merged_headers.contains_header("content-type") {
                 merged_headers.set_header("content-type", &multipart.content_type());
             }
@@ -839,8 +962,10 @@ impl AsyncClient {
             let s: String = urllib.call_method1("urlencode", (d, true))?.extract()?;
             merged_headers.set_header("content-type", "application/x-www-form-urlencoded");
             (Some(s.into_bytes()), None)
-        } else { (None, None) };
- 
+        } else {
+            (None, None)
+        };
+
         if !merged_headers.contains_header("host") {
             merged_headers.set_header("host", target_url.get_raw_host());
         }
@@ -863,14 +988,27 @@ impl AsyncClient {
 
         // Attach timeout
         let t_val = if let Some(t_arg) = timeout {
-            if t_arg.is_none() { None }
-            else { Some(crate::config::Timeout::new(py, Some(t_arg), None, None, None, None)?) }
+            if t_arg.is_none() {
+                None
+            } else {
+                Some(crate::config::Timeout::new(
+                    py,
+                    Some(t_arg),
+                    None,
+                    None,
+                    None,
+                    None,
+                )?)
+            }
         } else {
             self.timeout.clone()
         };
 
         if let Some(t) = t_val {
-            let _ = request.extensions.bind(py).set_item("timeout", Py::new(py, t)?);
+            let _ = request
+                .extensions
+                .bind(py)
+                .set_item("timeout", Py::new(py, t)?);
         }
         if let Some(e) = extensions {
             if let Ok(d) = e.cast::<PyDict>() {
@@ -896,7 +1034,7 @@ impl AsyncClient {
         } else {
             None
         };
-        
+
         let (auth_val, auth_explicitly_none) = match auth_kw {
             None => (None, false), // Default -> Use Client
             Some(b) => {
@@ -908,7 +1046,13 @@ impl AsyncClient {
                 }
             }
         };
-        let auth_result = apply_auth_async(py, auth_val.as_ref(), self.auth.as_ref(), &mut request, auth_explicitly_none)?; 
+        let auth_result = apply_auth_async(
+            py,
+            auth_val.as_ref(),
+            self.auth.as_ref(),
+            &mut request,
+            auth_explicitly_none,
+        )?;
 
         // Get optional auth flow for passing to send
         let auth_flow = match auth_result {
@@ -917,126 +1061,288 @@ impl AsyncClient {
         };
 
         let req_py = Py::new(py, request)?;
-        self.send(py, req_py.into_bound(py).into_any(), stream, auth_flow, follow_redirects)
+        self.send(
+            py,
+            req_py.into_bound(py).into_any(),
+            stream,
+            auth_flow,
+            follow_redirects,
+        )
     }
-
-
-
-
 
     #[pyo3(signature = (url, *, params=None, headers=None, cookies=None, follow_redirects=None, timeout=None, extensions=None, **kwargs))]
     fn get<'py>(
-        &self, py: Python<'py>, url: &Bound<'_, PyAny>,
-        params: Option<&Bound<'_, PyAny>>, headers: Option<&Bound<'_, PyAny>>,
+        &self,
+        py: Python<'py>,
+        url: &Bound<'_, PyAny>,
+        params: Option<&Bound<'_, PyAny>>,
+        headers: Option<&Bound<'_, PyAny>>,
         cookies: Option<&Bound<'_, PyAny>>,
-        follow_redirects: Option<bool>, timeout: Option<&Bound<'_, PyAny>>,
-        extensions: Option<&Bound<'_, PyAny>>, kwargs: Option<&Bound<'_, PyDict>>,
+        follow_redirects: Option<bool>,
+        timeout: Option<&Bound<'_, PyAny>>,
+        extensions: Option<&Bound<'_, PyAny>>,
+        kwargs: Option<&Bound<'_, PyDict>>,
     ) -> PyResult<Bound<'py, PyAny>> {
         let timeout_kw = extract_from_kwargs(kwargs, "timeout");
-        let t = if let Some(t) = timeout { Some(t) } else { timeout_kw.as_ref() };
-        self.request(py, "GET", url, None, None, None, None, params, headers, cookies, follow_redirects, t, extensions, false, kwargs)
+        let t = if let Some(t) = timeout {
+            Some(t)
+        } else {
+            timeout_kw.as_ref()
+        };
+        self.request(
+            py,
+            "GET",
+            url,
+            None,
+            None,
+            None,
+            None,
+            params,
+            headers,
+            cookies,
+            follow_redirects,
+            t,
+            extensions,
+            false,
+            kwargs,
+        )
     }
 
     #[pyo3(signature = (url, *, params=None, headers=None, cookies=None, follow_redirects=None, timeout=None, extensions=None, **kwargs))]
     fn head<'py>(
-        &self, py: Python<'py>, url: &Bound<'_, PyAny>,
-        params: Option<&Bound<'_, PyAny>>, headers: Option<&Bound<'_, PyAny>>,
+        &self,
+        py: Python<'py>,
+        url: &Bound<'_, PyAny>,
+        params: Option<&Bound<'_, PyAny>>,
+        headers: Option<&Bound<'_, PyAny>>,
         cookies: Option<&Bound<'_, PyAny>>,
-        follow_redirects: Option<bool>, timeout: Option<&Bound<'_, PyAny>>,
-        extensions: Option<&Bound<'_, PyAny>>, kwargs: Option<&Bound<'_, PyDict>>,
+        follow_redirects: Option<bool>,
+        timeout: Option<&Bound<'_, PyAny>>,
+        extensions: Option<&Bound<'_, PyAny>>,
+        kwargs: Option<&Bound<'_, PyDict>>,
     ) -> PyResult<Bound<'py, PyAny>> {
         let timeout_kw = extract_from_kwargs(kwargs, "timeout");
-        let t = if let Some(t) = timeout { Some(t) } else { timeout_kw.as_ref() };
-        let f = if let Some(f) = follow_redirects { Some(f) } else { extract_from_kwargs(kwargs, "follow_redirects").and_then(|v| v.extract::<bool>().ok()) };
-        self.request(py, "HEAD", url, None, None, None, None, params, headers, cookies, f, t, extensions, false, kwargs)
+        let t = if let Some(t) = timeout {
+            Some(t)
+        } else {
+            timeout_kw.as_ref()
+        };
+        let f = if let Some(f) = follow_redirects {
+            Some(f)
+        } else {
+            extract_from_kwargs(kwargs, "follow_redirects").and_then(|v| v.extract::<bool>().ok())
+        };
+        self.request(
+            py, "HEAD", url, None, None, None, None, params, headers, cookies, f, t, extensions,
+            false, kwargs,
+        )
     }
 
     #[pyo3(signature = (url, *, params=None, headers=None, cookies=None, follow_redirects=None, timeout=None, extensions=None, **kwargs))]
     fn options<'py>(
-        &self, py: Python<'py>, url: &Bound<'_, PyAny>,
-        params: Option<&Bound<'_, PyAny>>, headers: Option<&Bound<'_, PyAny>>,
+        &self,
+        py: Python<'py>,
+        url: &Bound<'_, PyAny>,
+        params: Option<&Bound<'_, PyAny>>,
+        headers: Option<&Bound<'_, PyAny>>,
         cookies: Option<&Bound<'_, PyAny>>,
-        follow_redirects: Option<bool>, timeout: Option<&Bound<'_, PyAny>>,
-        extensions: Option<&Bound<'_, PyAny>>, kwargs: Option<&Bound<'_, PyDict>>,
+        follow_redirects: Option<bool>,
+        timeout: Option<&Bound<'_, PyAny>>,
+        extensions: Option<&Bound<'_, PyAny>>,
+        kwargs: Option<&Bound<'_, PyDict>>,
     ) -> PyResult<Bound<'py, PyAny>> {
         let timeout_kw = extract_from_kwargs(kwargs, "timeout");
-        let t = if let Some(t) = timeout { Some(t) } else { timeout_kw.as_ref() };
-        self.request(py, "OPTIONS", url, None, None, None, None, params, headers, cookies, follow_redirects, t, extensions, false, kwargs)
+        let t = if let Some(t) = timeout {
+            Some(t)
+        } else {
+            timeout_kw.as_ref()
+        };
+        self.request(
+            py,
+            "OPTIONS",
+            url,
+            None,
+            None,
+            None,
+            None,
+            params,
+            headers,
+            cookies,
+            follow_redirects,
+            t,
+            extensions,
+            false,
+            kwargs,
+        )
     }
 
     #[pyo3(signature = (url, *, content=None, data=None, files=None, json=None, params=None, headers=None, cookies=None, follow_redirects=None, timeout=None, extensions=None, **kwargs))]
     fn post<'py>(
-        &self, py: Python<'py>, url: &Bound<'_, PyAny>,
-        content: Option<&Bound<'_, PyAny>>, data: Option<&Bound<'_, PyAny>>,
-        files: Option<&Bound<'_, PyAny>>, json: Option<&Bound<'_, PyAny>>,
-        params: Option<&Bound<'_, PyAny>>, headers: Option<&Bound<'_, PyAny>>,
+        &self,
+        py: Python<'py>,
+        url: &Bound<'_, PyAny>,
+        content: Option<&Bound<'_, PyAny>>,
+        data: Option<&Bound<'_, PyAny>>,
+        files: Option<&Bound<'_, PyAny>>,
+        json: Option<&Bound<'_, PyAny>>,
+        params: Option<&Bound<'_, PyAny>>,
+        headers: Option<&Bound<'_, PyAny>>,
         cookies: Option<&Bound<'_, PyAny>>,
-        follow_redirects: Option<bool>, timeout: Option<&Bound<'_, PyAny>>,
-        extensions: Option<&Bound<'_, PyAny>>, kwargs: Option<&Bound<'_, PyDict>>,
+        follow_redirects: Option<bool>,
+        timeout: Option<&Bound<'_, PyAny>>,
+        extensions: Option<&Bound<'_, PyAny>>,
+        kwargs: Option<&Bound<'_, PyDict>>,
     ) -> PyResult<Bound<'py, PyAny>> {
         let timeout_kw = extract_from_kwargs(kwargs, "timeout");
-        let t = if let Some(t) = timeout { Some(t) } else { timeout_kw.as_ref() };
-        let f = if let Some(f) = follow_redirects { Some(f) } else { extract_from_kwargs(kwargs, "follow_redirects").and_then(|v| v.extract::<bool>().ok()) };
-        self.request(py, "POST", url, content, data, files, json, params, headers, cookies, f, t, extensions, false, kwargs)
+        let t = if let Some(t) = timeout {
+            Some(t)
+        } else {
+            timeout_kw.as_ref()
+        };
+        let f = if let Some(f) = follow_redirects {
+            Some(f)
+        } else {
+            extract_from_kwargs(kwargs, "follow_redirects").and_then(|v| v.extract::<bool>().ok())
+        };
+        self.request(
+            py, "POST", url, content, data, files, json, params, headers, cookies, f, t,
+            extensions, false, kwargs,
+        )
     }
 
     #[pyo3(signature = (url, *, content=None, data=None, files=None, json=None, params=None, headers=None, cookies=None, follow_redirects=None, timeout=None, extensions=None, **kwargs))]
     fn put<'py>(
-        &self, py: Python<'py>, url: &Bound<'_, PyAny>,
-        content: Option<&Bound<'_, PyAny>>, data: Option<&Bound<'_, PyAny>>,
-        files: Option<&Bound<'_, PyAny>>, json: Option<&Bound<'_, PyAny>>,
-        params: Option<&Bound<'_, PyAny>>, headers: Option<&Bound<'_, PyAny>>,
+        &self,
+        py: Python<'py>,
+        url: &Bound<'_, PyAny>,
+        content: Option<&Bound<'_, PyAny>>,
+        data: Option<&Bound<'_, PyAny>>,
+        files: Option<&Bound<'_, PyAny>>,
+        json: Option<&Bound<'_, PyAny>>,
+        params: Option<&Bound<'_, PyAny>>,
+        headers: Option<&Bound<'_, PyAny>>,
         cookies: Option<&Bound<'_, PyAny>>,
-        follow_redirects: Option<bool>, timeout: Option<&Bound<'_, PyAny>>,
-        extensions: Option<&Bound<'_, PyAny>>, kwargs: Option<&Bound<'_, PyDict>>,
+        follow_redirects: Option<bool>,
+        timeout: Option<&Bound<'_, PyAny>>,
+        extensions: Option<&Bound<'_, PyAny>>,
+        kwargs: Option<&Bound<'_, PyDict>>,
     ) -> PyResult<Bound<'py, PyAny>> {
         let timeout_kw = extract_from_kwargs(kwargs, "timeout");
-        let t = if let Some(t) = timeout { Some(t) } else { timeout_kw.as_ref() };
-        self.request(py, "PUT", url, content, data, files, json, params, headers, cookies, follow_redirects, t, extensions, false, kwargs)
+        let t = if let Some(t) = timeout {
+            Some(t)
+        } else {
+            timeout_kw.as_ref()
+        };
+        self.request(
+            py,
+            "PUT",
+            url,
+            content,
+            data,
+            files,
+            json,
+            params,
+            headers,
+            cookies,
+            follow_redirects,
+            t,
+            extensions,
+            false,
+            kwargs,
+        )
     }
 
     #[pyo3(signature = (url, *, content=None, data=None, files=None, json=None, params=None, headers=None, cookies=None, follow_redirects=None, timeout=None, extensions=None, **kwargs))]
     fn patch<'py>(
-        &self, py: Python<'py>, url: &Bound<'_, PyAny>,
-        content: Option<&Bound<'_, PyAny>>, data: Option<&Bound<'_, PyAny>>,
-        files: Option<&Bound<'_, PyAny>>, json: Option<&Bound<'_, PyAny>>,
-        params: Option<&Bound<'_, PyAny>>, headers: Option<&Bound<'_, PyAny>>,
+        &self,
+        py: Python<'py>,
+        url: &Bound<'_, PyAny>,
+        content: Option<&Bound<'_, PyAny>>,
+        data: Option<&Bound<'_, PyAny>>,
+        files: Option<&Bound<'_, PyAny>>,
+        json: Option<&Bound<'_, PyAny>>,
+        params: Option<&Bound<'_, PyAny>>,
+        headers: Option<&Bound<'_, PyAny>>,
         cookies: Option<&Bound<'_, PyAny>>,
-        follow_redirects: Option<bool>, timeout: Option<&Bound<'_, PyAny>>,
-        extensions: Option<&Bound<'_, PyAny>>, kwargs: Option<&Bound<'_, PyDict>>,
+        follow_redirects: Option<bool>,
+        timeout: Option<&Bound<'_, PyAny>>,
+        extensions: Option<&Bound<'_, PyAny>>,
+        kwargs: Option<&Bound<'_, PyDict>>,
     ) -> PyResult<Bound<'py, PyAny>> {
         let timeout_kw = extract_from_kwargs(kwargs, "timeout");
-        let t = if let Some(t) = timeout { Some(t) } else { timeout_kw.as_ref() };
-        self.request(py, "PATCH", url, content, data, files, json, params, headers, cookies, follow_redirects, t, extensions, false, kwargs)
+        let t = if let Some(t) = timeout {
+            Some(t)
+        } else {
+            timeout_kw.as_ref()
+        };
+        self.request(
+            py,
+            "PATCH",
+            url,
+            content,
+            data,
+            files,
+            json,
+            params,
+            headers,
+            cookies,
+            follow_redirects,
+            t,
+            extensions,
+            false,
+            kwargs,
+        )
     }
 
     #[pyo3(signature = (url, *, params=None, headers=None, cookies=None, follow_redirects=None, timeout=None, extensions=None, **kwargs))]
     fn delete<'py>(
-        &self, py: Python<'py>, url: &Bound<'_, PyAny>,
-        params: Option<&Bound<'_, PyAny>>, headers: Option<&Bound<'_, PyAny>>,
+        &self,
+        py: Python<'py>,
+        url: &Bound<'_, PyAny>,
+        params: Option<&Bound<'_, PyAny>>,
+        headers: Option<&Bound<'_, PyAny>>,
         cookies: Option<&Bound<'_, PyAny>>,
-        follow_redirects: Option<bool>, timeout: Option<&Bound<'_, PyAny>>,
-        extensions: Option<&Bound<'_, PyAny>>, kwargs: Option<&Bound<'_, PyDict>>,
+        follow_redirects: Option<bool>,
+        timeout: Option<&Bound<'_, PyAny>>,
+        extensions: Option<&Bound<'_, PyAny>>,
+        kwargs: Option<&Bound<'_, PyDict>>,
     ) -> PyResult<Bound<'py, PyAny>> {
         let timeout_kw = extract_from_kwargs(kwargs, "timeout");
-        let t = if let Some(t) = timeout { Some(t) } else { timeout_kw.as_ref() };
-        let f = if let Some(f) = follow_redirects { Some(f) } else { extract_from_kwargs(kwargs, "follow_redirects").and_then(|v| v.extract::<bool>().ok()) };
-        self.request(py, "DELETE", url, None, None, None, None, params, headers, cookies, f, t, extensions, false, kwargs)
+        let t = if let Some(t) = timeout {
+            Some(t)
+        } else {
+            timeout_kw.as_ref()
+        };
+        let f = if let Some(f) = follow_redirects {
+            Some(f)
+        } else {
+            extract_from_kwargs(kwargs, "follow_redirects").and_then(|v| v.extract::<bool>().ok())
+        };
+        self.request(
+            py, "DELETE", url, None, None, None, None, params, headers, cookies, f, t, extensions,
+            false, kwargs,
+        )
     }
 
     fn aclose<'py>(&mut self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
         self.is_closed = true;
-        pyo3_async_runtimes::tokio::future_into_py(py, async move {
-            Ok(())
-        })
+        pyo3_async_runtimes::tokio::future_into_py(py, async move { Ok(()) })
     }
 
-    fn close(&mut self) -> PyResult<()> { self.is_closed = true; Ok(()) }
-
-    #[getter] fn is_closed(&self) -> bool { self.is_closed }
+    fn close(&mut self) -> PyResult<()> {
+        self.is_closed = true;
+        Ok(())
+    }
 
     #[getter]
-    fn headers(&self, py: Python<'_>) -> Py<Headers> { self.default_headers.clone_ref(py) }
+    fn is_closed(&self) -> bool {
+        self.is_closed
+    }
+
+    #[getter]
+    fn headers(&self, py: Python<'_>) -> Py<Headers> {
+        self.default_headers.clone_ref(py)
+    }
     #[setter]
     fn set_headers(&mut self, py: Python<'_>, value: &Bound<'_, PyAny>) -> PyResult<()> {
         let hdrs = Headers::create(Some(value), "utf-8")?;
@@ -1055,7 +1361,11 @@ impl AsyncClient {
     #[setter]
     fn set_base_url(&mut self, value: &Bound<'_, PyAny>) -> PyResult<()> {
         let s = value.str()?.extract::<String>()?;
-        self.base_url = if s.is_empty() { None } else { Some(URL::create_from_str(&s)?) };
+        self.base_url = if s.is_empty() {
+            None
+        } else {
+            Some(URL::create_from_str(&s)?)
+        };
         Ok(())
     }
 
@@ -1079,7 +1389,9 @@ impl AsyncClient {
     }
 
     #[getter]
-    fn get_cookies(&self, _py: Python<'_>) -> Cookies { self.cookies.clone() }
+    fn get_cookies(&self, _py: Python<'_>) -> Cookies {
+        self.cookies.clone()
+    }
     #[setter]
     fn set_cookies(&mut self, py: Python<'_>, value: &Bound<'_, PyAny>) -> PyResult<()> {
         self.cookies = Cookies::create(py, Some(value))?;
@@ -1088,17 +1400,25 @@ impl AsyncClient {
 
     #[getter]
     fn get_timeout(&self, py: Python<'_>) -> Py<PyAny> {
-        self.timeout.as_ref().map(|t| Py::new(py, t.clone()).ok()).flatten().map(|p| p.into()).unwrap_or_else(|| py.None())
+        self.timeout
+            .as_ref()
+            .map(|t| Py::new(py, t.clone()).ok())
+            .flatten()
+            .map(|p| p.into())
+            .unwrap_or_else(|| py.None())
     }
 
     #[getter]
     fn get_event_hooks(&self, py: Python<'_>) -> Py<PyAny> {
-        self.event_hooks.as_ref().map(|e| e.clone_ref(py)).unwrap_or_else(|| {
-            let d = PyDict::new(py);
-            let _ = d.set_item("request", pyo3::types::PyList::empty(py));
-            let _ = d.set_item("response", pyo3::types::PyList::empty(py));
-            d.into()
-        })
+        self.event_hooks
+            .as_ref()
+            .map(|e| e.clone_ref(py))
+            .unwrap_or_else(|| {
+                let d = PyDict::new(py);
+                let _ = d.set_item("request", pyo3::types::PyList::empty(py));
+                let _ = d.set_item("response", pyo3::types::PyList::empty(py));
+                d.into()
+            })
     }
     #[setter]
     fn set_event_hooks(&mut self, py: Python<'_>, value: &Bound<'_, PyAny>) {
@@ -1114,7 +1434,9 @@ impl AsyncClient {
     }
 
     #[getter]
-    fn get_trust_env(&self) -> bool { self.trust_env }
+    fn get_trust_env(&self) -> bool {
+        self.trust_env
+    }
 
     #[pyo3(signature = (method, url, *, content=None, data=None, files=None, json=None, params=None, headers=None, extensions=None))]
     pub fn build_request(
@@ -1151,7 +1473,9 @@ impl AsyncClient {
                 Some(b.as_bytes().to_vec())
             } else if let Ok(s) = c.extract::<String>() {
                 Some(s.into_bytes())
-            } else { None }
+            } else {
+                None
+            }
         } else if let Some(j) = json {
             let json_mod = py.import("json")?;
             let s: String = json_mod.call_method1("dumps", (j,))?.extract()?;
@@ -1162,7 +1486,9 @@ impl AsyncClient {
             let s: String = urllib.call_method1("urlencode", (d, true))?.extract()?;
             merged_headers.set_header("content-type", "application/x-www-form-urlencoded");
             Some(s.into_bytes())
-        } else { None };
+        } else {
+            None
+        };
 
         Ok(Request {
             method: method.to_uppercase(),
@@ -1217,8 +1543,15 @@ impl AsyncClient {
         if self.trust_env {
             if let Some(proxy_url) = get_env_proxy_url(&url_str) {
                 let transport = crate::transports::default::AsyncHTTPTransport::create(
-                    true, None, false, None,
-                    Some(&crate::config::Proxy { url: proxy_url, auth: None, headers: None }),
+                    true,
+                    None,
+                    false,
+                    None,
+                    Some(&crate::config::Proxy {
+                        url: proxy_url,
+                        auth: None,
+                        headers: None,
+                    }),
                     0,
                 )?;
                 return Ok(Py::new(py, transport)?.into());
@@ -1241,7 +1574,9 @@ impl AsyncClient {
     fn __aenter__<'py>(slf: Bound<'py, Self>, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
         let slf_py = slf.clone().unbind();
         if slf.borrow().is_closed {
-            return Err(pyo3::exceptions::PyRuntimeError::new_err("Cannot open a closed client"));
+            return Err(pyo3::exceptions::PyRuntimeError::new_err(
+                "Cannot open a closed client",
+            ));
         }
         let transport = slf.borrow().transport.clone_ref(py);
         let mounts = slf.borrow().mounts.clone_ref(py);
@@ -1300,9 +1635,17 @@ impl AsyncClient {
             let coro = Python::attach(|py| {
                 let t = transport.bind(py);
                 let args = if let Some((ref t_exc, ref v, ref tb)) = exc_info {
-                    (t_exc.clone_ref(py).into_bound(py), v.clone_ref(py).into_bound(py), tb.clone_ref(py).into_bound(py))
+                    (
+                        t_exc.clone_ref(py).into_bound(py),
+                        v.clone_ref(py).into_bound(py),
+                        tb.clone_ref(py).into_bound(py),
+                    )
                 } else {
-                    (py.None().into_bound(py), py.None().into_bound(py), py.None().into_bound(py))
+                    (
+                        py.None().into_bound(py),
+                        py.None().into_bound(py),
+                        py.None().into_bound(py),
+                    )
                 };
                 let coro = t.call_method1("__aexit__", args)?;
                 pyo3_async_runtimes::tokio::into_future(coro)
@@ -1324,9 +1667,17 @@ impl AsyncClient {
                 let coro = Python::attach(|py| {
                     let t = mt.bind(py);
                     let args = if let Some((ref t_exc, ref v, ref tb)) = exc_info {
-                        (t_exc.clone_ref(py).into_bound(py), v.clone_ref(py).into_bound(py), tb.clone_ref(py).into_bound(py))
+                        (
+                            t_exc.clone_ref(py).into_bound(py),
+                            v.clone_ref(py).into_bound(py),
+                            tb.clone_ref(py).into_bound(py),
+                        )
                     } else {
-                        (py.None().into_bound(py), py.None().into_bound(py), py.None().into_bound(py))
+                        (
+                            py.None().into_bound(py),
+                            py.None().into_bound(py),
+                            py.None().into_bound(py),
+                        )
                     };
                     let coro = t.call_method1("__aexit__", args)?;
                     pyo3_async_runtimes::tokio::into_future(coro)
@@ -1339,7 +1690,11 @@ impl AsyncClient {
     }
 
     fn __repr__(&self) -> String {
-        if self.is_closed { "<AsyncClient [closed]>".to_string() } else { "<AsyncClient>".to_string() }
+        if self.is_closed {
+            "<AsyncClient [closed]>".to_string()
+        } else {
+            "<AsyncClient>".to_string()
+        }
     }
 }
 

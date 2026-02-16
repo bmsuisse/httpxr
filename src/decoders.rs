@@ -1,6 +1,6 @@
+use flate2::read::{DeflateDecoder as FlateDeflateDecoder, GzDecoder};
 use pyo3::prelude::*;
 use pyo3::types::PyBytes;
-use flate2::read::{DeflateDecoder as FlateDeflateDecoder, GzDecoder};
 use std::io::Read;
 
 /// Content decoder trait — implemented by each compression decoder.
@@ -226,7 +226,7 @@ impl LineDecoder {
                 }
                 (_, Some(cr), None) => (cr + 1, cr + 1), // standalone \r
                 (_, _, Some(lf)) => (lf + 1, lf + 1),    // standalone \n
-                _ => break, // no line ending found
+                _ => break,                              // no line ending found
             };
 
             let line = self.buffer[..end_pos].to_string();

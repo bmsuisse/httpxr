@@ -2,8 +2,8 @@ use pyo3::prelude::*;
 use pyo3::types::PyDict;
 
 use crate::models::Response;
-use crate::transports::default::HTTPTransport;
 use crate::models::{Headers, Request};
+use crate::transports::default::HTTPTransport;
 use crate::urls::URL;
 
 /// Top-level convenience functions that create a temporary Client.
@@ -41,18 +41,24 @@ pub fn request(
     let _ = follow_redirects;
     // Direct implementation using transport
     let (verify_bool, verify_path) = if let Some(v_bound) = verify {
-        if let Ok(b) = v_bound.extract::<bool>() { (b, None) }
-        else if let Ok(s) = v_bound.extract::<String>() { (true, Some(s)) }
-        else {
+        if let Ok(b) = v_bound.extract::<bool>() {
+            (b, None)
+        } else if let Ok(s) = v_bound.extract::<String>() {
+            (true, Some(s))
+        } else {
             // Check for _cafile attribute (added by our create_ssl_context patch)
-            let cafile = v_bound.getattr("_cafile").ok().and_then(|attr| attr.extract::<String>().ok());
+            let cafile = v_bound
+                .getattr("_cafile")
+                .ok()
+                .and_then(|attr| attr.extract::<String>().ok());
             (true, cafile)
         }
     } else {
         (true, None)
     };
 
-    let transport = HTTPTransport::create(verify_bool, verify_path.as_deref(), false, None, proxy, 0)?;
+    let transport =
+        HTTPTransport::create(verify_bool, verify_path.as_deref(), false, None, proxy, 0)?;
     let url_str = url.str()?.extract::<String>()?;
     let target_url = URL::create_from_str(&url_str)?;
 
@@ -60,9 +66,10 @@ pub fn request(
     if let Some(pos) = url_str.find("://") {
         let scheme = &url_str[..pos].to_lowercase();
         if scheme != "http" && scheme != "https" {
-            return Err(crate::exceptions::UnsupportedProtocol::new_err(
-                format!("Request URL has an unsupported protocol '{}://'.", scheme)
-            ));
+            return Err(crate::exceptions::UnsupportedProtocol::new_err(format!(
+                "Request URL has an unsupported protocol '{}://'.",
+                scheme
+            )));
         }
     }
 
@@ -74,7 +81,9 @@ pub fn request(
             Some(b.as_bytes().to_vec())
         } else if let Ok(s) = c.extract::<String>() {
             Some(s.into_bytes())
-        } else { None }
+        } else {
+            None
+        }
     } else if let Some(j) = json {
         let json_mod = py.import("json")?;
         let s: String = json_mod.call_method1("dumps", (j,))?.extract()?;
@@ -85,7 +94,9 @@ pub fn request(
         let s: String = urllib.call_method1("urlencode", (d, true))?.extract()?;
         hdrs.set_header("content-type", "application/x-www-form-urlencoded");
         Some(s.into_bytes())
-    } else { None };
+    } else {
+        None
+    };
 
     let req = Request {
         method: method.to_uppercase(),
@@ -111,33 +122,93 @@ pub fn request(
 
 #[pyfunction]
 #[pyo3(signature = (url, **kwargs))]
-pub fn get(py: Python<'_>, url: &Bound<'_, PyAny>, kwargs: Option<&Bound<'_, PyDict>>) -> PyResult<Response> {
+pub fn get(
+    py: Python<'_>,
+    url: &Bound<'_, PyAny>,
+    kwargs: Option<&Bound<'_, PyDict>>,
+) -> PyResult<Response> {
     let verify = extract_from_kwargs(kwargs, "verify");
     let timeout = extract_from_kwargs(kwargs, "timeout");
     let follow = extract_from_kwargs(kwargs, "follow_redirects")
         .and_then(|v| v.extract::<bool>().ok())
         .unwrap_or(true);
-    
-    request(py, "GET", url, None, None, None, None, None, None, None, None, None, follow, verify.as_ref(), timeout.as_ref())
+
+    request(
+        py,
+        "GET",
+        url,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        follow,
+        verify.as_ref(),
+        timeout.as_ref(),
+    )
 }
 
 #[pyfunction]
 #[pyo3(signature = (url, **kwargs))]
-pub fn head(py: Python<'_>, url: &Bound<'_, PyAny>, kwargs: Option<&Bound<'_, PyDict>>) -> PyResult<Response> {
+pub fn head(
+    py: Python<'_>,
+    url: &Bound<'_, PyAny>,
+    kwargs: Option<&Bound<'_, PyDict>>,
+) -> PyResult<Response> {
     let verify = extract_from_kwargs(kwargs, "verify");
     let timeout = extract_from_kwargs(kwargs, "timeout");
     let follow = extract_from_kwargs(kwargs, "follow_redirects")
         .and_then(|v| v.extract::<bool>().ok())
         .unwrap_or(true);
-    request(py, "HEAD", url, None, None, None, None, None, None, None, None, None, follow, verify.as_ref(), timeout.as_ref())
+    request(
+        py,
+        "HEAD",
+        url,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        follow,
+        verify.as_ref(),
+        timeout.as_ref(),
+    )
 }
 
 #[pyfunction]
 #[pyo3(signature = (url, **kwargs))]
-pub fn options(py: Python<'_>, url: &Bound<'_, PyAny>, kwargs: Option<&Bound<'_, PyDict>>) -> PyResult<Response> {
+pub fn options(
+    py: Python<'_>,
+    url: &Bound<'_, PyAny>,
+    kwargs: Option<&Bound<'_, PyDict>>,
+) -> PyResult<Response> {
     let verify = extract_from_kwargs(kwargs, "verify");
     let timeout = extract_from_kwargs(kwargs, "timeout");
-    request(py, "OPTIONS", url, None, None, None, None, None, None, None, None, None, true, verify.as_ref(), timeout.as_ref())
+    request(
+        py,
+        "OPTIONS",
+        url,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        true,
+        verify.as_ref(),
+        timeout.as_ref(),
+    )
 }
 
 #[pyfunction]
@@ -153,7 +224,23 @@ pub fn post(
 ) -> PyResult<Response> {
     let verify = extract_from_kwargs(kwargs, "verify");
     let timeout = extract_from_kwargs(kwargs, "timeout");
-    request(py, "POST", url, None, content, data, files, json, None, None, None, None, true, verify.as_ref(), timeout.as_ref())
+    request(
+        py,
+        "POST",
+        url,
+        None,
+        content,
+        data,
+        files,
+        json,
+        None,
+        None,
+        None,
+        None,
+        true,
+        verify.as_ref(),
+        timeout.as_ref(),
+    )
 }
 
 #[pyfunction]
@@ -169,7 +256,23 @@ pub fn put(
 ) -> PyResult<Response> {
     let verify = extract_from_kwargs(kwargs, "verify");
     let timeout = extract_from_kwargs(kwargs, "timeout");
-    request(py, "PUT", url, None, content, data, files, json, None, None, None, None, true, verify.as_ref(), timeout.as_ref())
+    request(
+        py,
+        "PUT",
+        url,
+        None,
+        content,
+        data,
+        files,
+        json,
+        None,
+        None,
+        None,
+        None,
+        true,
+        verify.as_ref(),
+        timeout.as_ref(),
+    )
 }
 
 #[pyfunction]
@@ -185,15 +288,51 @@ pub fn patch(
 ) -> PyResult<Response> {
     let verify = extract_from_kwargs(kwargs, "verify");
     let timeout = extract_from_kwargs(kwargs, "timeout");
-    request(py, "PATCH", url, None, content, data, files, json, None, None, None, None, true, verify.as_ref(), timeout.as_ref())
+    request(
+        py,
+        "PATCH",
+        url,
+        None,
+        content,
+        data,
+        files,
+        json,
+        None,
+        None,
+        None,
+        None,
+        true,
+        verify.as_ref(),
+        timeout.as_ref(),
+    )
 }
 
 #[pyfunction]
 #[pyo3(signature = (url, **kwargs))]
-pub fn delete(py: Python<'_>, url: &Bound<'_, PyAny>, kwargs: Option<&Bound<'_, PyDict>>) -> PyResult<Response> {
+pub fn delete(
+    py: Python<'_>,
+    url: &Bound<'_, PyAny>,
+    kwargs: Option<&Bound<'_, PyDict>>,
+) -> PyResult<Response> {
     let verify = extract_from_kwargs(kwargs, "verify");
     let timeout = extract_from_kwargs(kwargs, "timeout");
-    request(py, "DELETE", url, None, None, None, None, None, None, None, None, None, true, verify.as_ref(), timeout.as_ref())
+    request(
+        py,
+        "DELETE",
+        url,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        true,
+        verify.as_ref(),
+        timeout.as_ref(),
+    )
 }
 
 #[pyfunction]
@@ -215,7 +354,23 @@ pub fn stream(
     verify: Option<&Bound<'_, PyAny>>,
     timeout: Option<&Bound<'_, PyAny>>,
 ) -> PyResult<Response> {
-    request(py, method, url, params, content, data, files, json, headers, cookies, auth, proxy, follow_redirects, verify, timeout)
+    request(
+        py,
+        method,
+        url,
+        params,
+        content,
+        data,
+        files,
+        json,
+        headers,
+        cookies,
+        auth,
+        proxy,
+        follow_redirects,
+        verify,
+        timeout,
+    )
 }
 
 pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
@@ -254,10 +409,15 @@ pub fn fetch_all(
     }
 
     let (verify_bool, verify_path) = if let Some(v_bound) = verify {
-        if let Ok(b) = v_bound.extract::<bool>() { (b, None) }
-        else if let Ok(s) = v_bound.extract::<String>() { (true, Some(s)) }
-        else {
-            let cafile = v_bound.getattr("_cafile").ok().and_then(|attr| attr.extract::<String>().ok());
+        if let Ok(b) = v_bound.extract::<bool>() {
+            (b, None)
+        } else if let Ok(s) = v_bound.extract::<String>() {
+            (true, Some(s))
+        } else {
+            let cafile = v_bound
+                .getattr("_cafile")
+                .ok()
+                .and_then(|attr| attr.extract::<String>().ok());
             (true, cafile)
         }
     } else {
@@ -309,8 +469,8 @@ pub fn fetch_all(
                     let transport = HTTPTransport::create(vb, vp.as_deref(), false, None, None, 0)
                         .map_err(|e| format!("Transport error: {}", e))?;
 
-                    let target_url = URL::create_from_str(&url_str)
-                        .map_err(|e| format!("URL error: {}", e))?;
+                    let target_url =
+                        URL::create_from_str(&url_str).map_err(|e| format!("URL error: {}", e))?;
 
                     let mut merged_headers = Headers::create(None, "utf-8")
                         .map_err(|e| format!("Header error: {}", e))?;
@@ -327,8 +487,10 @@ pub fn fetch_all(
                         merged_headers.set_header("accept-encoding", "gzip, deflate, br, zstd");
                     }
                     if !merged_headers.contains_header("user-agent") {
-                        merged_headers.set_header("user-agent",
-                            &format!("python-httpr/{}", env!("CARGO_PKG_VERSION")));
+                        merged_headers.set_header(
+                            "user-agent",
+                            &format!("python-httpr/{}", env!("CARGO_PKG_VERSION")),
+                        );
                     }
 
                     let req = Request {
@@ -342,7 +504,8 @@ pub fn fetch_all(
                     };
 
                     let start = std::time::Instant::now();
-                    let mut resp = transport.send_request(py, &req)
+                    let mut resp = transport
+                        .send_request(py, &req)
                         .map_err(|e| format!("Request error: {}", e))?;
                     resp.elapsed = Some(start.elapsed().as_secs_f64());
                     resp.request = Some(req);
@@ -369,7 +532,9 @@ pub fn fetch_all(
     let py_list = pyo3::types::PyList::empty(py);
     for result in responses {
         match result {
-            Ok(resp) => { py_list.append(Py::new(py, resp)?)?; },
+            Ok(resp) => {
+                py_list.append(Py::new(py, resp)?)?;
+            }
             Err(msg) => {
                 return Err(pyo3::exceptions::PyRuntimeError::new_err(msg));
             }
@@ -377,5 +542,3 @@ pub fn fetch_all(
     }
     Ok(py_list.into())
 }
-
-

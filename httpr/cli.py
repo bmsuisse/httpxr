@@ -63,10 +63,14 @@ def format_response(
 @click.command(help="A next generation HTTP client.")
 @click.argument("url")
 @click.option("-m", "--method", default="GET", help="HTTP method.")
-@click.option("-c", "--content", default=None, help="Content to send in the request body.")
+@click.option(
+    "-c", "--content", default=None, help="Content to send in the request body."
+)
 @click.option("-j", "--json-data", "json_body", default=None, help="JSON data to send.")
 @click.option("-v", "--verbose", is_flag=True, default=False, help="Verbose output.")
-@click.option("--follow-redirects", is_flag=True, default=False, help="Follow redirects.")
+@click.option(
+    "--follow-redirects", is_flag=True, default=False, help="Follow redirects."
+)
 @click.option("--auth", nargs=2, default=None, help="Username and password.", type=str)
 @click.option("--download", default=None, help="Download to file.")
 def main(

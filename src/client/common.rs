@@ -1,10 +1,10 @@
 use pyo3::prelude::*;
-use pyo3::types::{PyAnyMethods, PyDictMethods, PyDict, PyBytes};
+use pyo3::types::{PyAnyMethods, PyBytes, PyDict, PyDictMethods};
 
 use crate::config::Limits;
-use crate::models::{Headers, Request, Response, Cookies};
-use crate::urls::URL;
+use crate::models::{Cookies, Headers, Request, Response};
 use crate::transports::default::HTTPTransport;
+use crate::urls::URL;
 
 pub const DEFAULT_MAX_REDIRECTS: u32 = 20;
 
@@ -16,9 +16,6 @@ pub enum AuthArg {
     Custom(Py<PyAny>),
 }
 
-
-
-
 #[pyclass(from_py_object)]
 #[derive(Clone)]
 pub struct UseClientDefault;
@@ -26,9 +23,15 @@ pub struct UseClientDefault;
 #[pymethods]
 impl UseClientDefault {
     #[new]
-    fn new() -> Self { UseClientDefault }
-    fn __repr__(&self) -> &str { "<UseClientDefault>" }
-    fn __bool__(&self) -> bool { false }
+    fn new() -> Self {
+        UseClientDefault
+    }
+    fn __repr__(&self) -> &str {
+        "<UseClientDefault>"
+    }
+    fn __bool__(&self) -> bool {
+        false
+    }
 }
 
 pub fn extract_verify_path(v_bound: &Bound<'_, PyAny>) -> (bool, Option<String>) {
@@ -37,12 +40,18 @@ pub fn extract_verify_path(v_bound: &Bound<'_, PyAny>) -> (bool, Option<String>)
     } else if let Ok(s) = v_bound.extract::<String>() {
         (true, Some(s))
     } else {
-        let cafile = v_bound.getattr("_cafile").ok().and_then(|attr| attr.extract::<String>().ok());
+        let cafile = v_bound
+            .getattr("_cafile")
+            .ok()
+            .and_then(|attr| attr.extract::<String>().ok());
         (true, cafile)
     }
 }
 
-pub fn extract_from_kwargs<'py>(kwargs: Option<&Bound<'py, PyDict>>, key: &str) -> Option<Bound<'py, PyAny>> {
+pub fn extract_from_kwargs<'py>(
+    kwargs: Option<&Bound<'py, PyDict>>,
+    key: &str,
+) -> Option<Bound<'py, PyAny>> {
     kwargs.and_then(|d| d.get_item(key).ok().flatten())
 }
 
@@ -68,7 +77,11 @@ pub fn merge_base_url(base: &URL, url: &str) -> PyResult<URL> {
         }
         return dir_base.join_relative(url);
     } else {
-        let bp = if base_path.ends_with('/') { base_path.clone() } else { format!("{}/", base_path) };
+        let bp = if base_path.ends_with('/') {
+            base_path.clone()
+        } else {
+            format!("{}/", base_path)
+        };
         format!("{}{}", bp, url)
     };
 
@@ -131,7 +144,7 @@ pub fn build_request_body<'py>(
         let has_aiter = c.hasattr("__aiter__").unwrap_or(false);
         if has_aiter {
             return Err(pyo3::exceptions::PyRuntimeError::new_err(
-                "Attempted to send an async request body with a sync Client instance."
+                "Attempted to send an async request body with a sync Client instance.",
             ));
         }
         return Ok(None);
@@ -151,10 +164,15 @@ pub fn build_request_body<'py>(
                 } else {
                     Some(remainder.trim().trim_matches('"').to_string())
                 }
-            } else { None }
-        } else { None };
+            } else {
+                None
+            }
+        } else {
+            None
+        };
 
-        let multipart = crate::multipart::MultipartStream::new(py, data, Some(f), boundary.as_deref())?;
+        let multipart =
+            crate::multipart::MultipartStream::new(py, data, Some(f), boundary.as_deref())?;
         if !merged_headers.contains_header("content-type") {
             merged_headers.set_header("content-type", &multipart.content_type());
         }
@@ -213,7 +231,17 @@ pub fn arrange_headers_httpx_order(merged_headers: &Headers, target_url: &URL) -
     // 7. Remaining user headers
     for (name, value) in merged_headers.iter_all() {
         let name_lower = name.to_lowercase();
-        if !["host", "accept", "accept-encoding", "connection", "user-agent", "content-type", "content-length"].contains(&name_lower.as_str()) {
+        if ![
+            "host",
+            "accept",
+            "accept-encoding",
+            "connection",
+            "user-agent",
+            "content-type",
+            "content-length",
+        ]
+        .contains(&name_lower.as_str())
+        {
             final_headers.append_header(&name, &value);
         }
     }
@@ -270,7 +298,11 @@ pub fn validate_auth_type(_py: Python<'_>, auth: &Bound<'_, PyAny>) -> PyResult<
     if auth.is_callable() {
         return Ok(());
     }
-    let type_name = auth.get_type().name().map(|n| n.to_string()).unwrap_or_else(|_| "unknown".to_string());
+    let type_name = auth
+        .get_type()
+        .name()
+        .map(|n| n.to_string())
+        .unwrap_or_else(|_| "unknown".to_string());
     Err(pyo3::exceptions::PyTypeError::new_err(format!(
         "Invalid \"auth\" argument: {}",
         type_name
@@ -311,7 +343,11 @@ pub fn apply_auth<'py>(
         return Ok(AuthResult::None);
     }
 
-    let effective_auth = if auth.is_some() { auth } else { client_auth.map(|a| a.bind(py)) };
+    let effective_auth = if auth.is_some() {
+        auth
+    } else {
+        client_auth.map(|a| a.bind(py))
+    };
     if let Some(a) = effective_auth {
         // Check for tuple (Basic auth)
         if let Ok(tuple) = a.cast::<pyo3::types::PyTuple>() {
@@ -323,7 +359,11 @@ pub fn apply_auth<'py>(
                     use base64::Engine;
                     base64::engine::general_purpose::STANDARD.encode(creds.as_bytes())
                 };
-                request.headers.bind(py).borrow_mut().set_header("authorization", &format!("Basic {}", b64));
+                request
+                    .headers
+                    .bind(py)
+                    .borrow_mut()
+                    .set_header("authorization", &format!("Basic {}", b64));
             }
             return Ok(AuthResult::Applied);
         }
@@ -342,7 +382,7 @@ pub fn apply_auth<'py>(
             let flow = a.call_method1("sync_auth_flow", (req_py,))?;
             return Ok(AuthResult::Flow(flow.unbind()));
         }
-        
+
         // Simple callable
         if a.is_callable() {
             let req_py = Py::new(py, request.clone())?;
@@ -369,7 +409,11 @@ pub fn apply_auth_async<'py>(
         return Ok(AuthResult::None);
     }
 
-    let effective_auth = if auth.is_some() { auth } else { client_auth.map(|a| a.bind(py)) };
+    let effective_auth = if auth.is_some() {
+        auth
+    } else {
+        client_auth.map(|a| a.bind(py))
+    };
     if let Some(a) = effective_auth {
         // Check for tuple (Basic auth)
         if let Ok(tuple) = a.cast::<pyo3::types::PyTuple>() {
@@ -381,12 +425,16 @@ pub fn apply_auth_async<'py>(
                     use base64::Engine;
                     base64::engine::general_purpose::STANDARD.encode(creds.as_bytes())
                 };
-                request.headers.bind(py).borrow_mut().set_header("authorization", &format!("Basic {}", b64));
+                request
+                    .headers
+                    .bind(py)
+                    .borrow_mut()
+                    .set_header("authorization", &format!("Basic {}", b64));
             }
             return Ok(AuthResult::Applied);
         }
 
-        // For async: prefer async_auth_flow 
+        // For async: prefer async_auth_flow
         if a.hasattr("async_auth_flow")? {
             let req_py = Py::new(py, request.clone())?;
             let flow = a.call_method1("async_auth_flow", (req_py,))?;
@@ -406,7 +454,7 @@ pub fn apply_auth_async<'py>(
             let flow = a.call_method1("sync_auth_flow", (req_py,))?;
             return Ok(AuthResult::Flow(flow.unbind()));
         }
-        
+
         // Simple callable
         if a.is_callable() {
             let req_py = Py::new(py, request.clone())?;
@@ -434,7 +482,8 @@ pub fn apply_cookies<'py>(
             if let Ok(iter) = bound_jar.try_iter() {
                 for item in iter {
                     let cookie: Bound<PyAny> = item?;
-                    if let (Ok(name), Ok(value)) = (cookie.getattr("name"), cookie.getattr("value")) {
+                    if let (Ok(name), Ok(value)) = (cookie.getattr("name"), cookie.getattr("value"))
+                    {
                         let n: String = name.extract()?;
                         let v: String = value.extract()?;
                         cookie_parts.push(format!("{}={}", n, v));
@@ -469,7 +518,11 @@ pub fn apply_cookies<'py>(
 }
 
 /// Build a stream object from content if it's an iterator.
-pub fn build_stream_obj(py: Python<'_>, content: Option<&Bound<'_, PyAny>>, body: &Option<Vec<u8>>) -> PyResult<Option<Py<PyAny>>> {
+pub fn build_stream_obj(
+    py: Python<'_>,
+    content: Option<&Bound<'_, PyAny>>,
+    body: &Option<Vec<u8>>,
+) -> PyResult<Option<Py<PyAny>>> {
     if body.is_none() {
         if let Some(c) = content {
             let _ = c.get_type().name();
@@ -511,7 +564,11 @@ pub fn fire_sync_event_hooks(
 }
 
 /// Extract set-cookie headers from a response and add them to a cookie jar.
-pub fn extract_cookies_to_jar(py: Python<'_>, response: &Response, jar: &Bound<'_, PyAny>) -> PyResult<()> {
+pub fn extract_cookies_to_jar(
+    py: Python<'_>,
+    response: &Response,
+    jar: &Bound<'_, PyAny>,
+) -> PyResult<()> {
     let mut cookie_list = Vec::new();
     for (k, v) in response.headers.bind(py).borrow().get_multi_items() {
         if k.to_lowercase() == "set-cookie" {
@@ -528,7 +585,9 @@ pub fn extract_cookies_to_jar(py: Python<'_>, response: &Response, jar: &Bound<'
 
     let locals = pyo3::types::PyDict::new(py);
     py.run(&process_cookies_code, None, Some(&locals))?;
-    let process_func = locals.get_item("process")?.expect("Function 'process' should be defined");
+    let process_func = locals
+        .get_item("process")?
+        .expect("Function 'process' should be defined");
 
     let py_cookie_list = pyo3::types::PyList::new(py, cookie_list)?;
     process_func.call1((jar, py_cookie_list, response.url()?.to_string()))?;
@@ -586,7 +645,10 @@ pub fn url_matches_pattern(url_str: &str, pattern: &str) -> bool {
         pattern_rest
     };
     let (pattern_host, _pattern_port) = if let Some(colon) = pattern_host_port.rfind(':') {
-        (&pattern_host_port[..colon], Some(&pattern_host_port[colon + 1..]))
+        (
+            &pattern_host_port[..colon],
+            Some(&pattern_host_port[colon + 1..]),
+        )
     } else {
         (pattern_host_port, None)
     };
@@ -613,7 +675,11 @@ pub fn url_matches_pattern(url_str: &str, pattern: &str) -> bool {
 }
 
 /// Select the best matching transport from a mounts dict.
-pub fn select_transport(mounts: Bound<'_, PyDict>, default_transport: Py<PyAny>, url: &URL) -> PyResult<Py<PyAny>> {
+pub fn select_transport(
+    mounts: Bound<'_, PyDict>,
+    default_transport: Py<PyAny>,
+    url: &URL,
+) -> PyResult<Py<PyAny>> {
     let url_str = url.to_string();
 
     // Priority order: most specific match wins
@@ -682,7 +748,11 @@ pub fn parse_proxy(proxy: Option<&Bound<'_, PyAny>>) -> PyResult<Option<crate::c
 pub fn parse_base_url(base_url: Option<&Bound<'_, PyAny>>) -> PyResult<Option<URL>> {
     if let Some(b) = base_url {
         let s = b.str()?.extract::<String>()?;
-        if s.is_empty() { Ok(None) } else { Ok(Some(URL::create_from_str(&s)?)) }
+        if s.is_empty() {
+            Ok(None)
+        } else {
+            Ok(Some(URL::create_from_str(&s)?))
+        }
     } else {
         Ok(None)
     }
@@ -703,7 +773,14 @@ pub fn create_default_sync_transport(
     } else {
         (true, None)
     };
-    let t = HTTPTransport::create(verify_bool, verify_path.as_deref().or(cert), http2, limits, proxy_obj.as_ref(), 0)?;
+    let t = HTTPTransport::create(
+        verify_bool,
+        verify_path.as_deref().or(cert),
+        http2,
+        limits,
+        proxy_obj.as_ref(),
+        0,
+    )?;
     Ok(Py::new(py, t)?.into())
 }
 
@@ -723,7 +800,12 @@ pub fn create_default_async_transport(
         (true, None)
     };
     let t = crate::transports::default::AsyncHTTPTransport::create(
-        verify_bool, verify_path.as_deref().or(cert), http2, limits, proxy_obj.as_ref(), 0
+        verify_bool,
+        verify_path.as_deref().or(cert),
+        http2,
+        limits,
+        proxy_obj.as_ref(),
+        0,
     )?;
     Ok(Py::new(py, t)?.into())
 }
@@ -819,13 +901,17 @@ pub fn get_env_proxy_url(url_str: &str) -> Option<String> {
 
     // Look up scheme-specific proxy first, then ALL_PROXY
     let proxy_url = match scheme {
-        "http" => std::env::var("HTTP_PROXY").ok()
+        "http" => std::env::var("HTTP_PROXY")
+            .ok()
             .or_else(|| std::env::var("http_proxy").ok()),
-        "https" => std::env::var("HTTPS_PROXY").ok()
+        "https" => std::env::var("HTTPS_PROXY")
+            .ok()
             .or_else(|| std::env::var("https_proxy").ok()),
         _ => None,
-    }.or_else(|| {
-        std::env::var("ALL_PROXY").ok()
+    }
+    .or_else(|| {
+        std::env::var("ALL_PROXY")
+            .ok()
             .or_else(|| std::env::var("all_proxy").ok())
     });
 

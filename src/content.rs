@@ -125,7 +125,9 @@ pub fn encode_request(
         let data_arg = data.map(|d| d.clone().unbind()).unwrap_or(py.None());
         let stream = multipart.call_method1("MultipartStream", (data_arg, _f))?;
         let mp_headers = stream.call_method0("get_headers")?;
-        let ct: String = mp_headers.call_method1("get", ("content-type",))?.extract()?;
+        let ct: String = mp_headers
+            .call_method1("get", ("content-type",))?
+            .extract()?;
         headers.set_item("content-type", ct)?;
         headers.set_item("transfer-encoding", "chunked")?;
         return Ok((headers.into(), stream.into()));

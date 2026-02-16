@@ -7,7 +7,8 @@ __all__ = sorted(
     (
         member
         for member in list(vars().keys())
-        if not member.startswith("_") or member in ["__description__", "__title__", "__version__"]
+        if not member.startswith("_")
+        or member in ["__description__", "__title__", "__version__"]
     ),
     key=str.casefold,
 )

@@ -96,20 +96,20 @@ def main() -> None:
 
     # ── Working with Headers ─────────────────────────────────────────────
     print("── Headers object ─────────────────────────────────────────────")
-    headers = httpr.Headers({
-        "Content-Type": "text/html",
-        "X-Custom": "value",
-        "Accept": "application/json",
-    })
+    headers = httpr.Headers(
+        {
+            "Content-Type": "text/html",
+            "X-Custom": "value",
+            "Accept": "application/json",
+        }
+    )
     print(f"  Content-Type: {headers['Content-Type']}")
     print(f"  Keys: {list(headers.keys())}")
     print()
 
     # ── Working with URL ─────────────────────────────────────────────────
     print("── URL object ─────────────────────────────────────────────────")
-    url = httpr.URL(
-        "https://www.example.com:8080/path/to/resource?q=test#section"
-    )
+    url = httpr.URL("https://www.example.com:8080/path/to/resource?q=test#section")
     print(f"  Full: {url}")
     print(f"  Scheme: {url.scheme}")
     print(f"  Host: {url.host}")

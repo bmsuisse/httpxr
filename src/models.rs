@@ -18,7 +18,8 @@ fn json_value_to_py(py: Python<'_>, val: &serde_json::Value) -> PyResult<Py<PyAn
         }
         serde_json::Value::String(s) => Ok(PyString::new(py, s).into_any().unbind()),
         serde_json::Value::Array(arr) => {
-            let items: Vec<Py<PyAny>> = arr.iter()
+            let items: Vec<Py<PyAny>> = arr
+                .iter()
                 .map(|v| json_value_to_py(py, v))
                 .collect::<PyResult<_>>()?;
             Ok(PyList::new(py, &items)?.into_any().unbind())
@@ -56,42 +57,53 @@ impl Headers {
         match self.encoding.as_str() {
             "ascii" => String::from_utf8_lossy(bytes).to_string(),
             "utf-8" | "utf8" => String::from_utf8_lossy(bytes).to_string(),
-            "iso-8859-1" | "latin-1" | "latin1" => {
-                bytes.iter().map(|&b| b as char).collect()
-            }
+            "iso-8859-1" | "latin-1" | "latin1" => bytes.iter().map(|&b| b as char).collect(),
             _ => String::from_utf8_lossy(bytes).to_string(),
         }
     }
 
     pub fn get_first_value(&self, key: &str) -> Option<String> {
         let key_lower = key.to_lowercase();
-        let values: Vec<String> = self.raw.iter()
+        let values: Vec<String> = self
+            .raw
+            .iter()
             .filter(|(k, _)| String::from_utf8_lossy(k).to_lowercase() == key_lower)
             .map(|(_, v)| self.decode_value(v))
             .collect();
-        if values.is_empty() { None }
-        else if values.len() == 1 { Some(values[0].clone()) }
-        else { Some(values.join(", ")) }
+        if values.is_empty() {
+            None
+        } else if values.len() == 1 {
+            Some(values[0].clone())
+        } else {
+            Some(values.join(", "))
+        }
     }
 
     pub fn get_multi_items(&self) -> Vec<(String, String)> {
-        self.raw.iter()
-            .map(|(k, v)| (
-                String::from_utf8_lossy(k).to_lowercase(),
-                self.decode_value(v),
-            ))
+        self.raw
+            .iter()
+            .map(|(k, v)| {
+                (
+                    String::from_utf8_lossy(k).to_lowercase(),
+                    self.decode_value(v),
+                )
+            })
             .collect()
     }
 
     pub fn set_header(&mut self, key: &str, value: &str) {
         let key_lower = key.to_lowercase();
-        self.raw.retain(|(k, _)| String::from_utf8_lossy(k).to_lowercase() != key_lower);
-        self.raw.push((key.as_bytes().to_vec(), value.as_bytes().to_vec()));
+        self.raw
+            .retain(|(k, _)| String::from_utf8_lossy(k).to_lowercase() != key_lower);
+        self.raw
+            .push((key.as_bytes().to_vec(), value.as_bytes().to_vec()));
     }
 
     pub fn contains_header(&self, key: &str) -> bool {
         let key_lower = key.to_lowercase();
-        self.raw.iter().any(|(k, _)| String::from_utf8_lossy(k).to_lowercase() == key_lower)
+        self.raw
+            .iter()
+            .any(|(k, _)| String::from_utf8_lossy(k).to_lowercase() == key_lower)
     }
 
     pub fn update_from(&mut self, headers: Option<&Bound<'_, PyAny>>) -> PyResult<()> {
@@ -120,28 +132,35 @@ impl Headers {
 
     pub fn remove_header(&mut self, key: &str) {
         let key_lower = key.to_lowercase();
-        self.raw.retain(|(k, _)| String::from_utf8_lossy(k).to_lowercase() != key_lower);
+        self.raw
+            .retain(|(k, _)| String::from_utf8_lossy(k).to_lowercase() != key_lower);
     }
 
     pub fn new_empty() -> Self {
-        Headers { raw: Vec::new(), encoding: "utf-8".to_string() }
+        Headers {
+            raw: Vec::new(),
+            encoding: "utf-8".to_string(),
+        }
     }
 
     pub fn iter_all(&self) -> Vec<(String, String)> {
-        self.raw.iter()
+        self.raw
+            .iter()
             .map(|(k, v)| (String::from_utf8_lossy(k).to_string(), self.decode_value(v)))
             .collect()
     }
 
     pub fn append_header(&mut self, key: &str, value: &str) {
-        self.raw.push((key.as_bytes().to_vec(), value.as_bytes().to_vec()));
+        self.raw
+            .push((key.as_bytes().to_vec(), value.as_bytes().to_vec()));
     }
 
     fn validate_header_value(v: &Bound<'_, PyAny>) -> PyResult<Vec<u8>> {
         if v.is_none() {
-            return Err(pyo3::exceptions::PyTypeError::new_err(
-                format!("Header value must be str or bytes, not {}", v.get_type())
-            ));
+            return Err(pyo3::exceptions::PyTypeError::new_err(format!(
+                "Header value must be str or bytes, not {}",
+                v.get_type()
+            )));
         }
         Self::to_header_bytes_from(v)
     }
@@ -151,7 +170,8 @@ impl Headers {
         if let Some(h) = headers {
             if h.is_none() {
                 // None passed
-            } else if let Ok(existing) = h.extract::<Headers>() {                raw = existing.raw;
+            } else if let Ok(existing) = h.extract::<Headers>() {
+                raw = existing.raw;
             } else if let Ok(d) = h.cast::<PyDict>() {
                 for (k, v) in d.iter() {
                     let key_bytes = Self::to_header_bytes_from(&k)?;
@@ -176,7 +196,10 @@ impl Headers {
             }
         }
         let detected_encoding = Self::detect_encoding(&raw, encoding);
-        Ok(Headers { raw, encoding: detected_encoding })
+        Ok(Headers {
+            raw,
+            encoding: detected_encoding,
+        })
     }
 
     fn detect_encoding(raw: &[(Vec<u8>, Vec<u8>)], hint: &str) -> String {
@@ -211,18 +234,24 @@ impl Headers {
         let mut seen = Vec::new();
         for (k, _) in &self.raw {
             let key = String::from_utf8_lossy(k).to_lowercase();
-            if !seen.contains(&key) { seen.push(key); }
+            if !seen.contains(&key) {
+                seen.push(key);
+            }
         }
         seen
     }
 
     fn values(&self) -> Vec<String> {
-        self.keys().iter().filter_map(|k| self.get_first_value(k)).collect()
+        self.keys()
+            .iter()
+            .filter_map(|k| self.get_first_value(k))
+            .collect()
     }
 
     #[pyo3(name = "items")]
     fn py_items(&self) -> Vec<(String, String)> {
-        self.keys().iter()
+        self.keys()
+            .iter()
             .filter_map(|k| self.get_first_value(k).map(|v| (k.clone(), v)))
             .collect()
     }
@@ -233,18 +262,24 @@ impl Headers {
 
     #[pyo3(signature = (key, default=None))]
     pub fn get(&self, key: &str, default: Option<&str>) -> Option<String> {
-        self.get_first_value(key).or_else(|| default.map(|s| s.to_string()))
+        self.get_first_value(key)
+            .or_else(|| default.map(|s| s.to_string()))
     }
 
     #[pyo3(signature = (key, split_commas=false))]
     fn get_list(&self, key: &str, split_commas: bool) -> Vec<String> {
         let key_lower = key.to_lowercase();
-        let values: Vec<String> = self.raw.iter()
+        let values: Vec<String> = self
+            .raw
+            .iter()
             .filter(|(k, _)| String::from_utf8_lossy(k).to_lowercase() == key_lower)
             .map(|(_, v)| String::from_utf8_lossy(v).to_string())
             .collect();
         if split_commas {
-            values.iter().flat_map(|v| v.split(',').map(|s| s.trim().to_string())).collect()
+            values
+                .iter()
+                .flat_map(|v| v.split(',').map(|s| s.trim().to_string()))
+                .collect()
         } else {
             values
         }
@@ -254,7 +289,9 @@ impl Headers {
         self.update_from(headers)
     }
 
-    fn copy(&self) -> Self { self.clone() }
+    fn copy(&self) -> Self {
+        self.clone()
+    }
 
     #[getter]
     fn raw(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
@@ -279,7 +316,8 @@ impl Headers {
     }
 
     fn __getitem__(&self, key: &str) -> PyResult<String> {
-        self.get_first_value(key).ok_or_else(|| pyo3::exceptions::PyKeyError::new_err(key.to_string()))
+        self.get_first_value(key)
+            .ok_or_else(|| pyo3::exceptions::PyKeyError::new_err(key.to_string()))
     }
 
     fn __setitem__(&mut self, key: &str, value: &str) {
@@ -292,56 +330,85 @@ impl Headers {
                 }
             }
         }
-        self.raw.retain(|(k, _)| String::from_utf8_lossy(k).to_lowercase() != key_lower);
+        self.raw
+            .retain(|(k, _)| String::from_utf8_lossy(k).to_lowercase() != key_lower);
         if let Some(idx) = first_idx {
             let insert_at = idx.min(self.raw.len());
-            self.raw.insert(insert_at, (key_lower.into_bytes(), value.as_bytes().to_vec()));
+            self.raw.insert(
+                insert_at,
+                (key_lower.into_bytes(), value.as_bytes().to_vec()),
+            );
         } else {
-            self.raw.push((key_lower.into_bytes(), value.as_bytes().to_vec()));
+            self.raw
+                .push((key_lower.into_bytes(), value.as_bytes().to_vec()));
         }
     }
     fn __delitem__(&mut self, key: &str) -> PyResult<()> {
         let key_lower = key.to_lowercase();
         let before_len = self.raw.len();
-        self.raw.retain(|(k, _)| String::from_utf8_lossy(k).to_lowercase() != key_lower);
+        self.raw
+            .retain(|(k, _)| String::from_utf8_lossy(k).to_lowercase() != key_lower);
         if self.raw.len() == before_len {
             return Err(pyo3::exceptions::PyKeyError::new_err(key.to_string()));
         }
         Ok(())
     }
-    fn __contains__(&self, key: &str) -> bool { self.contains_header(key) }
+    fn __contains__(&self, key: &str) -> bool {
+        self.contains_header(key)
+    }
     fn __iter__(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
         let keys = self.keys();
         let list = PyList::new(py, &keys)?;
         Ok(list.call_method0("__iter__")?.into())
     }
-    fn __len__(&self) -> usize { self.keys().len() }
-    fn __bool__(&self) -> bool { !self.raw.is_empty() }
+    fn __len__(&self) -> usize {
+        self.keys().len()
+    }
+    fn __bool__(&self) -> bool {
+        !self.raw.is_empty()
+    }
 
     #[pyo3(signature = (key, default=""))]
     fn setdefault(&mut self, key: &str, default: &str) -> String {
         if let Some(val) = self.get_first_value(key) {
             val
         } else {
-            self.raw.push((key.to_lowercase().into_bytes(), default.as_bytes().to_vec()));
+            self.raw
+                .push((key.to_lowercase().into_bytes(), default.as_bytes().to_vec()));
             default.to_string()
         }
     }
 
     fn __eq__(&self, _py: Python<'_>, other: &Bound<'_, PyAny>) -> bool {
         if let Ok(other_headers) = other.extract::<Headers>() {
-            let mut s: Vec<(String, String)> = self.get_multi_items().into_iter().map(|(k,v)| (k.to_lowercase(), v)).collect();
-            let mut o: Vec<(String, String)> = other_headers.get_multi_items().into_iter().map(|(k,v)| (k.to_lowercase(), v)).collect();
+            let mut s: Vec<(String, String)> = self
+                .get_multi_items()
+                .into_iter()
+                .map(|(k, v)| (k.to_lowercase(), v))
+                .collect();
+            let mut o: Vec<(String, String)> = other_headers
+                .get_multi_items()
+                .into_iter()
+                .map(|(k, v)| (k.to_lowercase(), v))
+                .collect();
             s.sort();
             o.sort();
             s == o
         } else if let Ok(d) = other.cast::<pyo3::types::PyDict>() {
             // Dict comparison: treat each key-value pair as a header entry, case-insensitive sorted
-            let mut s: Vec<(String, String)> = self.get_multi_items().into_iter().map(|(k,v)| (k.to_lowercase(), v)).collect();
+            let mut s: Vec<(String, String)> = self
+                .get_multi_items()
+                .into_iter()
+                .map(|(k, v)| (k.to_lowercase(), v))
+                .collect();
             s.sort();
             let mut o: Vec<(String, String)> = Vec::new();
             for (k, v) in d.iter() {
-                let key = k.str().ok().map(|s| s.to_string().to_lowercase()).unwrap_or_default();
+                let key = k
+                    .str()
+                    .ok()
+                    .map(|s| s.to_string().to_lowercase())
+                    .unwrap_or_default();
                 let val = v.str().ok().map(|s| s.to_string()).unwrap_or_default();
                 o.push((key, val));
             }
@@ -349,14 +416,26 @@ impl Headers {
             s == o
         } else if let Ok(list) = other.cast::<pyo3::types::PyList>() {
             // Compare with list of tuples - case-insensitive sorted comparison
-            let mut s: Vec<(String, String)> = self.get_multi_items().into_iter().map(|(k,v)| (k.to_lowercase(), v)).collect();
+            let mut s: Vec<(String, String)> = self
+                .get_multi_items()
+                .into_iter()
+                .map(|(k, v)| (k.to_lowercase(), v))
+                .collect();
             s.sort();
             let mut o: Vec<(String, String)> = Vec::new();
             for item in list.iter() {
                 if let Ok(tuple) = item.cast::<pyo3::types::PyTuple>() {
                     if tuple.len() == 2 {
-                        let k: String = tuple.get_item(0).ok().and_then(|v| v.extract().ok()).unwrap_or_default();
-                        let v: String = tuple.get_item(1).ok().and_then(|v| v.extract().ok()).unwrap_or_default();
+                        let k: String = tuple
+                            .get_item(0)
+                            .ok()
+                            .and_then(|v| v.extract().ok())
+                            .unwrap_or_default();
+                        let v: String = tuple
+                            .get_item(1)
+                            .ok()
+                            .and_then(|v| v.extract().ok())
+                            .unwrap_or_default();
                         o.push((k.to_lowercase(), v));
                     }
                 }
@@ -393,7 +472,10 @@ impl Headers {
 
         let encoding_suffix = if self.encoding != "ascii" {
             // Check if any value has non-ASCII bytes
-            let has_non_ascii = self.raw.iter().any(|(_, v)| v.iter().any(|b| !b.is_ascii()));
+            let has_non_ascii = self
+                .raw
+                .iter()
+                .any(|(_, v)| v.iter().any(|b| !b.is_ascii()));
             if has_non_ascii {
                 format!(", encoding='{}'", self.encoding)
             } else {
@@ -405,13 +487,15 @@ impl Headers {
 
         if has_dups {
             // List format: Headers([('k', 'v'), ...])
-            let parts: Vec<String> = multi.iter()
+            let parts: Vec<String> = multi
+                .iter()
                 .map(|(k, v)| format!("('{}', '{}')", k, apply_secure(k, v)))
                 .collect();
             format!("Headers([{}]{})", parts.join(", "), encoding_suffix)
         } else {
             // Dict format: Headers({'k': 'v', ...})
-            let parts: Vec<String> = multi.iter()
+            let parts: Vec<String> = multi
+                .iter()
                 .map(|(k, v)| format!("'{}': '{}'", k, apply_secure(k, v)))
                 .collect();
             format!("Headers({{{}}}{})", parts.join(", "), encoding_suffix)
@@ -424,7 +508,9 @@ fn convert_value_for_urlencode(py: Python<'_>, v: &Bound<'_, PyAny>) -> Py<PyAny
     if v.is_none() {
         pyo3::types::PyString::new(py, "").into_any().unbind()
     } else if let Ok(b) = v.extract::<bool>() {
-        pyo3::types::PyString::new(py, if b { "true" } else { "false" }).into_any().unbind()
+        pyo3::types::PyString::new(py, if b { "true" } else { "false" })
+            .into_any()
+            .unbind()
     } else {
         v.clone().unbind()
     }
@@ -489,16 +575,14 @@ pub struct Request {
 
 impl Clone for Request {
     fn clone(&self) -> Self {
-        Python::attach(|py| {
-            Request {
-                method: self.method.clone(),
-                url: self.url.clone(),
-                headers: self.headers.clone_ref(py),
-                extensions: self.extensions.clone_ref(py),
-                content_body: self.content_body.clone(),
-                stream: self.stream.as_ref().map(|s| s.clone_ref(py)),
-                stream_response: self.stream_response,
-            }
+        Python::attach(|py| Request {
+            method: self.method.clone(),
+            url: self.url.clone(),
+            headers: self.headers.clone_ref(py),
+            extensions: self.extensions.clone_ref(py),
+            content_body: self.content_body.clone(),
+            stream: self.stream.as_ref().map(|s| s.clone_ref(py)),
+            stream_response: self.stream_response,
         })
     }
 }
@@ -520,9 +604,11 @@ impl Request {
         json: Option<&Bound<'_, PyAny>>,
         extensions: Option<Py<PyAny>>,
     ) -> PyResult<Self> {
-
-        let mut url_obj = if let Ok(u) = url.extract::<crate::urls::URL>() { u }
-        else { crate::urls::URL::create_from_str(&url.str()?.extract::<String>()?)? };
+        let mut url_obj = if let Ok(u) = url.extract::<crate::urls::URL>() {
+            u
+        } else {
+            crate::urls::URL::create_from_str(&url.str()?.extract::<String>()?)?
+        };
 
         if let Some(p) = params {
             if !p.is_none() {
@@ -536,13 +622,20 @@ impl Request {
                     host
                 };
                 if qs.is_empty() {
-                    url_obj = crate::urls::URL::create_from_str(
-                        &format!("{}://{}{}", url_obj.get_scheme(), authority, url_obj.path_str())
-                    )?;
+                    url_obj = crate::urls::URL::create_from_str(&format!(
+                        "{}://{}{}",
+                        url_obj.get_scheme(),
+                        authority,
+                        url_obj.path_str()
+                    ))?;
                 } else {
-                    url_obj = crate::urls::URL::create_from_str(
-                        &format!("{}://{}{}?{}", url_obj.get_scheme(), authority, url_obj.path_str(), qs)
-                    )?;
+                    url_obj = crate::urls::URL::create_from_str(&format!(
+                        "{}://{}{}?{}",
+                        url_obj.get_scheme(),
+                        authority,
+                        url_obj.path_str(),
+                        qs
+                    ))?;
                 }
             }
         }
@@ -559,10 +652,13 @@ impl Request {
             if !d.is_none() && !d.is_instance_of::<pyo3::types::PyDict>() {
                 // data= with non-dict type is deprecated, use content= instead
                 let warnings = py.import("warnings")?;
-                warnings.call_method1("warn", (
-                    "Use 'content=...' to upload raw bytes/text content.",
-                    py.get_type::<pyo3::exceptions::PyDeprecationWarning>(),
-                ))?;
+                warnings.call_method1(
+                    "warn",
+                    (
+                        "Use 'content=...' to upload raw bytes/text content.",
+                        py.get_type::<pyo3::exceptions::PyDeprecationWarning>(),
+                    ),
+                )?;
                 (Some(d), true)
             } else {
                 (None, false)
@@ -580,10 +676,12 @@ impl Request {
                 Some(s.into_bytes())
             } else if c.is_instance_of::<pyo3::types::PyDict>() {
                 // Dicts are not valid content - they should be passed as data= or json=
-                return Err(pyo3::exceptions::PyTypeError::new_err(
-                    format!("Unexpected type for 'content': {}", c.get_type().name()?)
-                ));
-            } else if c.hasattr("read").unwrap_or(false) && !c.hasattr("__aiter__").unwrap_or(false) {
+                return Err(pyo3::exceptions::PyTypeError::new_err(format!(
+                    "Unexpected type for 'content': {}",
+                    c.get_type().name()?
+                )));
+            } else if c.hasattr("read").unwrap_or(false) && !c.hasattr("__aiter__").unwrap_or(false)
+            {
                 // File-like object (e.g. BytesIO) - read eagerly and wrap in sync-only stream
                 let data_bytes: Vec<u8> = c.call_method0("read")?.extract()?;
                 // Create a sync-only iterator wrapper (not AsyncIterable)
@@ -594,7 +692,9 @@ impl Request {
                 let wrapper_py = Py::new(py, wrapper)?;
                 stream_obj = Some(wrapper_py.into_any());
                 // Set Content-Length for the known size
-                if !hdrs.contains_header("content-length") && !hdrs.contains_header("transfer-encoding") {
+                if !hdrs.contains_header("content-length")
+                    && !hdrs.contains_header("transfer-encoding")
+                {
                     hdrs.set_header("content-length", &data_bytes.len().to_string());
                 }
                 None
@@ -603,14 +703,19 @@ impl Request {
                 let has_aiter = c.hasattr("__aiter__").unwrap_or(false);
                 let has_iter = c.hasattr("__iter__").unwrap_or(false);
                 // Also check if it is a generator or iterator type but not bytes/str
-                let is_iterator = has_iter && !c.is_instance_of::<pyo3::types::PyBytes>() && !c.is_instance_of::<pyo3::types::PyString>();
-                
+                let is_iterator = has_iter
+                    && !c.is_instance_of::<pyo3::types::PyBytes>()
+                    && !c.is_instance_of::<pyo3::types::PyString>();
+
                 if has_aiter && !is_iterator {
                     // Pure async iterator - wrap in consumption-tracking wrapper
-                    let wrapper = crate::types::ResponseAsyncIteratorStream::new(c.clone().unbind());
+                    let wrapper =
+                        crate::types::ResponseAsyncIteratorStream::new(c.clone().unbind());
                     let wrapper_py = Py::new(py, wrapper)?;
                     stream_obj = Some(wrapper_py.into_any());
-                    if !hdrs.contains_header("transfer-encoding") && !hdrs.contains_header("content-length") {
+                    if !hdrs.contains_header("transfer-encoding")
+                        && !hdrs.contains_header("content-length")
+                    {
                         hdrs.set_header("transfer-encoding", "chunked");
                     }
                     None // body is None, content is streaming
@@ -619,15 +724,18 @@ impl Request {
                     let wrapper = crate::types::ResponseIteratorStream::new(c.clone().unbind());
                     let wrapper_py = Py::new(py, wrapper)?;
                     stream_obj = Some(wrapper_py.into_any());
-                    if !hdrs.contains_header("transfer-encoding") && !hdrs.contains_header("content-length") {
+                    if !hdrs.contains_header("transfer-encoding")
+                        && !hdrs.contains_header("content-length")
+                    {
                         hdrs.set_header("transfer-encoding", "chunked");
                     }
                     None // body is None, content is streaming
                 } else {
                     // Not bytes, string, or iterable - raise TypeError
-                    return Err(pyo3::exceptions::PyTypeError::new_err(
-                        format!("Unexpected type for 'content': {}", c.get_type().name()?)
-                    ));
+                    return Err(pyo3::exceptions::PyTypeError::new_err(format!(
+                        "Unexpected type for 'content': {}",
+                        c.get_type().name()?
+                    )));
                 }
             }
         } else if let Some(j) = json {
@@ -638,12 +746,16 @@ impl Request {
                 kwargs.set_item("separators", separators)?;
                 kwargs.set_item("ensure_ascii", false)?;
                 kwargs.set_item("allow_nan", false)?;
-                let s: String = json_mod.call_method("dumps", (j,), Some(&kwargs))?.extract()?;
+                let s: String = json_mod
+                    .call_method("dumps", (j,), Some(&kwargs))?
+                    .extract()?;
                 if !hdrs.contains_header("content-type") {
                     hdrs.set_header("content-type", "application/json");
                 }
                 Some(s.into_bytes())
-            } else { None }
+            } else {
+                None
+            }
         } else if let Some(f) = files {
             // If files are provided, use multipart/form-data encoding
             // Check if files dict/list is empty
@@ -681,28 +793,35 @@ impl Request {
                     None
                 };
 
-                let multipart = crate::multipart::MultipartStream::new(py, data_for_encoding, Some(f), boundary.as_deref())?;
+                let multipart = crate::multipart::MultipartStream::new(
+                    py,
+                    data_for_encoding,
+                    Some(f),
+                    boundary.as_deref(),
+                )?;
                 if !hdrs.contains_header("content-type") {
                     hdrs.set_header("content-type", &multipart.content_type());
                 }
                 Some(multipart.get_content())
             } else if let Some(d) = data_for_encoding {
-                 // Fallback to data handling if files is explicitly None/empty
-                 if !d.is_none() {
+                // Fallback to data handling if files is explicitly None/empty
+                if !d.is_none() {
                     encode_form_data(py, d)?
-                 } else {
-                     None
-                 }
+                } else {
+                    None
+                }
             } else {
                 None
             }
         } else if let Some(d) = data_for_encoding {
-             if !d.is_none() {
+            if !d.is_none() {
                 encode_form_data(py, d)?
-             } else {
-                 None
-             }
-        } else { None };
+            } else {
+                None
+            }
+        } else {
+            None
+        };
 
         // Set content-type for form data if we have encoded data
         if body.is_some() && !hdrs.contains_header("content-type") {
@@ -714,12 +833,16 @@ impl Request {
         let method_upper = method.to_uppercase();
 
         if let Some(ref b) = body {
-            if !hdrs.contains_header("content-length") && !hdrs.contains_header("transfer-encoding") {
+            if !hdrs.contains_header("content-length") && !hdrs.contains_header("transfer-encoding")
+            {
                 let len_str = b.len().to_string();
                 hdrs.set_header("content-length", &len_str);
             }
-        } else if stream_obj.is_none() && ["POST", "PUT", "PATCH", "DELETE"].contains(&method_upper.as_str()) {
-            if !hdrs.contains_header("content-length") && !hdrs.contains_header("transfer-encoding") {
+        } else if stream_obj.is_none()
+            && ["POST", "PUT", "PATCH", "DELETE"].contains(&method_upper.as_str())
+        {
+            if !hdrs.contains_header("content-length") && !hdrs.contains_header("transfer-encoding")
+            {
                 hdrs.set_header("content-length", "0");
             }
         }
@@ -749,8 +872,12 @@ impl Request {
         let hdrs_py = Py::new(py, hdrs)?;
 
         Ok(Request {
-            method: method_upper, url: url_obj, headers: hdrs_py,
-            extensions: ext, content_body: body, stream: stream_obj,
+            method: method_upper,
+            url: url_obj,
+            headers: hdrs_py,
+            extensions: ext,
+            content_body: body,
+            stream: stream_obj,
             stream_response: false,
         })
     }
@@ -762,7 +889,7 @@ impl Request {
         } else if self.stream.is_some() {
             // Stream exists but hasn't been read
             Err(crate::exceptions::RequestNotRead::new_err(
-                "Attempted to access streaming request content without having called `.read()`."
+                "Attempted to access streaming request content without having called `.read()`.",
             ))
         } else {
             Ok(PyBytes::new(py, b"").into())
@@ -776,7 +903,10 @@ impl Request {
         }
         // Otherwise wrap content_body in a ByteStream
         let content = self.content_body.clone().unwrap_or_default();
-        let bs = crate::types::ByteStream { data: content, pos: 0 };
+        let bs = crate::types::ByteStream {
+            data: content,
+            pos: 0,
+        };
         let init = pyo3::PyClassInitializer::from(crate::types::AsyncByteStream)
             .add_subclass(crate::types::SyncByteStream)
             .add_subclass(bs);
@@ -816,7 +946,9 @@ impl Request {
         Ok(Vec::new())
     }
 
-    fn __repr__(&self) -> String { format!("<Request('{}', '{}')>", self.method, self.url.to_string()) }
+    fn __repr__(&self) -> String {
+        format!("<Request('{}', '{}')>", self.method, self.url.to_string())
+    }
 
     fn __eq__(&self, other: &Request) -> bool {
         self.method == other.method && self.url.to_string() == other.url.to_string()
@@ -827,14 +959,12 @@ impl Request {
         // If content already read, return it
         if let Some(ref c) = self_mut.content_body {
             let content = c.clone();
-            return pyo3_async_runtimes::tokio::future_into_py(py, async move {
-                Ok(content)
-            });
+            return pyo3_async_runtimes::tokio::future_into_py(py, async move { Ok(content) });
         }
         // Try to consume the stream (sync or async)
         if let Some(ref stream) = self_mut.stream {
             let stream_bound = stream.bind(py);
-            // Try sync iteration first  
+            // Try sync iteration first
             let has_iter = stream_bound.hasattr("__iter__").unwrap_or(false);
             let has_aiter = stream_bound.hasattr("__aiter__").unwrap_or(false);
             if has_iter && !has_aiter {
@@ -859,9 +989,7 @@ impl Request {
                     }
                 }
                 self_mut.content_body = Some(buf.clone());
-                return pyo3_async_runtimes::tokio::future_into_py(py, async move {
-                    Ok(buf)
-                });
+                return pyo3_async_runtimes::tokio::future_into_py(py, async move { Ok(buf) });
             }
             // For async streams, create a Python coroutine that stores result back on this request
             let stream_ref = stream.clone_ref(py);
@@ -878,9 +1006,7 @@ impl Request {
         }
         drop(self_mut);
         let content: Vec<u8> = Vec::new();
-        pyo3_async_runtimes::tokio::future_into_py(py, async move {
-            Ok(content)
-        })
+        pyo3_async_runtimes::tokio::future_into_py(py, async move { Ok(content) })
     }
 
     fn _set_content_body(&mut self, content: Vec<u8>) {
@@ -890,16 +1016,25 @@ impl Request {
     fn __reduce__(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
         let cls = py.import("httpr")?.getattr("Request")?;
         // Build args: (method, url_string)
-        let args = pyo3::types::PyTuple::new(py, &[
-            self.method.clone().into_pyobject(py)?.into_any(),
-            self.url.to_string().into_pyobject(py)?.into_any(),
-        ])?;
+        let args = pyo3::types::PyTuple::new(
+            py,
+            &[
+                self.method.clone().into_pyobject(py)?.into_any(),
+                self.url.to_string().into_pyobject(py)?.into_any(),
+            ],
+        )?;
         // Build state dict with headers and content
         let state = pyo3::types::PyDict::new(py);
         let hdrs = self.headers.borrow(py);
         let h_list = PyList::empty(py);
         for (k, v) in &hdrs.raw {
-            let t = pyo3::types::PyTuple::new(py, &[PyBytes::new(py, k).into_any(), PyBytes::new(py, v).into_any()])?;
+            let t = pyo3::types::PyTuple::new(
+                py,
+                &[
+                    PyBytes::new(py, k).into_any(),
+                    PyBytes::new(py, v).into_any(),
+                ],
+            )?;
             h_list.append(t)?;
         }
         state.set_item("headers", h_list)?;
@@ -910,7 +1045,8 @@ impl Request {
         if self.stream.is_some() && self.content_body.is_none() {
             state.set_item("had_stream", true)?;
         }
-        let result = pyo3::types::PyTuple::new(py, &[cls.into_any(), args.into_any(), state.into_any()])?;
+        let result =
+            pyo3::types::PyTuple::new(py, &[cls.into_any(), args.into_any(), state.into_any()])?;
         Ok(result.into())
     }
 
@@ -921,7 +1057,10 @@ impl Request {
         }
         if let Some(headers) = dict.get_item("headers")? {
             let h_list: Vec<(Vec<u8>, Vec<u8>)> = headers.extract()?;
-            let hdrs = Headers { raw: h_list, encoding: "utf-8".to_string() };
+            let hdrs = Headers {
+                raw: h_list,
+                encoding: "utf-8".to_string(),
+            };
             self.headers = Py::new(py, hdrs)?;
         }
         // If the original request had an unread stream, set a closed stream marker
@@ -938,8 +1077,6 @@ impl Request {
         Ok(())
     }
 }
-
-
 
 /// HTTP Response object.
 #[pyclass(from_py_object, module = "httpr._httpr")]
@@ -966,33 +1103,36 @@ pub struct Response {
 
 impl Clone for Response {
     fn clone(&self) -> Self {
-        Python::attach(|py| {
-            Response {
-                status_code: self.status_code,
-                headers: self.headers.clone_ref(py),
-                extensions: self.extensions.clone_ref(py),
-                request: self.request.clone(),
-                history: self.history.clone(),
-                content_bytes: self.content_bytes.clone(),
-                stream: self.stream.as_ref().map(|s| s.clone_ref(py)),
-                default_encoding: self.default_encoding.clone_ref(py),
-                default_encoding_override: self.default_encoding_override.clone(),
-                elapsed: self.elapsed,
-                is_closed_flag: self.is_closed_flag,
-                is_stream_consumed: self.is_stream_consumed,
-                was_streaming: self.was_streaming,
-                text_accessed: std::sync::atomic::AtomicBool::new(self.text_accessed.load(std::sync::atomic::Ordering::Relaxed)),
-                num_bytes_downloaded_counter: std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(
-                    self.num_bytes_downloaded_counter.load(std::sync::atomic::Ordering::Relaxed)
-                )),
-            }
+        Python::attach(|py| Response {
+            status_code: self.status_code,
+            headers: self.headers.clone_ref(py),
+            extensions: self.extensions.clone_ref(py),
+            request: self.request.clone(),
+            history: self.history.clone(),
+            content_bytes: self.content_bytes.clone(),
+            stream: self.stream.as_ref().map(|s| s.clone_ref(py)),
+            default_encoding: self.default_encoding.clone_ref(py),
+            default_encoding_override: self.default_encoding_override.clone(),
+            elapsed: self.elapsed,
+            is_closed_flag: self.is_closed_flag,
+            is_stream_consumed: self.is_stream_consumed,
+            was_streaming: self.was_streaming,
+            text_accessed: std::sync::atomic::AtomicBool::new(
+                self.text_accessed
+                    .load(std::sync::atomic::Ordering::Relaxed),
+            ),
+            num_bytes_downloaded_counter: std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(
+                self.num_bytes_downloaded_counter
+                    .load(std::sync::atomic::Ordering::Relaxed),
+            )),
         })
     }
 }
 
 impl Response {
     pub fn has_redirect_check(&self, py: Python<'_>) -> bool {
-        (300..400).contains(&self.status_code) && self.headers.bind(py).borrow().contains_header("location")
+        (300..400).contains(&self.status_code)
+            && self.headers.bind(py).borrow().contains_header("location")
     }
 
     pub fn create(
@@ -1002,17 +1142,24 @@ impl Response {
         request: Option<Request>,
         content_bytes: Option<Vec<u8>>,
     ) -> Self {
-        Python::attach(|py| {
-            Response {
-                status_code, headers, extensions, request,
-                history: Vec::new(), content_bytes, stream: None,
-                default_encoding: "utf-8".into_pyobject(py).unwrap().into_any().unbind(),
-                default_encoding_override: None,
-                elapsed: None,
-                is_closed_flag: false, is_stream_consumed: false, was_streaming: false,
-                text_accessed: std::sync::atomic::AtomicBool::new(false),
-                num_bytes_downloaded_counter: std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0)),
-            }
+        Python::attach(|py| Response {
+            status_code,
+            headers,
+            extensions,
+            request,
+            history: Vec::new(),
+            content_bytes,
+            stream: None,
+            default_encoding: "utf-8".into_pyobject(py).unwrap().into_any().unbind(),
+            default_encoding_override: None,
+            elapsed: None,
+            is_closed_flag: false,
+            is_stream_consumed: false,
+            was_streaming: false,
+            text_accessed: std::sync::atomic::AtomicBool::new(false),
+            num_bytes_downloaded_counter: std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(
+                0,
+            )),
         })
     }
 }
@@ -1023,12 +1170,18 @@ impl Response {
     /// Decompress content based on Content-Encoding header.
     /// Supports: gzip, deflate, br (brotli), zstd, identity, and chained encodings.
     /// Uses pure Rust crates to release the GIL.
-    pub fn decompress_content(_py: Python<'_>, data: &[u8], headers: &Headers) -> PyResult<Vec<u8>> {
+    pub fn decompress_content(
+        _py: Python<'_>,
+        data: &[u8],
+        headers: &Headers,
+    ) -> PyResult<Vec<u8>> {
         if data.is_empty() {
             return Ok(Vec::new());
         }
 
-        let encoding = headers.get_first_value("content-encoding").unwrap_or_default();
+        let encoding = headers
+            .get_first_value("content-encoding")
+            .unwrap_or_default();
         if encoding.is_empty() {
             return Ok(data.to_vec());
         }
@@ -1048,10 +1201,13 @@ impl Response {
                     let mut decoder = flate2::read::GzDecoder::new(&result[..]);
                     let mut decoded = Vec::new();
                     decoder.read_to_end(&mut decoded).map_err(|e| {
-                         crate::exceptions::DecodingError::new_err(format!("Gzip decompression failed: {}", e))
+                        crate::exceptions::DecodingError::new_err(format!(
+                            "Gzip decompression failed: {}",
+                            e
+                        ))
                     })?;
                     decoded
-                },
+                }
                 "deflate" => {
                     use std::io::Read;
                     // Try zlib-wrapped first
@@ -1064,20 +1220,26 @@ impl Response {
                         let mut decoder = flate2::read::DeflateDecoder::new(&result[..]);
                         let mut decoded = Vec::new();
                         decoder.read_to_end(&mut decoded).map_err(|e| {
-                            crate::exceptions::DecodingError::new_err(format!("Deflate decompression failed: {}", e))
+                            crate::exceptions::DecodingError::new_err(format!(
+                                "Deflate decompression failed: {}",
+                                e
+                            ))
                         })?;
                         decoded
                     }
-                },
+                }
                 "br" => {
                     use std::io::Read;
                     let mut decoder = brotli::Decompressor::new(&result[..], 4096);
                     let mut decoded = Vec::new();
                     decoder.read_to_end(&mut decoded).map_err(|e| {
-                        crate::exceptions::DecodingError::new_err(format!("Brotli decompression failed: {}", e))
+                        crate::exceptions::DecodingError::new_err(format!(
+                            "Brotli decompression failed: {}",
+                            e
+                        ))
                     })?;
                     decoded
-                },
+                }
                 "zstd" => {
                     // Handle multiframe zstd: decompress frame by frame
                     let mut output = Vec::new();
@@ -1090,9 +1252,19 @@ impl Response {
                         let remaining = &result[pos..];
                         // Check for skippable frame (magic 0x184D2A50..0x184D2A5F)
                         if remaining.len() >= 8 {
-                            let magic = u32::from_le_bytes([remaining[0], remaining[1], remaining[2], remaining[3]]);
+                            let magic = u32::from_le_bytes([
+                                remaining[0],
+                                remaining[1],
+                                remaining[2],
+                                remaining[3],
+                            ]);
                             if (0x184D2A50..=0x184D2A5F).contains(&magic) {
-                                let frame_size = u32::from_le_bytes([remaining[4], remaining[5], remaining[6], remaining[7]]) as usize;
+                                let frame_size = u32::from_le_bytes([
+                                    remaining[4],
+                                    remaining[5],
+                                    remaining[6],
+                                    remaining[7],
+                                ]) as usize;
                                 cursor.set_position((pos + 8 + frame_size) as u64);
                                 continue;
                             }
@@ -1104,13 +1276,20 @@ impl Response {
                             }
                             Err(_e) => {
                                 // Try frame-by-frame with a limited reader
-                                let mut decoder = zstd::stream::Decoder::new(remaining).map_err(|e| {
-                                    crate::exceptions::DecodingError::new_err(format!("Zstd decompression failed: {}", e))
-                                })?;
+                                let mut decoder =
+                                    zstd::stream::Decoder::new(remaining).map_err(|e| {
+                                        crate::exceptions::DecodingError::new_err(format!(
+                                            "Zstd decompression failed: {}",
+                                            e
+                                        ))
+                                    })?;
                                 use std::io::Read;
                                 let mut frame_output = Vec::new();
                                 decoder.read_to_end(&mut frame_output).map_err(|e| {
-                                    crate::exceptions::DecodingError::new_err(format!("Zstd decompression failed: {}", e))
+                                    crate::exceptions::DecodingError::new_err(format!(
+                                        "Zstd decompression failed: {}",
+                                        e
+                                    ))
                                 })?;
                                 output.extend(frame_output);
                                 break;
@@ -1118,11 +1297,11 @@ impl Response {
                         }
                     }
                     output
-                },
+                }
                 _ => {
                     // Unknown encoding, return as-is
                     result
-                },
+                }
             };
         }
 
@@ -1151,10 +1330,10 @@ impl Response {
         let mut hdrs = Headers::create(headers, "utf-8")?;
 
         let ext = extensions.unwrap_or_else(|| PyDict::new(py).into());
-        
+
         // Check if content is a sync/async iterator (streaming body)
         let (content_bytes, stream_obj) = if let Some(c) = content {
-             if let Ok(b) = c.cast::<PyBytes>() {
+            if let Ok(b) = c.cast::<PyBytes>() {
                 (Some(b.as_bytes().to_vec()), None)
             } else if let Ok(s) = c.extract::<String>() {
                 (Some(s.into_bytes()), None)
@@ -1164,55 +1343,63 @@ impl Response {
                 let has_iter = c.hasattr("__iter__").unwrap_or(false);
                 if has_aiter && !has_iter {
                     // Pure async iterator - wrap in ResponseAsyncIteratorStream
-                    if !hdrs.contains_header("transfer-encoding") && !hdrs.contains_header("content-length") {
+                    if !hdrs.contains_header("transfer-encoding")
+                        && !hdrs.contains_header("content-length")
+                    {
                         hdrs.set_header("transfer-encoding", "chunked");
                     }
-                    let wrapper = crate::types::ResponseAsyncIteratorStream::new(c.clone().unbind());
+                    let wrapper =
+                        crate::types::ResponseAsyncIteratorStream::new(c.clone().unbind());
                     let wrapper_py = Py::new(py, wrapper)?;
                     (None, Some(wrapper_py.into_any()))
                 } else if has_iter {
                     // Sync iterator - wrap in ResponseIteratorStream
-                    if !hdrs.contains_header("transfer-encoding") && !hdrs.contains_header("content-length") {
+                    if !hdrs.contains_header("transfer-encoding")
+                        && !hdrs.contains_header("content-length")
+                    {
                         hdrs.set_header("transfer-encoding", "chunked");
                     }
                     let wrapper = crate::types::ResponseIteratorStream::new(c.clone().unbind());
                     let wrapper_py = Py::new(py, wrapper)?;
                     (None, Some(wrapper_py.into_any()))
                 } else {
-                    return Err(pyo3::exceptions::PyTypeError::new_err(
-                        format!("Unexpected type for 'content': {}", c.get_type().name()?)
-                    ));
+                    return Err(pyo3::exceptions::PyTypeError::new_err(format!(
+                        "Unexpected type for 'content': {}",
+                        c.get_type().name()?
+                    )));
                 }
             }
-        }
-        else if let Some(t) = text {
+        } else if let Some(t) = text {
             if !hdrs.contains_header("content-type") {
                 hdrs.set_header("content-type", "text/plain; charset=utf-8");
             }
             (Some(t.as_bytes().to_vec()), None)
-        }
-        else if let Some(h) = html {
+        } else if let Some(h) = html {
             if !hdrs.contains_header("content-type") {
                 hdrs.set_header("content-type", "text/html; charset=utf-8");
             }
             (Some(h.as_bytes().to_vec()), None)
-        }
-        else if let Some(j) = json {
+        } else if let Some(j) = json {
             let json_mod = py.import("json")?;
             let kwargs = PyDict::new(py);
             let separators = (",", ":").into_pyobject(py)?;
             kwargs.set_item("separators", separators)?;
             kwargs.set_item("ensure_ascii", false)?;
             kwargs.set_item("allow_nan", false)?;
-            let s: String = json_mod.call_method("dumps", (j,), Some(&kwargs))?.extract()?;
+            let s: String = json_mod
+                .call_method("dumps", (j,), Some(&kwargs))?
+                .extract()?;
             if !hdrs.contains_header("content-type") {
                 hdrs.set_header("content-type", "application/json");
             }
             (Some(s.into_bytes()), None)
-        } else { (None, None) };
+        } else {
+            (None, None)
+        };
 
         if let Some(ref cb) = content_bytes {
-            if !hdrs.contains_header("content-length") && !hdrs.contains_header("transfer-encoding") {
+            if !hdrs.contains_header("content-length") && !hdrs.contains_header("transfer-encoding")
+            {
                 hdrs.set_header("content-length", &cb.len().to_string());
             }
         }
@@ -1256,15 +1443,30 @@ impl Response {
         let is_streaming = final_stream.is_some();
         // Non-streaming responses with content are already "consumed"
         let initial_consumed = !is_streaming && final_content.is_some();
-        let initial_downloaded = if !is_streaming { final_content.as_ref().map(|c| c.len()).unwrap_or(0) } else { 0 };
+        let initial_downloaded = if !is_streaming {
+            final_content.as_ref().map(|c| c.len()).unwrap_or(0)
+        } else {
+            0
+        };
 
         Ok(Response {
-            status_code, headers: hdrs_py, extensions: ext, request,
-            history: history.unwrap_or_default(), content_bytes: final_content, stream: final_stream,
-            default_encoding: de, default_encoding_override: None, elapsed: None,
-            is_closed_flag: final_closed, is_stream_consumed: initial_consumed, was_streaming: is_streaming,
+            status_code,
+            headers: hdrs_py,
+            extensions: ext,
+            request,
+            history: history.unwrap_or_default(),
+            content_bytes: final_content,
+            stream: final_stream,
+            default_encoding: de,
+            default_encoding_override: None,
+            elapsed: None,
+            is_closed_flag: final_closed,
+            is_stream_consumed: initial_consumed,
+            was_streaming: is_streaming,
             text_accessed: std::sync::atomic::AtomicBool::new(false),
-            num_bytes_downloaded_counter: std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(initial_downloaded)),
+            num_bytes_downloaded_counter: std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(
+                initial_downloaded,
+            )),
         })
     }
 
@@ -1274,7 +1476,8 @@ impl Response {
             Ok(PyBytes::new(py, c).into())
         } else {
             Err(crate::exceptions::ResponseNotRead::new_err(
-                "Attempted to access content, without having called `read()`."))
+                "Attempted to access content, without having called `read()`.",
+            ))
         }
     }
 
@@ -1291,7 +1494,10 @@ impl Response {
         }
         // Return a ByteStream wrapping the content (or empty)
         let content = self.content_bytes.clone().unwrap_or_default();
-        let bs = crate::types::ByteStream { data: content, pos: 0 };
+        let bs = crate::types::ByteStream {
+            data: content,
+            pos: 0,
+        };
         let init = pyo3::PyClassInitializer::from(crate::types::AsyncByteStream)
             .add_subclass(crate::types::SyncByteStream)
             .add_subclass(bs);
@@ -1300,7 +1506,8 @@ impl Response {
 
     #[getter]
     fn text(&self, py: Python<'_>) -> PyResult<String> {
-        self.text_accessed.store(true, std::sync::atomic::Ordering::Relaxed);
+        self.text_accessed
+            .store(true, std::sync::atomic::Ordering::Relaxed);
         if let Some(ref c) = self.content_bytes {
             if c.is_empty() {
                 return Ok(String::new());
@@ -1347,9 +1554,10 @@ impl Response {
         let mut buf = content.clone();
         match simd_json::to_owned_value(&mut buf) {
             Ok(val) => {
-                 let serde_val = serde_json::to_value(&val).map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
-                 json_value_to_py(py, &serde_val)
-            },
+                let serde_val = serde_json::to_value(&val)
+                    .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+                json_value_to_py(py, &serde_val)
+            }
             Err(_) => {
                 // If simd-json fails (e.g. not UTF-8 or other issues), try Python's json.loads
                 // ensuring we decode text first
@@ -1365,7 +1573,7 @@ impl Response {
         match &self.request {
             Some(r) => Ok(r.clone()),
             None => Err(pyo3::exceptions::PyRuntimeError::new_err(
-                "The request instance has not been set on this response."
+                "The request instance has not been set on this response.",
             )),
         }
     }
@@ -1380,7 +1588,8 @@ impl Response {
         // raise StreamConsumed even though we have cached content.
         if self.was_streaming && self.is_stream_consumed && self.stream.is_none() {
             return Err(crate::exceptions::StreamConsumed::new_err(
-                "Attempted to read or stream content, but the stream has already been consumed."));
+                "Attempted to read or stream content, but the stream has already been consumed.",
+            ));
         }
         // Already have content bytes (non-streaming or read()), return them
         if let Some(ref c) = self.content_bytes {
@@ -1388,14 +1597,17 @@ impl Response {
         }
         if self.is_closed_flag {
             return Err(crate::exceptions::StreamClosed::new_err(
-                "Attempted to read or stream content, but the stream has been closed."));
+                "Attempted to read or stream content, but the stream has been closed.",
+            ));
         }
         if self.is_stream_consumed {
             return Err(crate::exceptions::StreamConsumed::new_err(
-                "Attempted to read or stream content, but the stream has already been consumed."));
+                "Attempted to read or stream content, but the stream has already been consumed.",
+            ));
         }
         // Consume sync iterator stream
-        if let Some(stream_py) = self.stream.take() { // Take ownership of stream
+        if let Some(stream_py) = self.stream.take() {
+            // Take ownership of stream
             let mut buf = Vec::new();
             let s = stream_py.bind(py);
             // Check if it's an async iterator - if so, raise RuntimeError
@@ -1413,7 +1625,7 @@ impl Response {
                         } else if let Ok(v) = item.extract::<Vec<u8>>() {
                             buf.extend(v);
                         }
-                    },
+                    }
                     Err(e) => {
                         if e.is_instance_of::<pyo3::exceptions::PyStopIteration>(py) {
                             break;
@@ -1428,7 +1640,8 @@ impl Response {
             self.content_bytes = Some(buf.clone());
             self.is_stream_consumed = true;
             self.is_closed_flag = true;
-            self.num_bytes_downloaded_counter.store(buf.len(), std::sync::atomic::Ordering::Relaxed);
+            self.num_bytes_downloaded_counter
+                .store(buf.len(), std::sync::atomic::Ordering::Relaxed);
             // self.stream is already None due to .take()
             return Ok(buf);
         }
@@ -1454,83 +1667,122 @@ impl Response {
         Ok(())
     }
 
-    #[getter] fn is_informational(&self) -> bool { (100..200).contains(&self.status_code) }
-    #[getter] fn is_success(&self) -> bool { (200..300).contains(&self.status_code) }
-    #[getter] fn is_redirect(&self) -> bool { (300..400).contains(&self.status_code) }
-    #[getter] fn is_client_error(&self) -> bool { (400..500).contains(&self.status_code) }
-    #[getter] fn is_server_error(&self) -> bool { (500..600).contains(&self.status_code) }
-    #[getter] fn is_error(&self) -> bool { (400..600).contains(&self.status_code) }
-    #[getter] fn has_redirect_location(&self, py: Python<'_>) -> bool { self.is_redirect() && self.headers.bind(py).borrow().contains_header("location") }
+    #[getter]
+    fn is_informational(&self) -> bool {
+        (100..200).contains(&self.status_code)
+    }
+    #[getter]
+    fn is_success(&self) -> bool {
+        (200..300).contains(&self.status_code)
+    }
+    #[getter]
+    fn is_redirect(&self) -> bool {
+        (300..400).contains(&self.status_code)
+    }
+    #[getter]
+    fn is_client_error(&self) -> bool {
+        (400..500).contains(&self.status_code)
+    }
+    #[getter]
+    fn is_server_error(&self) -> bool {
+        (500..600).contains(&self.status_code)
+    }
+    #[getter]
+    fn is_error(&self) -> bool {
+        (400..600).contains(&self.status_code)
+    }
+    #[getter]
+    fn has_redirect_location(&self, py: Python<'_>) -> bool {
+        self.is_redirect() && self.headers.bind(py).borrow().contains_header("location")
+    }
 
     #[getter]
     fn next_request<'py>(&self, py: Python<'py>) -> PyResult<Option<Request>> {
         if !self.is_redirect() {
-             return Ok(None);
+            return Ok(None);
         }
-        let location = if let Some(loc) = self.headers.bind(py).borrow().get_first_value("location") {
+        let location = if let Some(loc) = self.headers.bind(py).borrow().get_first_value("location")
+        {
             loc
         } else {
             return Ok(None);
         };
 
         if let Some(req) = &self.request {
-             // Calculate new URL
-             let new_url = req.url.join_relative(&location)?;
-             
-             // Determine method and body
-             let (method, body, headers) = match self.status_code {
-                 303 => ("GET", None, None),
-                 301 | 302 => {
-                     if req.method == "POST" {
-                         ("GET", None, None)
-                     } else {
-                         (req.method.as_str(), req.content_body.clone(), Some(req.headers.clone_ref(py)))
-                     }
-                 },
-                 307 | 308 => (req.method.as_str(), req.content_body.clone(), Some(req.headers.clone_ref(py))),
-                 _ => ("GET", None, None),
-             };
+            // Calculate new URL
+            let new_url = req.url.join_relative(&location)?;
 
-             // Clone headers if preserved, otherwise create new
-             let new_headers = if let Some(h) = headers {
-                 h
-             } else {
-                 req.headers.clone_ref(py)
-             };
+            // Determine method and body
+            let (method, body, headers) = match self.status_code {
+                303 => ("GET", None, None),
+                301 | 302 => {
+                    if req.method == "POST" {
+                        ("GET", None, None)
+                    } else {
+                        (
+                            req.method.as_str(),
+                            req.content_body.clone(),
+                            Some(req.headers.clone_ref(py)),
+                        )
+                    }
+                }
+                307 | 308 => (
+                    req.method.as_str(),
+                    req.content_body.clone(),
+                    Some(req.headers.clone_ref(py)),
+                ),
+                _ => ("GET", None, None),
+            };
 
-             if method == "GET" && req.method != "GET" {
-                 // Strip content headers
-                 let mut h = new_headers.bind(py).borrow_mut();
-                 h.remove_header("content-length");
-                 h.remove_header("content-type");
-                 h.remove_header("transfer-encoding");
-                 drop(h);
-             }
+            // Clone headers if preserved, otherwise create new
+            let new_headers = if let Some(h) = headers {
+                h
+            } else {
+                req.headers.clone_ref(py)
+            };
 
-             // We don't handle cookie persistence here (requires client cookie jar).
-             // httpx next_request usually just returns the request object.
+            if method == "GET" && req.method != "GET" {
+                // Strip content headers
+                let mut h = new_headers.bind(py).borrow_mut();
+                h.remove_header("content-length");
+                h.remove_header("content-type");
+                h.remove_header("transfer-encoding");
+                drop(h);
+            }
 
-             Ok(Some(Request {
-                 method: method.to_string(),
-                 url: new_url,
-                 headers: new_headers,
-                 extensions: req.extensions.clone_ref(py),
-                 content_body: body,
-                 stream: None, 
-                 stream_response: false,
-             }))
+            // We don't handle cookie persistence here (requires client cookie jar).
+            // httpx next_request usually just returns the request object.
+
+            Ok(Some(Request {
+                method: method.to_string(),
+                url: new_url,
+                headers: new_headers,
+                extensions: req.extensions.clone_ref(py),
+                content_body: body,
+                stream: None,
+                stream_response: false,
+            }))
         } else {
-             Ok(None)
+            Ok(None)
         }
     }
 
     #[getter]
     pub fn reason_phrase(&self) -> String {
-        crate::status_codes::status_code_map().get(&self.status_code).unwrap_or(&"").to_string()
+        crate::status_codes::status_code_map()
+            .get(&self.status_code)
+            .unwrap_or(&"")
+            .to_string()
     }
 
-    #[getter] fn http_version(&self) -> String { "HTTP/1.1".to_string() }
-    #[getter] fn is_closed(&self) -> bool { self.is_closed_flag }
+    #[getter]
+    fn http_version(&self) -> String {
+        "HTTP/1.1".to_string()
+    }
+    #[getter]
+    fn is_closed(&self) -> bool {
+        self.is_closed_flag
+    }
 
     #[getter]
     fn extensions(&self, py: Python<'_>) -> Py<PyAny> {
@@ -1541,8 +1793,15 @@ impl Response {
     fn set_extensions(&mut self, value: Py<PyAny>) {
         self.extensions = value;
     }
-    #[getter] fn is_stream_consumed_prop(&self) -> bool { self.is_stream_consumed }
-    #[getter] fn num_bytes_downloaded(&self) -> usize { self.num_bytes_downloaded_counter.load(std::sync::atomic::Ordering::Relaxed) }
+    #[getter]
+    fn is_stream_consumed_prop(&self) -> bool {
+        self.is_stream_consumed
+    }
+    #[getter]
+    fn num_bytes_downloaded(&self) -> usize {
+        self.num_bytes_downloaded_counter
+            .load(std::sync::atomic::Ordering::Relaxed)
+    }
 
     #[getter]
     fn cookies(&self, py: Python<'_>) -> PyResult<Cookies> {
@@ -1552,15 +1811,15 @@ impl Response {
                 cookie_list.push(v);
             }
         }
-        
+
         let cookie_jar = py.import("http.cookiejar")?;
         let jar = cookie_jar.call_method0("CookieJar")?;
-        
+
         if !cookie_list.is_empty() {
             for cookie_str in &cookie_list {
                 if let Some(pos) = cookie_str.find('=') {
                     let name = &cookie_str[..pos];
-                    let value = &cookie_str[pos+1..];
+                    let value = &cookie_str[pos + 1..];
                     Cookies::set_cookie_on_jar_inner(py, &jar, name, value, "", "/")?;
                 }
             }
@@ -1588,20 +1847,24 @@ impl Response {
         // If stream was consumed via async iteration, raise StreamConsumed
         if was_streaming && is_consumed && stream_ref.is_none() {
             return Err(crate::exceptions::StreamConsumed::new_err(
-                "Attempted to read or stream content, but the stream has already been consumed."));
+                "Attempted to read or stream content, but the stream has already been consumed.",
+            ));
         }
 
         if is_closed {
             return Err(crate::exceptions::StreamClosed::new_err(
-                "Attempted to read or stream content, but the stream has been closed."));
+                "Attempted to read or stream content, but the stream has been closed.",
+            ));
         }
         if is_consumed {
             return Err(crate::exceptions::StreamConsumed::new_err(
-                "Attempted to read or stream content, but the stream has already been consumed."));
+                "Attempted to read or stream content, but the stream has already been consumed.",
+            ));
         }
 
         // Try sync iteration first (works for sync generators used in tests)
-        if let Some(stream_py) = stream_ref { // Take ownership of stream_ref
+        if let Some(stream_py) = stream_ref {
+            // Take ownership of stream_ref
             let s = stream_py.bind(py);
             if let Ok(iter) = s.try_iter() {
                 let mut buf = Vec::new();
@@ -1627,12 +1890,14 @@ impl Response {
                     response.is_stream_consumed = true;
                     response.is_closed_flag = true;
                     response.stream = None; // Stream is consumed
-                    response.num_bytes_downloaded_counter.store(result.len(), std::sync::atomic::Ordering::Relaxed);
+                    response
+                        .num_bytes_downloaded_counter
+                        .store(result.len(), std::sync::atomic::Ordering::Relaxed);
                 }
                 return pyo3_async_runtimes::tokio::future_into_py(py, async move { Ok(result) });
             }
         }
-        
+
         // For async streams, delegate entirely to Python to properly handle
         // BaseException types (KeyboardInterrupt, SystemExit, asyncio.CancelledError)
         // that cannot be reliably caught through pyo3_async_runtimes.
@@ -1644,7 +1909,9 @@ impl Response {
                 self_mut.content_bytes = Some(Vec::new());
                 self_mut.is_closed_flag = true;
                 drop(self_mut);
-                return pyo3_async_runtimes::tokio::future_into_py(py, async move { Ok(Vec::<u8>::new()) });
+                return pyo3_async_runtimes::tokio::future_into_py(py, async move {
+                    Ok(Vec::<u8>::new())
+                });
             }
         }
 
@@ -1703,13 +1970,15 @@ async def _aread_impl(resp):
         self.is_stream_consumed = true;
         self.is_closed_flag = true;
         self.stream = None;
-        self.num_bytes_downloaded_counter.store(decompressed.len(), std::sync::atomic::Ordering::Relaxed);
+        self.num_bytes_downloaded_counter
+            .store(decompressed.len(), std::sync::atomic::Ordering::Relaxed);
         Ok(decompressed)
     }
 
     /// Helper: increment num_bytes_downloaded counter (used by Python-side async iterators)
     fn _add_bytes_downloaded(&self, n: usize) {
-        self.num_bytes_downloaded_counter.fetch_add(n, std::sync::atomic::Ordering::Relaxed);
+        self.num_bytes_downloaded_counter
+            .fetch_add(n, std::sync::atomic::Ordering::Relaxed);
     }
 
     fn raise_for_status(slf: Bound<'_, Self>) -> PyResult<Bound<'_, Self>> {
@@ -1722,18 +1991,17 @@ async def _aread_impl(resp):
         }
         // Helper to raise error with attrs
         let raise_error = |msg: String| -> PyResult<Bound<'_, Self>> {
-             let py = slf.py();
-             let exc_type = py.get_type::<crate::exceptions::HTTPStatusError>();
-             let exc = exc_type.call1((msg,))?;
-             
-             let req = self_.request.as_ref().unwrap();
-             let req_py = pyo3::Py::new(py, req.clone())?;
-             exc.setattr("request", req_py)?;
-             exc.setattr("response", slf.clone())?;
-             
-             Err(PyErr::from_value(exc.into()))
-        };
+            let py = slf.py();
+            let exc_type = py.get_type::<crate::exceptions::HTTPStatusError>();
+            let exc = exc_type.call1((msg,))?;
 
+            let req = self_.request.as_ref().unwrap();
+            let req_py = pyo3::Py::new(py, req.clone())?;
+            exc.setattr("request", req_py)?;
+            exc.setattr("response", slf.clone())?;
+
+            Err(PyErr::from_value(exc.into()))
+        };
 
         let request = self_.request.as_ref().unwrap();
         let url_str = request.url.to_string();
@@ -1743,14 +2011,23 @@ async def _aread_impl(resp):
         } else {
             format!("'{} {}'", self_.status_code, reason)
         };
-        let mdn_url = format!("https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/{}", self_.status_code);
+        let mdn_url = format!(
+            "https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/{}",
+            self_.status_code
+        );
 
         if (100..200).contains(&self_.status_code) {
-            let msg = format!("Informational response {} for url '{}'\nFor more information check: {}", status_with_reason, url_str, mdn_url);
+            let msg = format!(
+                "Informational response {} for url '{}'\nFor more information check: {}",
+                status_with_reason, url_str, mdn_url
+            );
             return raise_error(msg);
         }
         if (300..400).contains(&self_.status_code) {
-            let mut msg = format!("Redirect response {} for url '{}'", status_with_reason, url_str);
+            let mut msg = format!(
+                "Redirect response {} for url '{}'",
+                status_with_reason, url_str
+            );
             if let Some(loc) = self_.headers.bind(py).borrow().get_first_value("location") {
                 msg.push_str(&format!("\nRedirect location: '{}'", loc));
             }
@@ -1758,18 +2035,26 @@ async def _aread_impl(resp):
             return raise_error(msg);
         }
         if (400..500).contains(&self_.status_code) {
-            let msg = format!("Client error {} for url '{}'\nFor more information check: {}", status_with_reason, url_str, mdn_url);
+            let msg = format!(
+                "Client error {} for url '{}'\nFor more information check: {}",
+                status_with_reason, url_str, mdn_url
+            );
             return raise_error(msg);
         }
         if (500..600).contains(&self_.status_code) {
-            let msg = format!("Server error {} for url '{}'\nFor more information check: {}", status_with_reason, url_str, mdn_url);
+            let msg = format!(
+                "Server error {} for url '{}'\nFor more information check: {}",
+                status_with_reason, url_str, mdn_url
+            );
             return raise_error(msg);
         }
         drop(self_);
         Ok(slf)
     }
 
-    fn __enter__(slf: PyRef<'_, Self>) -> PyRef<'_, Self> { slf }
+    fn __enter__(slf: PyRef<'_, Self>) -> PyRef<'_, Self> {
+        slf
+    }
     fn __exit__(
         &mut self,
         py: Python<'_>,
@@ -1796,15 +2081,21 @@ async def _aread_impl(resp):
             return Some(enc.clone());
         }
         // Validate charset is a valid Python codec, fall back to default encoding if not
-        if let Some(ct) = self.headers.bind(py).borrow().get_first_value("content-type") {
+        if let Some(ct) = self
+            .headers
+            .bind(py)
+            .borrow()
+            .get_first_value("content-type")
+        {
             if let Some(idx) = ct.to_lowercase().find("charset=") {
                 let charset = &ct[idx + 8..];
                 let charset = charset.split(';').next().unwrap_or(charset).trim();
                 // Validate with codecs.lookup
                 let codecs = py.import("codecs").ok();
-                let is_valid = codecs.as_ref().map(|c| {
-                    c.call_method1("lookup", (charset,)).is_ok()
-                }).unwrap_or(false);
+                let is_valid = codecs
+                    .as_ref()
+                    .map(|c| c.call_method1("lookup", (charset,)).is_ok())
+                    .unwrap_or(false);
                 if is_valid {
                     return Some(charset.to_string());
                 }
@@ -1830,7 +2121,7 @@ async def _aread_impl(resp):
             if c.starts_with(&[0xEF, 0xBB, 0xBF]) {
                 return Some("utf-8-sig".to_string());
             }
- 
+
             // JSON encoding sniffing (RFC 4627)
             if c.len() >= 4 {
                 if c[0] == 0 && c[1] == 0 && c[2] == 0 {
@@ -1847,14 +2138,19 @@ async def _aread_impl(resp):
                 }
             }
         }
- 
+
         Some(self.get_encoding_str(py))
     }
 
     #[getter]
     fn charset_encoding(&self, py: Python<'_>) -> Option<String> {
         // Return charset from Content-Type header, if present
-        if let Some(ct) = self.headers.bind(py).borrow().get_first_value("content-type") {
+        if let Some(ct) = self
+            .headers
+            .bind(py)
+            .borrow()
+            .get_first_value("content-type")
+        {
             for part in ct.split(';') {
                 let part = part.trim();
                 if let Some(charset) = part.strip_prefix("charset=") {
@@ -1868,15 +2164,18 @@ async def _aread_impl(resp):
     #[setter]
     fn set_encoding(&mut self, _py: Python<'_>, value: &str) -> PyResult<()> {
         // In httpx, setting encoding after text has been accessed always raises ValueError
-        if self.text_accessed.load(std::sync::atomic::Ordering::Relaxed) {
+        if self
+            .text_accessed
+            .load(std::sync::atomic::Ordering::Relaxed)
+        {
             return Err(pyo3::exceptions::PyValueError::new_err(
-                "The encoding of the response cannot be changed once `.text` has been accessed."
+                "The encoding of the response cannot be changed once `.text` has been accessed.",
             ));
         }
         self.default_encoding_override = Some(value.to_string());
         Ok(())
     }
- 
+
     #[getter]
     fn links(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
         let dict = PyDict::new(py);
@@ -1892,10 +2191,14 @@ async def _aread_impl(resp):
                         link_dict.set_item("url", url)?;
                         for param in rest.split(';') {
                             let param = param.trim();
-                            if param.is_empty() { continue; }
+                            if param.is_empty() {
+                                continue;
+                            }
                             if let Some(eq_pos) = param.find('=') {
                                 let key = param[..eq_pos].trim();
-                                let val = param[eq_pos + 1..].trim().trim_matches(|c| c == '"' || c == '\'');
+                                let val = param[eq_pos + 1..]
+                                    .trim()
+                                    .trim_matches(|c| c == '"' || c == '\'');
                                 link_dict.set_item(key, val)?;
                             }
                         }
@@ -1912,7 +2215,7 @@ async def _aread_impl(resp):
         }
         Ok(dict.into())
     }
- 
+
     #[getter]
     fn elapsed(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
         if let Some(secs) = self.elapsed {
@@ -1921,11 +2224,11 @@ async def _aread_impl(resp):
             Ok(td.into())
         } else {
             Err(pyo3::exceptions::PyRuntimeError::new_err(
-                "'.elapsed' may only be accessed after the response has been read or closed."
+                "'.elapsed' may only be accessed after the response has been read or closed.",
             ))
         }
     }
- 
+
     #[getter]
     fn default_encoding_prop(&self, py: Python<'_>) -> String {
         self.get_encoding_str(py)
@@ -1975,20 +2278,24 @@ async def _aread_impl(resp):
         // Check lifecycle
         if self.is_stream_consumed && self.content_bytes.is_none() {
             return Err(crate::exceptions::StreamConsumed::new_err(
-                "Attempted to read or stream content, but the stream has already been consumed."));
+                "Attempted to read or stream content, but the stream has already been consumed.",
+            ));
         }
         if self.is_closed_flag && self.content_bytes.is_none() {
             return Err(crate::exceptions::StreamClosed::new_err(
-                "Attempted to read or stream content, but the stream has been closed."));
+                "Attempted to read or stream content, but the stream has been closed.",
+            ));
         }
-        
+
         // If we have a stream (streaming body), consume it lazily
-        if let Some(stream_py) = self.stream.take() { // Take ownership of stream
+        if let Some(stream_py) = self.stream.take() {
+            // Take ownership of stream
             let s = stream_py.bind(py);
             // Check for async - should raise RuntimeError
             if s.hasattr("__aiter__")? && !s.hasattr("__iter__")? {
                 return Err(pyo3::exceptions::PyRuntimeError::new_err(
-                    "Attempted to read an asynchronous response using a synchronous method."));
+                    "Attempted to read an asynchronous response using a synchronous method.",
+                ));
             }
             let mut all_chunks: Vec<Py<PyAny>> = Vec::new();
             let mut chunk_byte_sizes: Vec<usize> = Vec::new();
@@ -2029,14 +2336,23 @@ async def _aread_impl(resp):
                 while offset < total_bytes.len() {
                     let end = std::cmp::min(offset + cs, total_bytes.len());
                     let chunk_len = end - offset;
-                    all_chunks.push(PyBytes::new(py, &total_bytes[offset..end]).into_any().unbind());
+                    all_chunks.push(
+                        PyBytes::new(py, &total_bytes[offset..end])
+                            .into_any()
+                            .unbind(),
+                    );
                     chunk_byte_sizes.push(chunk_len);
                     offset = end;
                 }
             }
 
             let counter = self.num_bytes_downloaded_counter.clone();
-            let iter = crate::types::ChunkedIter { chunks: all_chunks, pos: 0, byte_counter: Some(counter), chunk_byte_sizes: Some(chunk_byte_sizes) };
+            let iter = crate::types::ChunkedIter {
+                chunks: all_chunks,
+                pos: 0,
+                byte_counter: Some(counter),
+                chunk_byte_sizes: Some(chunk_byte_sizes),
+            };
             return Ok(Py::new(py, iter)?.into_any());
         }
 
@@ -2120,7 +2436,8 @@ async def _aread_impl(resp):
                 for chunk in &raw_chunks {
                     if !chunk.is_empty() {
                         let py_bytes = PyBytes::new(py, chunk);
-                        let str_obj = py_bytes.call_method1("decode", (&encoding_name, "replace"))?;
+                        let str_obj =
+                            py_bytes.call_method1("decode", (&encoding_name, "replace"))?;
                         let s: String = str_obj.extract()?;
                         if !s.is_empty() {
                             text_chunks.push(s);
@@ -2198,7 +2515,8 @@ async def _aread_impl(resp):
             }
             if self_.is_closed_flag && self_.content_bytes.is_none() {
                 return Err(crate::exceptions::StreamClosed::new_err(
-                    "Attempted to read or stream content, but the stream has been closed."));
+                    "Attempted to read or stream content, but the stream has been closed.",
+                ));
             }
 
             // If we have a stream, check if it's sync-only - should raise RuntimeError
@@ -2208,7 +2526,8 @@ async def _aread_impl(resp):
                 let has_iter = s.hasattr("__iter__").unwrap_or(false);
                 if has_iter && !has_aiter {
                     return Err(pyo3::exceptions::PyRuntimeError::new_err(
-                        "Attempted to read an synchronous response using an asynchronous method."));
+                        "Attempted to read an synchronous response using an asynchronous method.",
+                    ));
                 }
             }
         }
@@ -2223,7 +2542,7 @@ async def _aread_impl(resp):
             ns.set_item("_stream", stream_py)?;
             ns.set_item("_chunk_size", chunk_size)?;
             ns.set_item("_response", &slf)?;
-            
+
             py.run(
                 c"
 async def _aiter_bytes_impl():
@@ -2270,16 +2589,16 @@ _result = _AsyncChunkIter(_aiter_bytes_impl(), _chunk_size, _response)
                 Some(&ns),
                 Some(&ns),
             )?;
-            
+
             let result = ns.get_item("_result")?.unwrap();
-            
+
             // Mark stream state
             {
                 let mut self_mut = slf.borrow_mut();
                 self_mut.is_stream_consumed = true;
                 self_mut.is_closed_flag = true;
             }
-            
+
             return Ok(result.unbind());
         }
 
@@ -2287,7 +2606,12 @@ _result = _AsyncChunkIter(_aiter_bytes_impl(), _chunk_size, _response)
         // Non-streaming: use content_bytes
         let content = self_.content_bytes.clone().unwrap_or_default();
         if content.is_empty() {
-            let iter = crate::types::ChunkedIter { chunks: Vec::new(), pos: 0, byte_counter: None, chunk_byte_sizes: None };
+            let iter = crate::types::ChunkedIter {
+                chunks: Vec::new(),
+                pos: 0,
+                byte_counter: None,
+                chunk_byte_sizes: None,
+            };
             return Ok(Py::new(py, iter)?.into_any());
         }
         if let Some(cs) = chunk_size {
@@ -2298,10 +2622,18 @@ _result = _AsyncChunkIter(_aiter_bytes_impl(), _chunk_size, _response)
                 chunks.push(PyBytes::new(py, &content[offset..end]).into_any().unbind());
                 offset = end;
             }
-            let iter = crate::types::ChunkedIter { chunks, pos: 0, byte_counter: None, chunk_byte_sizes: None };
+            let iter = crate::types::ChunkedIter {
+                chunks,
+                pos: 0,
+                byte_counter: None,
+                chunk_byte_sizes: None,
+            };
             Ok(Py::new(py, iter)?.into_any())
         } else {
-            let bs = crate::types::ByteStream { data: content, pos: 0 };
+            let bs = crate::types::ByteStream {
+                data: content,
+                pos: 0,
+            };
             let init = pyo3::PyClassInitializer::from(crate::types::AsyncByteStream)
                 .add_subclass(crate::types::SyncByteStream)
                 .add_subclass(bs);
@@ -2318,7 +2650,12 @@ _result = _AsyncChunkIter(_aiter_bytes_impl(), _chunk_size, _response)
     fn aiter_text(&self, py: Python<'_>, chunk_size: Option<usize>) -> PyResult<Py<PyAny>> {
         let text = self.text(py)?;
         if text.is_empty() {
-            let iter = crate::types::ChunkedIter { chunks: Vec::new(), pos: 0, byte_counter: None, chunk_byte_sizes: None };
+            let iter = crate::types::ChunkedIter {
+                chunks: Vec::new(),
+                pos: 0,
+                byte_counter: None,
+                chunk_byte_sizes: None,
+            };
             return Ok(Py::new(py, iter)?.into_any());
         }
         if let Some(cs) = chunk_size {
@@ -2331,21 +2668,37 @@ _result = _AsyncChunkIter(_aiter_bytes_impl(), _chunk_size, _response)
                 chunks.push(chunk.into_pyobject(py)?.into_any().unbind());
                 offset = end;
             }
-            let iter = crate::types::ChunkedIter { chunks, pos: 0, byte_counter: None, chunk_byte_sizes: None };
+            let iter = crate::types::ChunkedIter {
+                chunks,
+                pos: 0,
+                byte_counter: None,
+                chunk_byte_sizes: None,
+            };
             Ok(Py::new(py, iter)?.into_any())
         } else {
             let chunks = vec![text.into_pyobject(py)?.into_any().unbind()];
-            let iter = crate::types::ChunkedIter { chunks, pos: 0, byte_counter: None, chunk_byte_sizes: None };
+            let iter = crate::types::ChunkedIter {
+                chunks,
+                pos: 0,
+                byte_counter: None,
+                chunk_byte_sizes: None,
+            };
             Ok(Py::new(py, iter)?.into_any())
         }
     }
 
     fn aiter_lines(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
         let text = self.text(py)?;
-        let chunks: Vec<Py<PyAny>> = text.lines()
+        let chunks: Vec<Py<PyAny>> = text
+            .lines()
             .map(|l| l.to_string().into_pyobject(py).unwrap().into_any().unbind())
             .collect();
-        let iter = crate::types::ChunkedIter { chunks, pos: 0, byte_counter: None, chunk_byte_sizes: None };
+        let iter = crate::types::ChunkedIter {
+            chunks,
+            pos: 0,
+            byte_counter: None,
+            chunk_byte_sizes: None,
+        };
         Ok(Py::new(py, iter)?.into_any())
     }
 
@@ -2361,34 +2714,40 @@ _result = _AsyncChunkIter(_aiter_bytes_impl(), _chunk_size, _response)
             }
         }
         self.is_closed_flag = true;
-        pyo3_async_runtimes::tokio::future_into_py(py, async move {
-            Ok(())
-        })
+        pyo3_async_runtimes::tokio::future_into_py(py, async move { Ok(()) })
     }
 
-
- 
-    #[getter] fn is_stream_consumed(&self) -> bool { self.is_stream_consumed }
+    #[getter]
+    fn is_stream_consumed(&self) -> bool {
+        self.is_stream_consumed
+    }
     fn __repr__(&self) -> String {
         let reason = self.reason_phrase();
         if reason.is_empty() {
-             format!("<Response [{}]>", self.status_code)
+            format!("<Response [{}]>", self.status_code)
         } else {
-             format!("<Response [{} {}]>", self.status_code, reason)
+            format!("<Response [{} {}]>", self.status_code, reason)
         }
     }
-    fn __bool__(&self) -> bool { self.is_success() }
+    fn __bool__(&self) -> bool {
+        self.is_success()
+    }
 
     fn __reduce__(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
         let cls = py.import("httpr")?.getattr("Response")?;
-        let args = pyo3::types::PyTuple::new(py, &[
-            self.status_code.into_pyobject(py)?.into_any(),
-        ])?;
+        let args =
+            pyo3::types::PyTuple::new(py, &[self.status_code.into_pyobject(py)?.into_any()])?;
         let state = pyo3::types::PyDict::new(py);
         let hdrs = self.headers.borrow(py);
         let h_list = PyList::empty(py);
         for (k, v) in &hdrs.raw {
-            let t = pyo3::types::PyTuple::new(py, &[PyBytes::new(py, k).into_any(), PyBytes::new(py, v).into_any()])?;
+            let t = pyo3::types::PyTuple::new(
+                py,
+                &[
+                    PyBytes::new(py, k).into_any(),
+                    PyBytes::new(py, v).into_any(),
+                ],
+            )?;
             h_list.append(t)?;
         }
         state.set_item("headers", h_list)?;
@@ -2401,12 +2760,17 @@ _result = _AsyncChunkIter(_aiter_bytes_impl(), _chunk_size, _response)
         }
         state.set_item("is_stream_consumed", self.is_stream_consumed)?;
         state.set_item("was_streaming", self.was_streaming)?;
-        state.set_item("num_bytes_downloaded", self.num_bytes_downloaded_counter.load(std::sync::atomic::Ordering::Relaxed))?;
+        state.set_item(
+            "num_bytes_downloaded",
+            self.num_bytes_downloaded_counter
+                .load(std::sync::atomic::Ordering::Relaxed),
+        )?;
         // Save request if present
         if let Some(ref req) = self.request {
             state.set_item("request", req.clone().into_pyobject(py)?)?;
         }
-        let result = pyo3::types::PyTuple::new(py, &[cls.into_any(), args.into_any(), state.into_any()])?;
+        let result =
+            pyo3::types::PyTuple::new(py, &[cls.into_any(), args.into_any(), state.into_any()])?;
         Ok(result.into())
     }
 
@@ -2427,7 +2791,10 @@ _result = _AsyncChunkIter(_aiter_bytes_impl(), _chunk_size, _response)
         }
         if let Some(headers) = dict.get_item("headers")? {
             let h_list: Vec<(Vec<u8>, Vec<u8>)> = headers.extract()?;
-            let hdrs = Headers { raw: h_list, encoding: "utf-8".to_string() };
+            let hdrs = Headers {
+                raw: h_list,
+                encoding: "utf-8".to_string(),
+            };
             self.headers = Py::new(py, hdrs)?;
         }
         if let Some(consumed) = dict.get_item("is_stream_consumed")? {
@@ -2441,9 +2808,13 @@ _result = _AsyncChunkIter(_aiter_bytes_impl(), _chunk_size, _response)
         }
         // Restore num_bytes_downloaded
         if let Some(nbd) = dict.get_item("num_bytes_downloaded")? {
-            self.num_bytes_downloaded_counter.store(nbd.extract::<usize>()?, std::sync::atomic::Ordering::Relaxed);
+            self.num_bytes_downloaded_counter.store(
+                nbd.extract::<usize>()?,
+                std::sync::atomic::Ordering::Relaxed,
+            );
         } else if let Some(ref c) = self.content_bytes {
-            self.num_bytes_downloaded_counter.store(c.len(), std::sync::atomic::Ordering::Relaxed);
+            self.num_bytes_downloaded_counter
+                .store(c.len(), std::sync::atomic::Ordering::Relaxed);
         }
         // Always mark as closed after unpickling
         self.is_closed_flag = true;
@@ -2465,8 +2836,8 @@ pub struct Cookies {
 
 impl Clone for Cookies {
     fn clone(&self) -> Self {
-        Python::attach(|py| {
-            Cookies { jar: self.jar.clone_ref(py) }
+        Python::attach(|py| Cookies {
+            jar: self.jar.clone_ref(py),
         })
     }
 }
@@ -2477,7 +2848,9 @@ impl Cookies {
         let jar = cookiejar.call_method0("CookieJar")?;
         if let Some(c) = cookies {
             if !c.is_none() {
-                if let Ok(existing) = c.extract::<Cookies>() { return Ok(existing); }
+                if let Ok(existing) = c.extract::<Cookies>() {
+                    return Ok(existing);
+                }
                 // Check if it's a CookieJar (has set_cookie method and is iterable)
                 let cookie_jar_class = cookiejar.getattr("CookieJar")?;
                 if c.is_instance(&cookie_jar_class)? {
@@ -2505,7 +2878,14 @@ impl Cookies {
         Ok(Cookies { jar: jar.into() })
     }
 
-    pub(crate) fn set_cookie_on_jar_inner(py: Python<'_>, jar: &Bound<'_, PyAny>, name: &str, value: &str, domain: &str, path: &str) -> PyResult<()> {
+    pub(crate) fn set_cookie_on_jar_inner(
+        py: Python<'_>,
+        jar: &Bound<'_, PyAny>,
+        name: &str,
+        value: &str,
+        domain: &str,
+        path: &str,
+    ) -> PyResult<()> {
         let cookiejar = py.import("http.cookiejar")?;
         let kwargs = PyDict::new(py);
         kwargs.set_item("version", 0i32)?;
@@ -2539,30 +2919,63 @@ impl Cookies {
     }
 
     #[pyo3(signature = (name, value, domain=None, path=None))]
-    fn set(&self, py: Python<'_>, name: &str, value: &str, domain: Option<&str>, path: Option<&str>) -> PyResult<()> {
-        Self::set_cookie_on_jar_inner(py, self.jar.bind(py), name, value, domain.unwrap_or(""), path.unwrap_or("/"))
+    fn set(
+        &self,
+        py: Python<'_>,
+        name: &str,
+        value: &str,
+        domain: Option<&str>,
+        path: Option<&str>,
+    ) -> PyResult<()> {
+        Self::set_cookie_on_jar_inner(
+            py,
+            self.jar.bind(py),
+            name,
+            value,
+            domain.unwrap_or(""),
+            path.unwrap_or("/"),
+        )
     }
 
-    fn delete(&self, py: Python<'_>, name: &str, domain: Option<&str>, path: Option<&str>) -> PyResult<()> {
+    fn delete(
+        &self,
+        py: Python<'_>,
+        name: &str,
+        domain: Option<&str>,
+        path: Option<&str>,
+    ) -> PyResult<()> {
         // Remove cookies matching name/domain/path
         let jar_bound = self.jar.bind(py);
         let mut to_remove = Vec::new();
         for cookie in jar_bound.try_iter()? {
             let cookie = cookie?;
             let cookie_name: String = cookie.getattr("name")?.extract()?;
-            if cookie_name != name { continue; }
+            if cookie_name != name {
+                continue;
+            }
             if let Some(d) = domain {
                 let cookie_domain: String = cookie.getattr("domain")?.extract()?;
-                if cookie_domain != d { continue; }
+                if cookie_domain != d {
+                    continue;
+                }
             }
             if let Some(p) = path {
                 let cookie_path: String = cookie.getattr("path")?.extract()?;
-                if cookie_path != p { continue; }
+                if cookie_path != p {
+                    continue;
+                }
             }
             to_remove.push(cookie.clone().unbind());
         }
         for c in to_remove {
-            jar_bound.call_method1("clear", (c.bind(py).getattr("domain")?, c.bind(py).getattr("path")?, c.bind(py).getattr("name")?))?;
+            jar_bound.call_method1(
+                "clear",
+                (
+                    c.bind(py).getattr("domain")?,
+                    c.bind(py).getattr("path")?,
+                    c.bind(py).getattr("name")?,
+                ),
+            )?;
         }
         Ok(())
     }
@@ -2579,18 +2992,29 @@ impl Cookies {
                 let mut matches = true;
                 if let Some(d) = domain {
                     let cookie_domain: String = cookie.getattr("domain")?.extract()?;
-                    if cookie_domain != d { matches = false; }
+                    if cookie_domain != d {
+                        matches = false;
+                    }
                 }
                 if let Some(p) = path {
                     let cookie_path: String = cookie.getattr("path")?.extract()?;
-                    if cookie_path != p { matches = false; }
+                    if cookie_path != p {
+                        matches = false;
+                    }
                 }
                 if matches {
                     to_remove.push(cookie.clone().unbind());
                 }
             }
             for c in to_remove {
-                jar_bound.call_method1("clear", (c.bind(py).getattr("domain")?, c.bind(py).getattr("path")?, c.bind(py).getattr("name")?))?;
+                jar_bound.call_method1(
+                    "clear",
+                    (
+                        c.bind(py).getattr("domain")?,
+                        c.bind(py).getattr("path")?,
+                        c.bind(py).getattr("name")?,
+                    ),
+                )?;
             }
         }
         Ok(())
@@ -2603,7 +3027,7 @@ impl Cookies {
             if k == "set-cookie" {
                 if let Some(pos) = v.find('=') {
                     let name = &v[..pos];
-                    let rest = &v[pos+1..];
+                    let rest = &v[pos + 1..];
                     let value = rest.split(';').next().unwrap_or(rest);
                     Self::set_cookie_on_jar_inner(py, self.jar.bind(py), name, value, "", "/")?;
                 }
@@ -2649,7 +3073,14 @@ impl Cookies {
     }
 
     #[pyo3(signature = (name, default=None, domain=None, path=None))]
-    fn get(&self, py: Python<'_>, name: &str, default: Option<&str>, domain: Option<&str>, path: Option<&str>) -> PyResult<Option<String>> {
+    fn get(
+        &self,
+        py: Python<'_>,
+        name: &str,
+        default: Option<&str>,
+        domain: Option<&str>,
+        path: Option<&str>,
+    ) -> PyResult<Option<String>> {
         let jar_bound = self.jar.bind(py);
         for cookie in jar_bound.try_iter()? {
             let cookie: Bound<'_, PyAny> = cookie?;
@@ -2657,20 +3088,26 @@ impl Cookies {
             if cookie_name == name {
                 if let Some(d) = domain {
                     let cookie_domain: String = cookie.getattr("domain")?.extract()?;
-                    if cookie_domain != d { continue; }
+                    if cookie_domain != d {
+                        continue;
+                    }
                 }
                 if let Some(p) = path {
                     let cookie_path: String = cookie.getattr("path")?.extract()?;
-                    if cookie_path != p { continue; }
+                    if cookie_path != p {
+                        continue;
+                    }
                 }
                 return Ok(Some(cookie.getattr("value")?.extract()?));
             }
         }
         Ok(default.map(|s| s.to_string()))
     }
-    
+
     #[getter]
-    fn jar(&self, py: Python<'_>) -> Py<PyAny> { self.jar.clone_ref(py) }
+    fn jar(&self, py: Python<'_>) -> Py<PyAny> {
+        self.jar.clone_ref(py)
+    }
 
     fn __len__(&self, py: Python<'_>) -> PyResult<usize> {
         let mut count = 0;
@@ -2702,7 +3139,10 @@ impl Cookies {
             if domain.is_empty() {
                 parts.push(format!("<Cookie {}={} for {}>", name, value, path));
             } else {
-                parts.push(format!("<Cookie {}={} for {} {}>", name, value, domain, path));
+                parts.push(format!(
+                    "<Cookie {}={} for {} {}>",
+                    name, value, domain, path
+                ));
             }
         }
         Ok(format!("<Cookies[{}]>", parts.join(", ")))
@@ -2729,7 +3169,10 @@ impl Cookies {
                 format!("Attempted to access the cookie '{}', but multiple cookies with that name exist. Use 'cookies.get(\"{}\")', passing the appropriate 'domain' or 'path' arguments.", key, key)
             ));
         }
-        values.into_iter().next().ok_or_else(|| pyo3::exceptions::PyKeyError::new_err(key.to_string()))
+        values
+            .into_iter()
+            .next()
+            .ok_or_else(|| pyo3::exceptions::PyKeyError::new_err(key.to_string()))
     }
 
     fn __setitem__(&self, py: Python<'_>, key: &str, value: &str) -> PyResult<()> {

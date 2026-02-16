@@ -58,8 +58,7 @@ async def async_streaming() -> None:
     with httpr.stream("GET", "https://httpbin.org/get") as response:
         response.read()
         print(
-            f"  Top-level stream: {response.status_code},"
-            f" {len(response.content)} bytes"
+            f"  Top-level stream: {response.status_code}, {len(response.content)} bytes"
         )
     print()
 

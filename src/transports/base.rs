@@ -27,7 +27,10 @@ impl BaseTransport {
         Ok(())
     }
 
-    fn handle_request(&self, _request: &crate::models::Request) -> PyResult<crate::models::Response> {
+    fn handle_request(
+        &self,
+        _request: &crate::models::Request,
+    ) -> PyResult<crate::models::Response> {
         Err(pyo3::exceptions::PyNotImplementedError::new_err(
             "The 'handle_request' method must be implemented.",
         ))
@@ -53,9 +56,7 @@ impl AsyncBaseTransport {
 
     fn __aenter__<'py>(slf: Bound<'py, Self>, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
         let slf_py = slf.unbind();
-        pyo3_async_runtimes::tokio::future_into_py(py, async move {
-            Ok(slf_py)
-        })
+        pyo3_async_runtimes::tokio::future_into_py(py, async move { Ok(slf_py) })
     }
 
     fn __aexit__<'py>(
@@ -67,27 +68,34 @@ impl AsyncBaseTransport {
     ) -> PyResult<Bound<'py, PyAny>> {
         let slf_py = slf.clone().unbind();
         pyo3_async_runtimes::tokio::future_into_py(py, async move {
-             let fut = Python::attach(|py| {
-                 let t = slf_py.bind(py);
-                 if t.hasattr("aclose")? {
-                     let result = t.call_method0("aclose")?;
-                     let inspect = py.import("inspect")?;
-                     let is_coro = inspect.call_method1("isawaitable", (&result,))?.extract::<bool>()?;
-                     if is_coro {
-                         return Ok::<_, PyErr>(Some(pyo3_async_runtimes::tokio::into_future(result)?));
-                     }
-                 }
-                 Ok(None)
-             })?;
-             
-             if let Some(f) = fut {
-                 f.await?;
-             }
-             Ok(())
+            let fut = Python::attach(|py| {
+                let t = slf_py.bind(py);
+                if t.hasattr("aclose")? {
+                    let result = t.call_method0("aclose")?;
+                    let inspect = py.import("inspect")?;
+                    let is_coro = inspect
+                        .call_method1("isawaitable", (&result,))?
+                        .extract::<bool>()?;
+                    if is_coro {
+                        return Ok::<_, PyErr>(Some(pyo3_async_runtimes::tokio::into_future(
+                            result,
+                        )?));
+                    }
+                }
+                Ok(None)
+            })?;
+
+            if let Some(f) = fut {
+                f.await?;
+            }
+            Ok(())
         })
     }
 
-    fn handle_async_request(&self, _request: &crate::models::Request) -> PyResult<crate::models::Response> {
+    fn handle_async_request(
+        &self,
+        _request: &crate::models::Request,
+    ) -> PyResult<crate::models::Response> {
         Err(pyo3::exceptions::PyNotImplementedError::new_err(
             "The 'handle_async_request' method must be implemented.",
         ))

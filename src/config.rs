@@ -1,6 +1,6 @@
-use pyo3::prelude::*;
-use pyo3::types::{PyTuple, PyModule};
 use pyo3::exceptions::PyValueError;
+use pyo3::prelude::*;
+use pyo3::types::{PyModule, PyTuple};
 use std::ffi::CStr;
 
 /// Default timeout (5 seconds for all operations)
@@ -48,10 +48,26 @@ impl Timeout {
                 return Ok(existing);
             } else if let Ok(tuple) = t.cast::<PyTuple>() {
                 let len = tuple.len();
-                if len > 0 { if let Ok(val) = tuple.get_item(0).unwrap().extract::<f64>() { c = c.or(Some(val)); } }
-                if len > 1 { if let Ok(val) = tuple.get_item(1).unwrap().extract::<f64>() { r = r.or(Some(val)); } }
-                if len > 2 { if let Ok(val) = tuple.get_item(2).unwrap().extract::<f64>() { w = w.or(Some(val)); } }
-                if len > 3 { if let Ok(val) = tuple.get_item(3).unwrap().extract::<f64>() { p = p.or(Some(val)); } }
+                if len > 0 {
+                    if let Ok(val) = tuple.get_item(0).unwrap().extract::<f64>() {
+                        c = c.or(Some(val));
+                    }
+                }
+                if len > 1 {
+                    if let Ok(val) = tuple.get_item(1).unwrap().extract::<f64>() {
+                        r = r.or(Some(val));
+                    }
+                }
+                if len > 2 {
+                    if let Ok(val) = tuple.get_item(2).unwrap().extract::<f64>() {
+                        w = w.or(Some(val));
+                    }
+                }
+                if len > 3 {
+                    if let Ok(val) = tuple.get_item(3).unwrap().extract::<f64>() {
+                        p = p.or(Some(val));
+                    }
+                }
             } else if let Ok(val) = t.extract::<f64>() {
                 c = c.or(Some(val));
                 r = r.or(Some(val));
@@ -60,7 +76,12 @@ impl Timeout {
             }
         }
 
-        Ok(Timeout { connect: c, read: r, write: w, pool: p })
+        Ok(Timeout {
+            connect: c,
+            read: r,
+            write: w,
+            pool: p,
+        })
     }
 
     fn __eq__(&self, other: &Timeout) -> bool {
@@ -74,17 +95,28 @@ impl Timeout {
         fn fmt_opt(v: Option<f64>) -> String {
             match v {
                 Some(f) => {
-                    if f == f.floor() { format!("{:.1}", f) } else { format!("{}", f) }
+                    if f == f.floor() {
+                        format!("{:.1}", f)
+                    } else {
+                        format!("{}", f)
+                    }
                 }
                 None => "None".to_string(),
             }
         }
-        if self.connect == self.read && self.read == self.write && self.write == self.pool && self.connect.is_some() {
+        if self.connect == self.read
+            && self.read == self.write
+            && self.write == self.pool
+            && self.connect.is_some()
+        {
             format!("Timeout(timeout={})", fmt_opt(self.connect))
         } else {
             format!(
                 "Timeout(connect={}, read={}, write={}, pool={})",
-                fmt_opt(self.connect), fmt_opt(self.read), fmt_opt(self.write), fmt_opt(self.pool)
+                fmt_opt(self.connect),
+                fmt_opt(self.read),
+                fmt_opt(self.write),
+                fmt_opt(self.pool)
             )
         }
     }
@@ -126,11 +158,20 @@ impl Limits {
 
     fn __repr__(&self) -> String {
         fn fmt_opt_u32(v: Option<u32>) -> String {
-            match v { Some(n) => format!("{}", n), None => "None".to_string() }
+            match v {
+                Some(n) => format!("{}", n),
+                None => "None".to_string(),
+            }
         }
         fn fmt_opt_f64(v: Option<f64>) -> String {
             match v {
-                Some(f) => { if f == f.floor() { format!("{:.1}", f) } else { format!("{}", f) } }
+                Some(f) => {
+                    if f == f.floor() {
+                        format!("{:.1}", f)
+                    } else {
+                        format!("{}", f)
+                    }
+                }
                 None => "None".to_string(),
             }
         }
@@ -170,7 +211,10 @@ impl Proxy {
                 if let Some(at_pos) = after_scheme.find('@') {
                     let userinfo = &after_scheme[..at_pos];
                     if let Some(colon_pos) = userinfo.find(':') {
-                        auth = Some((userinfo[..colon_pos].to_string(), userinfo[colon_pos+1..].to_string()));
+                        auth = Some((
+                            userinfo[..colon_pos].to_string(),
+                            userinfo[colon_pos + 1..].to_string(),
+                        ));
                     } else {
                         auth = Some((userinfo.to_string(), "".to_string()));
                     }
@@ -208,11 +252,11 @@ impl Proxy {
         // Scheme validation: test_invalid_proxy_scheme expects ValueError
         let valid_schemes = ["http://", "https://", "socks5://", "socks5h://"];
         if !url_str.contains("://") || !valid_schemes.iter().any(|s| url_str.starts_with(s)) {
-             return Err(PyValueError::new_err("Proxy URL must have a supported scheme (http://, https://, socks5://, socks5h://)."));
+            return Err(PyValueError::new_err("Proxy URL must have a supported scheme (http://, https://, socks5://, socks5h://)."));
         }
 
         let mut extracted_auth = auth;
-        
+
         let clean_url = if url_str.contains('@') {
             if let Some(scheme_end) = url_str.find("://") {
                 let after_scheme = &url_str[scheme_end + 3..];
@@ -220,12 +264,19 @@ impl Proxy {
                     let userinfo = &after_scheme[..at_pos];
                     if extracted_auth.is_none() {
                         if let Some(colon_pos) = userinfo.find(':') {
-                            extracted_auth = Some((userinfo[..colon_pos].to_string(), userinfo[colon_pos+1..].to_string()));
+                            extracted_auth = Some((
+                                userinfo[..colon_pos].to_string(),
+                                userinfo[colon_pos + 1..].to_string(),
+                            ));
                         } else {
                             extracted_auth = Some((userinfo.to_string(), "".to_string()));
                         }
                     }
-                    format!("{}{}", &url_str[..scheme_end + 3], &after_scheme[at_pos + 1..])
+                    format!(
+                        "{}{}",
+                        &url_str[..scheme_end + 3],
+                        &after_scheme[at_pos + 1..]
+                    )
                 } else {
                     url_str.clone()
                 }
@@ -281,7 +332,8 @@ pub fn create_ssl_context(
         }
     }
 
-    let patch_code = CStr::from_bytes_with_nul(b"\
+    let patch_code = CStr::from_bytes_with_nul(
+        b"\
 def patch(ctx):
     original_load = ctx.load_verify_locations
     def load_verify_locations(cafile=None, capath=None, cadata=None):
@@ -290,9 +342,11 @@ def patch(ctx):
         return original_load(cafile=cafile, capath=capath, cadata=cadata)
     ctx.load_verify_locations = load_verify_locations
     return ctx
-\0").unwrap();
-    let patch_func = PyModule::from_code(py, patch_code, c"patcher.py", c"patcher")?
-        .getattr("patch")?;
+\0",
+    )
+    .unwrap();
+    let patch_func =
+        PyModule::from_code(py, patch_code, c"patcher.py", c"patcher")?.getattr("patch")?;
     patch_func.call1((&ctx,))?;
 
     if let Some(c) = cert {
@@ -391,7 +445,10 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(create_ssl_context, m)?)?;
     let py = m.py();
     let default_bound = pyo3::types::PyFloat::new(py, 5.0);
-    m.add("DEFAULT_TIMEOUT_CONFIG", Timeout::new(py, Some(default_bound.as_any()), None, None, None, None)?)?;
+    m.add(
+        "DEFAULT_TIMEOUT_CONFIG",
+        Timeout::new(py, Some(default_bound.as_any()), None, None, None, None)?,
+    )?;
     m.add("DEFAULT_LIMITS", Limits::new(None, None, None))?;
     m.add("DEFAULT_MAX_REDIRECTS", DEFAULT_MAX_REDIRECTS)?;
     Ok(())

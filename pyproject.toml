@@ -95,6 +95,7 @@ dev = [
     "pandas>=2.0",
     "polars>=1.0",
     "pyright>=1.1",
+    "ruff>=0.9",
     "pytest>=8.0",
     "pytest-benchmark>=5.2.3",
     "sniffio>=1.3",

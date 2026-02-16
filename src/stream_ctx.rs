@@ -1,5 +1,5 @@
 use pyo3::prelude::*;
-use pyo3::types::{PyAnyMethods, PyDictMethods, PyDict};
+use pyo3::types::{PyAnyMethods, PyDict, PyDictMethods};
 
 use crate::client::AsyncClient;
 use crate::models::Response;
@@ -21,7 +21,7 @@ impl StreamContextManager {
         let method = slf_borrow.method.clone();
         let url = slf_borrow.url.clone_ref(py);
         let kwargs = slf_borrow.kwargs.as_ref().map(|k| k.clone_ref(py));
-        
+
         let slf_py = slf.clone().unbind();
 
         pyo3_async_runtimes::tokio::future_into_py(py, async move {
@@ -30,18 +30,24 @@ impl StreamContextManager {
                 let c_bound = client.bind(py);
                 let u_bound = url.bind(py);
                 let k_bound = kwargs.as_ref().map(|k| k.bind(py));
-                
-                let kwargs_dict: Py<PyDict> = k_bound.map(|k| k.to_owned().unbind()).unwrap_or_else(|| PyDict::new(py).unbind());
+
+                let kwargs_dict: Py<PyDict> = k_bound
+                    .map(|k| k.to_owned().unbind())
+                    .unwrap_or_else(|| PyDict::new(py).unbind());
                 kwargs_dict.bind(py).set_item("stream", true)?;
-                
-                let coro = c_bound.call_method("request", (&method, u_bound), Some(kwargs_dict.bind(py)))?;
+
+                let coro = c_bound.call_method(
+                    "request",
+                    (&method, u_bound),
+                    Some(kwargs_dict.bind(py)),
+                )?;
                 // Convert the coroutine to a Rust future
                 pyo3_async_runtimes::tokio::into_future(coro)
             })?;
-            
+
             // Await the coroutine to get the response
             let resp_py = coro_future.await?;
-            
+
             // Extract the Response and store it
             Python::attach(|py| -> PyResult<Py<Response>> {
                 let resp = resp_py.bind(py).extract::<Response>()?;
@@ -62,13 +68,11 @@ impl StreamContextManager {
         _traceback: Option<&Bound<'_, PyAny>>,
     ) -> PyResult<Bound<'py, PyAny>> {
         if let Some(resp) = &self.response {
-             let r = resp.clone_ref(py);
-             pyo3_async_runtimes::tokio::future_into_py(py, async move {
-                 let _ = Python::attach(|py| {
-                     r.call_method0(py, "aclose")
-                 }); // Ignore errors on close?
-                 Ok(())
-             })
+            let r = resp.clone_ref(py);
+            pyo3_async_runtimes::tokio::future_into_py(py, async move {
+                let _ = Python::attach(|py| r.call_method0(py, "aclose")); // Ignore errors on close?
+                Ok(())
+            })
         } else {
             pyo3_async_runtimes::tokio::future_into_py(py, async move { Ok(()) })
         }

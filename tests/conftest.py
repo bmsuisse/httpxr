@@ -30,10 +30,13 @@ def anyio_backend():
 
 def pytest_collection_modifyitems(items):
     """Skip trio-backend tests since httpr uses tokio runtime (asyncio-only)."""
-    skip_trio = pytest.mark.skip(reason="httpr uses tokio runtime, incompatible with trio")
+    skip_trio = pytest.mark.skip(
+        reason="httpr uses tokio runtime, incompatible with trio"
+    )
     for item in items:
         if "[trio]" in item.nodeid:
             item.add_marker(skip_trio)
+
 
 ENVIRONMENT_VARIABLES = {
     "SSL_CERT_FILE",
@@ -287,32 +290,35 @@ def _run_server(config, port_shared, ready_event, stop_event):
         # We must use a fresh TestServer instance
         # import inside to avoid circular or pickling issues if any
         from tests.conftest import TestServer
+
         child_server = TestServer(config=config)
-        
+
         # Patch startup to signal readiness and communicative port
         original_startup = child_server.startup
+
         async def patched_startup(sockets=None):
             await original_startup(sockets=sockets)
             # Notify parent of the actual port
             port_shared.value = child_server.servers[0].sockets[0].getsockname()[1]
             ready_event.set()
-        
+
         child_server.startup = patched_startup
-        
+
         # Start a thread to watch for the stop event
         def check_stop():
             while not stop_event.wait(timeout=0.1):
                 pass
             child_server.should_exit = True
-        
+
         import threading
+
         stop_watcher = threading.Thread(target=check_stop, daemon=True)
         stop_watcher.start()
-        
+
         child_server.run()
     except Exception as e:
         print(f"ERROR: Server process failed: {e}")
-        ready_event.set() # Don't hang the parent
+        ready_event.set()  # Don't hang the parent
 
 
 def serve_in_process(server: TestServer) -> typing.Iterator[TestServer]:
@@ -322,27 +328,30 @@ def serve_in_process(server: TestServer) -> typing.Iterator[TestServer]:
     stop_event = multiprocessing.Event()
 
     process = multiprocessing.Process(
-        target=_run_server, 
-        args=(config, port_shared, ready_event, stop_event)
+        target=_run_server, args=(config, port_shared, ready_event, stop_event)
     )
     process.start()
-    
+
     try:
         if not ready_event.wait(timeout=10):
             process.terminate()
             raise RuntimeError("Server failed to start within 10 seconds")
-        
+
         if port_shared.value == 0:
-             raise RuntimeError("Server reported port 0 - startup might have failed")
+            raise RuntimeError("Server reported port 0 - startup might have failed")
 
         # Mock the server object in the parent process so server.url works
         class DummySocket:
-            def getsockname(self): return ("127.0.0.1", port_shared.value)
+            def getsockname(self):
+                return ("127.0.0.1", port_shared.value)
+
         class DummyServer:
-            def __init__(self): self.sockets = [DummySocket()]
+            def __init__(self):
+                self.sockets = [DummySocket()]
+
         server.servers = [DummyServer()]
         server.started = True
-        
+
         yield server
     finally:
         stop_event.set()
