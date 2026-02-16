@@ -57,10 +57,9 @@ impl HTTPTransport {
             pyo3::exceptions::PyRuntimeError::new_err(format!("Failed to create client: {}", e))
         })?;
 
-        // Create a persistent multi-thread tokio runtime for this transport.
-        // We use multi-thread (with 1 worker) because Handle::block_on must be
-        // called from outside the runtime, and py.detach() runs on a different thread.
-        // We can't use reqwest::blocking (deadlocks with pyo3-async-runtimes).
+        // Create a persistent multi-thread tokio runtime (1 worker) for this transport.
+        // Must be multi-thread because py.detach() runs on a separate OS thread,
+        // and current_thread runtime can only be driven from its creating thread.
         let rt = tokio::runtime::Builder::new_multi_thread()
             .worker_threads(1)
             .enable_all()
@@ -109,7 +108,7 @@ impl HTTPTransport {
         let has_body = body_bytes.is_some();
         let client = self.client.clone();
         let stream_response = request.stream_response;
-        let header_list = request.headers.bind(py).borrow().get_multi_items();
+        let raw_headers = request.headers.bind(py).borrow().get_raw_items_owned();
 
         let method = reqwest::Method::from_bytes(request.method.as_bytes())
             .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("Invalid method: {}", e)))?;
@@ -119,8 +118,8 @@ impl HTTPTransport {
             .detach(move || {
                 self.rt.handle().block_on(async {
                     let mut req_builder = client.request(method, &url_str);
-                    for (key, value) in &header_list {
-                        req_builder = req_builder.header(key.as_str(), value.as_str());
+                    for (key, value) in &raw_headers {
+                        req_builder = req_builder.header(key.as_slice(), value.as_slice());
                     }
 
                     if let Some(b) = body_bytes {
@@ -391,7 +390,7 @@ impl AsyncHTTPTransport {
         let client = self.client.clone();
         let url_str = request.url.to_string();
         let method_str = request.method.clone();
-        let header_pairs = request.headers.bind(py).borrow().get_multi_items();
+        let raw_headers = request.headers.bind(py).borrow().get_raw_items_owned();
         let body = request.content_body.clone();
 
         let mut connect_timeout_val = None;
@@ -449,8 +448,8 @@ impl AsyncHTTPTransport {
             })?;
 
             let mut req_builder = client.request(method, &url_str);
-            for (key, value) in &header_pairs {
-                req_builder = req_builder.header(key.as_str(), value.as_str());
+            for (key, value) in &raw_headers {
+                req_builder = req_builder.header(key.as_slice(), value.as_slice());
             }
             if let Some(ref b) = body {
                 req_builder = req_builder.body(b.clone());

@@ -100,6 +100,12 @@ impl Headers {
             .collect()
     }
 
+    /// Return raw header byte pairs (owned) — no String conversion, no lowercasing.
+    /// Cheaper than `get_multi_items()` since it skips UTF-8 decode and `.to_lowercase()`.
+    pub fn get_raw_items_owned(&self) -> Vec<(Vec<u8>, Vec<u8>)> {
+        self.raw.clone()
+    }
+
     pub fn set_header(&mut self, key: &str, value: &str) {
         let key_lower = key.to_lowercase();
         self.raw
