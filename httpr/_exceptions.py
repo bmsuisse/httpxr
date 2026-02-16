@@ -1,7 +1,3 @@
-"""
-Patch Rust-defined exceptions to add the `.request` property behavior
-expected by the httpx test suite.
-"""
 from __future__ import annotations
 
 import typing
@@ -12,8 +8,6 @@ from ._httpr import RequestError as _RequestError
 if typing.TYPE_CHECKING:
     from ._httpr import Request
 
-
-# Store the original __init__ methods
 _original_httperror_init = _HTTPError.__init__
 _original_requesterror_init = _RequestError.__init__
 

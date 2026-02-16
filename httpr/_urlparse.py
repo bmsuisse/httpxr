@@ -1,7 +1,3 @@
-"""
-Re-export urlparse from the reference httpx implementation.
-"""
-
 from __future__ import annotations
 
 import ipaddress

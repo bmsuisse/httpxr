@@ -1,4 +1,4 @@
-from . import _exceptions  # noqa: F401  (patches Rust exceptions with .request property)
+from . import _exceptions  # noqa: F401
 from ._httpr import *
 from ._transports import ASGITransport, WSGITransport
 from .cli import main

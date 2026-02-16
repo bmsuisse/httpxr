@@ -1,6 +1,3 @@
-"""
-httpr CLI - A next generation HTTP client.
-"""
 from __future__ import annotations
 
 import json
@@ -11,14 +8,10 @@ import click
 
 
 def is_binary_content(content: bytes) -> bool:
-    """Check if content appears to be binary."""
-    if b"\0" in content:
-        return True
-    return False
+    return b"\0" in content
 
 
 def is_binary_content_type(content_type: str) -> bool:
-    """Check if content type indicates binary data."""
     text_types = (
         "text/",
         "application/json",
@@ -34,44 +27,23 @@ def format_response(
     response: typing.Any,
     verbose: bool = False,
 ) -> str:
-    """Format an HTTP response for display."""
-    lines: list[str] = []
-
     http_version = getattr(response, "http_version", "HTTP/1.1")
     status_code = response.status_code
     reason = getattr(response, "reason_phrase", "")
 
-    # Status line
     status_line = f"{http_version} {status_code} {reason}".rstrip()
-    lines.append(status_line)
+    lines: list[str] = [status_line]
 
-    # Headers
     headers = response.headers
-    if isinstance(headers, dict):
-        for key, value in headers.items():
-            lines.append(f"{key}: {value}")
-    else:
-        # httpr Headers object
-        try:
-            for key, value in headers.items():
-                lines.append(f"{key}: {value}")
-        except Exception:
-            pass
+    for key, value in headers.items():
+        lines.append(f"{key}: {value}")
 
     lines.append("")
 
-    # Body
     content = response.content
     if content:
         text = getattr(response, "text", None)
-        content_type = ""
-        if isinstance(headers, dict):
-            content_type = headers.get("content-type", "")
-        else:
-            try:
-                content_type = headers.get("content-type", "")
-            except Exception:
-                pass
+        content_type = headers.get("content-type", "")
 
         if is_binary_content_type(content_type) or is_binary_content(content):
             lines.append(f"<{len(content)} bytes of binary data>")
@@ -107,7 +79,6 @@ def main(
     auth: tuple[str, str] | None,
     download: str | None,
 ) -> None:
-    """A next generation HTTP client."""
     import httpr as _httpr_mod
 
     try:
@@ -134,24 +105,15 @@ def main(
                     f.write(response.content)
                 return
 
-            # Print history responses (for follow_redirects)
-            history = getattr(response, "history", [])
-            for hist_resp in history:
-                output = format_response(hist_resp, verbose=verbose)
-                click.echo(output)
+            for hist_resp in getattr(response, "history", []):
+                click.echo(format_response(hist_resp, verbose=verbose))
                 click.echo()
 
-            # Print main response
-            output = format_response(response, verbose=verbose)
-            click.echo(output)
+            click.echo(format_response(response, verbose=verbose))
 
-            # Exit with non-zero for error status codes
             if response.status_code >= 300:
                 sys.exit(1)
 
-    except Exception as exc:
-        # Check if this is an httpr HTTP error
-        if isinstance(exc, _httpr_mod.HTTPError):  # type: ignore[attr-defined]
-            click.echo(f"{type(exc).__name__}: {exc}", err=False)
-            sys.exit(1)
-        raise
+    except _httpr_mod.HTTPError:  # type: ignore[attr-defined]
+        click.echo(f"{type(sys.exc_info()[1]).__name__}: {sys.exc_info()[1]}", err=False)
+        sys.exit(1)

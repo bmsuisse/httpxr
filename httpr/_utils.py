@@ -1,11 +1,7 @@
-"""
-Utility functions and classes for httpr.
-"""
 
 from __future__ import annotations
 
 import ipaddress
-import os
 import re
 import typing
 from urllib.request import getproxies
@@ -15,7 +11,6 @@ if typing.TYPE_CHECKING:
 
 
 def get_environment_proxies() -> dict[str, str | None]:
-    """Gets proxy information from the environment"""
 
     proxy_info = getproxies()
     mounts: dict[str, str | None] = {}
@@ -107,7 +102,7 @@ class URLPattern:
 def is_ipv4_hostname(hostname: str) -> bool:
     try:
         ipaddress.IPv4Address(hostname.split("/")[0])
-    except Exception:
+    except ValueError:
         return False
     return True
 

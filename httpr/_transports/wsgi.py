@@ -109,8 +109,6 @@ class WSGITransport(BaseTransport):
 
         result: typing.Iterable[typing.Any] = self.app(environ, start_response)
 
-        # Eagerly read the WSGI response body since the Rust Response
-        # constructor doesn't consume Python iterators as streams.
         body_parts: list[bytes] = []
         close_func = getattr(result, "close", None)
         try:
