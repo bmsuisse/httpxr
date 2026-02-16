@@ -21,6 +21,10 @@ The networking layer is reimplemented in Rust:
 | TLS | rustls + native-tls |
 | Compression | gzip, brotli, zstd, deflate (native Rust) |
 
+### Zero Python Dependencies
+
+Unlike httpx (which depends on `httpcore`, `certifi`, `anyio`, `idna`, and optional packages for compression), `httpr` has **zero runtime Python dependencies**. Everything — HTTP, TLS, compression, SOCKS proxy, IDNA encoding — is handled natively in Rust.
+
 ---
 
 ## Quick Start
