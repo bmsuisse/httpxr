@@ -111,7 +111,7 @@ def main(
     import httpr as _httpr_mod
 
     try:
-        with _httpr_mod.Client() as client:
+        with _httpr_mod.Client() as client:  # type: ignore[attr-defined]
             kwargs: dict[str, typing.Any] = {
                 "method": method,
                 "url": url,
@@ -151,7 +151,7 @@ def main(
 
     except Exception as exc:
         # Check if this is an httpr HTTP error
-        if isinstance(exc, _httpr_mod.HTTPError):
+        if isinstance(exc, _httpr_mod.HTTPError):  # type: ignore[attr-defined]
             click.echo(f"{type(exc).__name__}: {exc}", err=False)
             sys.exit(1)
         raise
