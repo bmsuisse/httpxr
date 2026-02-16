@@ -11,7 +11,7 @@ pub const DEFAULT_MAX_REDIRECTS: u32 = 20;
 /// Sentinel for "use client default" values.
 #[derive(FromPyObject)]
 pub enum AuthArg {
-    Boolean(bool),
+    Boolean(#[allow(dead_code)] bool),
     #[pyo3(transparent)]
     Custom(Py<PyAny>),
 }
@@ -19,7 +19,7 @@ pub enum AuthArg {
 
 
 
-#[pyclass]
+#[pyclass(from_py_object)]
 #[derive(Clone)]
 pub struct UseClientDefault;
 
@@ -122,7 +122,7 @@ pub fn build_request_body<'py>(
     merged_headers: &mut Headers,
 ) -> PyResult<Option<Vec<u8>>> {
     if let Some(c) = content {
-        if let Ok(b) = c.downcast::<PyBytes>() {
+        if let Ok(b) = c.cast::<PyBytes>() {
             return Ok(Some(b.as_bytes().to_vec()));
         } else if let Ok(s) = c.extract::<String>() {
             return Ok(Some(s.into_bytes()));
@@ -251,12 +251,12 @@ pub enum AuthResult {
 
 /// Validate that an auth argument is a valid type (tuple, callable, or Auth instance).
 /// Raises TypeError if not valid.
-pub fn validate_auth_type(py: Python<'_>, auth: &Bound<'_, PyAny>) -> PyResult<()> {
+pub fn validate_auth_type(_py: Python<'_>, auth: &Bound<'_, PyAny>) -> PyResult<()> {
     if auth.is_none() {
         return Ok(());
     }
     // tuple is fine
-    if auth.downcast::<pyo3::types::PyTuple>().is_ok() {
+    if auth.cast::<pyo3::types::PyTuple>().is_ok() {
         return Ok(());
     }
     // Auth instance (has auth_flow or sync_auth_flow)
@@ -284,7 +284,7 @@ pub fn coerce_auth(py: Python<'_>, auth: &Bound<'_, PyAny>) -> PyResult<Py<PyAny
         return Ok(py.None());
     }
     // Convert tuples to BasicAuth
-    if let Ok(tuple) = auth.downcast::<pyo3::types::PyTuple>() {
+    if let Ok(tuple) = auth.cast::<pyo3::types::PyTuple>() {
         if tuple.len() == 2 {
             let user: String = tuple.get_item(0)?.extract()?;
             let pass: String = tuple.get_item(1)?.extract()?;
@@ -314,7 +314,7 @@ pub fn apply_auth<'py>(
     let effective_auth = if auth.is_some() { auth } else { client_auth.map(|a| a.bind(py)) };
     if let Some(a) = effective_auth {
         // Check for tuple (Basic auth)
-        if let Ok(tuple) = a.downcast::<pyo3::types::PyTuple>() {
+        if let Ok(tuple) = a.cast::<pyo3::types::PyTuple>() {
             if tuple.len() == 2 {
                 let user: String = tuple.get_item(0)?.extract()?;
                 let pass: String = tuple.get_item(1)?.extract()?;
@@ -372,7 +372,7 @@ pub fn apply_auth_async<'py>(
     let effective_auth = if auth.is_some() { auth } else { client_auth.map(|a| a.bind(py)) };
     if let Some(a) = effective_auth {
         // Check for tuple (Basic auth)
-        if let Ok(tuple) = a.downcast::<pyo3::types::PyTuple>() {
+        if let Ok(tuple) = a.cast::<pyo3::types::PyTuple>() {
             if tuple.len() == 2 {
                 let user: String = tuple.get_item(0)?.extract()?;
                 let pass: String = tuple.get_item(1)?.extract()?;
@@ -430,7 +430,7 @@ pub fn apply_cookies<'py>(
     let mut cookie_parts: Vec<String> = Vec::new();
     {
         let jar = &cookies.jar;
-        if let Ok(bound_jar) = jar.bind(py).downcast::<PyAny>() {
+        if let Ok(bound_jar) = jar.bind(py).cast::<PyAny>() {
             if let Ok(iter) = bound_jar.try_iter() {
                 for item in iter {
                     let cookie: Bound<PyAny> = item?;
@@ -452,7 +452,7 @@ pub fn apply_cookies<'py>(
                 py.import("builtins")?.getattr("DeprecationWarning")?,
             ))?;
         }
-        if let Ok(d) = c.downcast::<PyDict>() {
+        if let Ok(d) = c.cast::<PyDict>() {
             for (k, v) in d.iter() {
                 let ks: String = k.extract()?;
                 let vs: String = v.extract()?;
@@ -491,6 +491,7 @@ pub fn build_stream_obj(py: Python<'_>, content: Option<&Bound<'_, PyAny>>, body
 }
 
 /// Fire sync event hooks for a given hook key ("request" or "response").
+#[allow(dead_code)]
 pub fn fire_sync_event_hooks(
     py: Python<'_>,
     event_hooks: &Option<Py<PyAny>>,
@@ -499,7 +500,7 @@ pub fn fire_sync_event_hooks(
 ) -> PyResult<()> {
     if let Some(hooks) = event_hooks {
         if let Ok(l) = hooks.bind(py).get_item(key) {
-            if let Ok(l) = l.downcast::<pyo3::types::PyList>() {
+            if let Ok(l) = l.cast::<pyo3::types::PyList>() {
                 for hook in l.iter() {
                     hook.call1((target.bind(py),))?;
                 }
@@ -731,7 +732,7 @@ pub fn create_default_async_transport(
 pub fn parse_sync_mounts(mounts: Option<&Bound<'_, PyAny>>) -> PyResult<Vec<(String, Py<PyAny>)>> {
     let mut mounts_vec: Vec<(String, Py<PyAny>)> = Vec::new();
     if let Some(m) = mounts {
-        if let Ok(d) = m.downcast::<PyDict>() {
+        if let Ok(d) = m.cast::<PyDict>() {
             for (k, v) in d.iter() {
                 let pattern: String = k.extract()?;
                 // Validate deprecated patterns

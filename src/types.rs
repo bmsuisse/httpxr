@@ -1,6 +1,6 @@
 use pyo3::prelude::*;
 use pyo3::types::PyBytes;
-use futures::StreamExt;
+
 
 /// AsyncByteStream base class
 #[pyclass(subclass)]
@@ -53,10 +53,11 @@ impl SyncByteStream {
 }
 
 /// A stream of bytes.
-#[pyclass(extends=SyncByteStream)]
+#[pyclass(from_py_object, extends=SyncByteStream)]
 #[derive(Clone)]
 pub struct ByteStream {
     pub data: Vec<u8>,
+    #[allow(dead_code)]
     pub pos: usize,
 }
 
@@ -137,6 +138,7 @@ impl BlockingBytesIterator {
         }
     }
 
+    #[allow(dead_code)]
     pub fn take_reader(&mut self) -> Option<Box<dyn std::io::Read + Send>> {
         self.reader.take()
     }

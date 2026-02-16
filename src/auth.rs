@@ -1,13 +1,13 @@
 use pyo3::prelude::*;
-use pyo3::types::{PyBytes, PyDict, PyTuple};
+use pyo3::types::{PyDict, PyTuple};
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
 use sha1::Sha1;
-use sha2::{Sha256, Sha512, Digest as Sha2Digest};
+use sha2::{Sha256, Sha512};
 use std::sync::{Arc, Mutex};
 
 /// Auth base class
-#[pyclass(subclass)]
+#[pyclass(from_py_object, subclass)]
 #[derive(Clone)]
 pub struct Auth;
 
@@ -47,7 +47,7 @@ impl SyncAuthFlow {
 }
 
 /// Basic HTTP authentication.
-#[pyclass(extends=Auth)]
+#[pyclass(from_py_object, extends=Auth)]
 #[derive(Clone)]
 pub struct BasicAuth {
     pub username: String,
@@ -99,7 +99,7 @@ impl BasicAuthFlow {
 }
 
 /// Digest HTTP authentication.
-#[pyclass(extends=Auth, dict)]
+#[pyclass(from_py_object, extends=Auth, dict)]
 #[derive(Clone)]
 pub struct DigestAuth {
     pub username: String,
@@ -282,7 +282,7 @@ impl DigestAuthFlow {
         }
     }
 
-    fn send(&mut self, py: Python<'_>, response: &Bound<'_, PyAny>) -> PyResult<Py<PyAny>> {
+    fn send(&mut self, _py: Python<'_>, response: &Bound<'_, PyAny>) -> PyResult<Py<PyAny>> {
         if self.state != 1 {
             return Err(pyo3::exceptions::PyStopIteration::new_err(()));
         }
@@ -428,7 +428,7 @@ impl DigestAuthFlow {
             &cnonce
         )?;
 
-        let mut new_request = self.request.clone();
+        let new_request = self.request.clone();
         new_request.headers.bind(py).borrow_mut().set_header("authorization", &auth_header);
         
         if let Ok(cookies) = response.getattr("cookies") {
@@ -505,7 +505,7 @@ impl DigestAuthFlow {
             &cnonce
         )?;
         
-        let mut new_request = self.request.clone();
+        let new_request = self.request.clone();
         new_request.headers.bind(py).borrow_mut().set_header("authorization", &auth_header);
         
         Ok(new_request.into_pyobject(py).unwrap().into())

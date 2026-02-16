@@ -1,6 +1,6 @@
 use pyo3::prelude::*;
-use pyo3::types::{PyAnyMethods, PyDictMethods, PyDict, PyBytes, PyString};
-use std::time::{Instant, Duration};
+use pyo3::types::{PyAnyMethods, PyDictMethods, PyDict, PyBytes};
+use std::time::Instant;
 
 use crate::config::{Limits, Timeout};
 use crate::models::{Headers, Request, Response, Cookies};
@@ -31,6 +31,7 @@ pub struct AsyncClient {
     pub(crate) is_closed: bool,
     pub(crate) trust_env: bool,
     pub(crate) event_hooks: Option<Py<PyAny>>,
+    #[allow(dead_code)]
     pub(crate) default_encoding: Option<Py<PyAny>>,
 }
 
@@ -104,7 +105,7 @@ impl AsyncClient {
         };
 
         let mounts_dict: Py<PyDict> = if let Some(m) = mounts {
-            if let Ok(d) = m.downcast::<PyDict>() {
+            if let Ok(d) = m.cast::<PyDict>() {
                 d.clone().unbind()
             } else {
                 PyDict::new(py).into()
@@ -156,7 +157,7 @@ impl AsyncClient {
         // Apply client-level timeout to request if it doesn't already have one
         if let Some(ref t) = self.timeout {
             let ext = req.extensions.bind(py);
-            if let Ok(d) = ext.downcast::<PyDict>() {
+            if let Ok(d) = ext.cast::<PyDict>() {
                 if !d.contains("timeout")? {
                     d.set_item("timeout", Py::new(py, t.clone())?)?;
                 }
@@ -203,9 +204,9 @@ impl AsyncClient {
                 if let Some(hooks) = &event_hooks {
                     let hook_list: Vec<Py<PyAny>> = Python::attach(|py| {
                         let h: &Bound<'_, PyAny> = hooks.bind(py);
-                        if let Ok(d) = h.downcast::<PyDict>() {
+                        if let Ok(d) = h.cast::<PyDict>() {
                             if let Ok(Some(req_hooks)) = d.get_item("request") {
-                                if let Ok(l) = req_hooks.downcast::<pyo3::types::PyList>() {
+                                if let Ok(l) = req_hooks.cast::<pyo3::types::PyList>() {
                                     let mut vec = Vec::new();
                                     for item in l.try_iter()? {
                                         vec.push(item?.unbind());
@@ -257,7 +258,7 @@ impl AsyncClient {
 
                     // Set http_version
                     let ext = resp.extensions.bind(py);
-                    if let Ok(d) = ext.downcast::<PyDict>() {
+                    if let Ok(d) = ext.cast::<PyDict>() {
                         if !d.contains("http_version")? {
                             d.set_item("http_version", PyBytes::new(py, b"HTTP/1.1"))?;
                         }
@@ -271,9 +272,9 @@ impl AsyncClient {
                 if let Some(hooks) = &event_hooks {
                     let hook_list: Vec<Py<PyAny>> = Python::attach(|py| {
                         let h: &Bound<'_, PyAny> = hooks.bind(py);
-                        if let Ok(d) = h.downcast::<PyDict>() {
+                        if let Ok(d) = h.cast::<PyDict>() {
                             if let Ok(Some(resp_hooks)) = d.get_item("response") {
-                                if let Ok(l) = resp_hooks.downcast::<pyo3::types::PyList>() {
+                                if let Ok(l) = resp_hooks.cast::<pyo3::types::PyList>() {
                                     let mut vec = Vec::new();
                                     for item in l.try_iter()? {
                                         vec.push(item?.unbind());
@@ -469,7 +470,7 @@ impl AsyncClient {
         transport: Py<PyAny>,
         mounts: Py<PyDict>,
         _max_redirects: u32,
-        follow_redirects: bool,
+        _follow_redirects: bool,
         _event_hooks: Option<Py<PyAny>>,
         default_encoding: Option<Py<PyAny>>,
     ) -> PyResult<Py<Response>> {
@@ -539,7 +540,7 @@ impl AsyncClient {
                 }
 
                 let ext = resp.extensions.bind(py);
-                if let Ok(d) = ext.downcast::<PyDict>() {
+                if let Ok(d) = ext.cast::<PyDict>() {
                     if !d.contains("http_version")? {
                         d.set_item("http_version", PyBytes::new(py, b"HTTP/1.1"))?;
                     }
@@ -630,7 +631,7 @@ impl AsyncClient {
             }
 
             let ext = resp.extensions.bind(py);
-            if let Ok(d) = ext.downcast::<PyDict>() {
+            if let Ok(d) = ext.cast::<PyDict>() {
                 if !d.contains("http_version")? {
                     d.set_item("http_version", PyBytes::new(py, b"HTTP/1.1"))?;
                 }
@@ -642,7 +643,7 @@ impl AsyncClient {
                 let url = resp.request.as_ref().map(|r| r.url.to_string()).unwrap_or_default();
                 let http_version = {
                     let ext = resp.extensions.bind(py);
-                    if let Ok(d) = ext.downcast::<PyDict>() {
+                    if let Ok(d) = ext.cast::<PyDict>() {
                         d.get_item("http_version").ok().flatten()
                             .and_then(|v| v.extract::<Vec<u8>>().ok())
                             .map(|b| String::from_utf8_lossy(&b).to_string())
@@ -794,7 +795,7 @@ impl AsyncClient {
         // Build body
         // Build body and stream
         let (body, stream_obj): (Option<Vec<u8>>, Option<Py<PyAny>>) = if let Some(c) = content {
-            if let Ok(b) = c.downcast::<PyBytes>() {
+            if let Ok(b) = c.cast::<PyBytes>() {
                 (Some(b.as_bytes().to_vec()), None)
             } else if let Ok(s) = c.extract::<String>() {
                 (Some(s.into_bytes()), None)
@@ -872,7 +873,7 @@ impl AsyncClient {
             let _ = request.extensions.bind(py).set_item("timeout", Py::new(py, t)?);
         }
         if let Some(e) = extensions {
-            if let Ok(d) = e.downcast::<PyDict>() {
+            if let Ok(d) = e.cast::<PyDict>() {
                 for (k, v) in d.iter() {
                     request.extensions.bind(py).set_item(k, v)?;
                 }
@@ -1101,7 +1102,7 @@ impl AsyncClient {
     }
     #[setter]
     fn set_event_hooks(&mut self, py: Python<'_>, value: &Bound<'_, PyAny>) {
-        if let Ok(d) = value.downcast::<PyDict>() {
+        if let Ok(d) = value.cast::<PyDict>() {
             if d.get_item("request").ok().flatten().is_none() {
                 let _ = d.set_item("request", pyo3::types::PyList::empty(py));
             }
@@ -1146,7 +1147,7 @@ impl AsyncClient {
         }
 
         let body = if let Some(c) = content {
-            if let Ok(b) = c.downcast::<pyo3::types::PyBytes>() {
+            if let Ok(b) = c.cast::<pyo3::types::PyBytes>() {
                 Some(b.as_bytes().to_vec())
             } else if let Ok(s) = c.extract::<String>() {
                 Some(s.into_bytes())
@@ -1342,6 +1343,7 @@ impl AsyncClient {
     }
 }
 
+#[allow(dead_code)]
 struct ReleaseGuard {
     pub stream: Option<Py<PyAny>>,
 }

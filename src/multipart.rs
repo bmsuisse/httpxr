@@ -12,7 +12,7 @@ fn generate_boundary() -> String {
 }
 
 /// DataField: a single form data field.
-#[pyclass]
+#[pyclass(from_py_object)]
 #[derive(Clone)]
 pub struct DataField {
     name: String,
@@ -43,7 +43,7 @@ impl DataField {
 }
 
 /// FileField: a file upload field.
-#[pyclass]
+#[pyclass(from_py_object)]
 #[derive(Clone)]
 pub struct FileField {
     name: String,
@@ -164,16 +164,16 @@ fn escape_filename(filename: &str) -> String {
 }
 
 fn extract_data_value(obj: &Bound<'_, PyAny>) -> PyResult<Vec<u8>> {
-    if let Ok(b) = obj.downcast::<PyBytes>() {
+    if let Ok(b) = obj.cast::<PyBytes>() {
         Ok(b.as_bytes().to_vec())
-    } else if let Ok(s) = obj.downcast::<PyString>() {
+    } else if let Ok(s) = obj.cast::<PyString>() {
         Ok(s.to_string().into_bytes())
-    } else if let Ok(b) = obj.downcast::<pyo3::types::PyBool>() {
+    } else if let Ok(b) = obj.cast::<pyo3::types::PyBool>() {
         let val = b.is_true();
         Ok(if val { "true".as_bytes().to_vec() } else { "false".as_bytes().to_vec() })
-    } else if let Ok(i) = obj.downcast::<pyo3::types::PyInt>() {
+    } else if let Ok(i) = obj.cast::<pyo3::types::PyInt>() {
         Ok(i.to_string().into_bytes())
-    } else if let Ok(f) = obj.downcast::<pyo3::types::PyFloat>() {
+    } else if let Ok(f) = obj.cast::<pyo3::types::PyFloat>() {
         Ok(f.to_string().into_bytes())
     } else {
          Err(PyTypeError::new_err("Invalid type for value"))
@@ -181,13 +181,13 @@ fn extract_data_value(obj: &Bound<'_, PyAny>) -> PyResult<Vec<u8>> {
 }
 
 fn process_file_item(
-    py: Python<'_>,
+    _py: Python<'_>,
     name: &str,
     item: &Bound<'_, PyAny>,
     fields: &mut Vec<MultipartField>,
     mimetypes: &Bound<'_, PyModule>,
 ) -> PyResult<()> {
-    let (filename, file_obj, explicit_ctype, headers) = if let Ok(tuple) = item.downcast::<PyTuple>() {
+    let (filename, file_obj, explicit_ctype, headers) = if let Ok(tuple) = item.cast::<PyTuple>() {
         let fname_obj = tuple.get_item(0)?;
         let fname: Option<String> = if fname_obj.is_none() {
             None
@@ -204,7 +204,7 @@ fn process_file_item(
             None
         };
         let hdrs = if tuple.len() > 3 {
-            if let Ok(d) = tuple.get_item(3)?.downcast::<PyDict>() {
+            if let Ok(d) = tuple.get_item(3)?.cast::<PyDict>() {
                 let mut h = Vec::new();
                 for (k, v) in d.iter() {
                     let k_str: String = k.extract().map_err(|_| PyTypeError::new_err("Invalid type for header key"))?;
@@ -255,15 +255,15 @@ fn process_file_item(
 
     let seekable = file_obj.call_method1("seek", (0,)).is_ok();
 
-    let file_data: Vec<u8> = if let Ok(b) = file_obj.downcast::<PyBytes>() {
+    let file_data: Vec<u8> = if let Ok(b) = file_obj.cast::<PyBytes>() {
             b.as_bytes().to_vec()
-    } else if let Ok(s) = file_obj.downcast::<PyString>() {
+    } else if let Ok(s) = file_obj.cast::<PyString>() {
             s.to_string().into_bytes()
     } else if seekable {
             if let Ok(read_res) = file_obj.call_method0("read") {
-                if let Ok(bytes) = read_res.downcast::<PyBytes>() {
+                if let Ok(bytes) = read_res.cast::<PyBytes>() {
                     bytes.as_bytes().to_vec()
-                } else if read_res.downcast::<PyString>().is_ok() {
+                } else if read_res.cast::<PyString>().is_ok() {
                     return Err(PyTypeError::new_err("Expected bytes, got str"));
                 } else if read_res.extract::<String>().is_ok() {
                         return Err(PyTypeError::new_err("Expected bytes, got str"));
@@ -280,9 +280,9 @@ fn process_file_item(
             }
     } else {
         if let Ok(read_res) = file_obj.call_method0("read") {
-            if let Ok(bytes) = read_res.downcast::<PyBytes>() {
+            if let Ok(bytes) = read_res.cast::<PyBytes>() {
                 bytes.as_bytes().to_vec()
-            } else if read_res.downcast::<PyString>().is_ok() || read_res.extract::<String>().is_ok() {
+            } else if read_res.cast::<PyString>().is_ok() || read_res.extract::<String>().is_ok() {
                 return Err(PyTypeError::new_err("Expected bytes, got str"));
             } else {
                 Vec::new()
@@ -292,9 +292,9 @@ fn process_file_item(
                 if let Ok(iter) = file_obj.try_iter() {
                     for item in iter {
                         let chunk = item?;
-                        if let Ok(b) = chunk.downcast::<PyBytes>() {
+                        if let Ok(b) = chunk.cast::<PyBytes>() {
                             buffer.extend_from_slice(b.as_bytes());
-                        } else if chunk.downcast::<PyString>().is_ok() {
+                        } else if chunk.cast::<PyString>().is_ok() {
                                 return Err(PyTypeError::new_err("Expected bytes, got str"));
                         }
                     }
@@ -309,7 +309,7 @@ fn process_file_item(
         Some(ct)
     } else if let Some(ref f) = filename {
         let guessed = mimetypes.call_method1("guess_type", (f.as_str(),))?;
-        let tuple = guessed.downcast::<PyTuple>()?;
+        let tuple = guessed.cast::<PyTuple>()?;
         let mime = tuple.get_item(0)?;
         if mime.is_none() {
             Some("application/octet-stream".to_string())
@@ -344,7 +344,7 @@ impl MultipartStream {
         // Process data fields
         if let Some(d) = data {
             if !d.is_none() {
-                if let Ok(dict) = d.downcast::<PyDict>() {
+                if let Ok(dict) = d.cast::<PyDict>() {
                     for (k, v) in dict.iter() {
                         let name: String = k.extract().map_err(|_| {
                              let repr = k.repr().ok().map(|s| s.to_string_lossy().to_string()).unwrap_or_else(|| "unknown".to_string());
@@ -352,12 +352,12 @@ impl MultipartStream {
                         })?;
                         
                         // Check for list/tuple (repeated fields)
-                        if let Ok(list) = v.downcast::<PyList>() {
+                        if let Ok(list) = v.cast::<PyList>() {
                              for item in list.iter() {
                                  let value = extract_data_value(&item)?;
                                  fields.push(MultipartField::Data(DataField::new(&name, &value)));
                              }
-                        } else if let Ok(tuple) = v.downcast::<PyTuple>() {
+                        } else if let Ok(tuple) = v.cast::<PyTuple>() {
                              for item in tuple.iter() {
                                  let value = extract_data_value(&item)?;
                                  fields.push(MultipartField::Data(DataField::new(&name, &value)));
@@ -368,9 +368,9 @@ impl MultipartStream {
                             fields.push(MultipartField::Data(DataField::new(&name, &value)));
                         }
                     }
-                } else if let Ok(list) = d.downcast::<PyList>() {
+                } else if let Ok(list) = d.cast::<PyList>() {
                     for item in list.iter() {
-                        let tuple = item.downcast::<PyTuple>()?;
+                        let tuple = item.cast::<PyTuple>()?;
                         let name: String = tuple.get_item(0)?.extract().map_err(|_| {
                              let k = tuple.get_item(0).unwrap();
                              let repr = k.repr().ok().map(|s| s.to_string_lossy().to_string()).unwrap_or_else(|| "unknown".to_string());
@@ -389,14 +389,14 @@ impl MultipartStream {
             if !f.is_none() {
                 let mimetypes = py.import("mimetypes")?;
 
-                if let Ok(dict) = f.downcast::<PyDict>() {
+                if let Ok(dict) = f.cast::<PyDict>() {
                     for (k, v) in dict.iter() {
                         let name: String = k.extract().map_err(|_| {
                              let repr = k.repr().ok().map(|s| s.to_string_lossy().to_string()).unwrap_or_else(|| "unknown".to_string());
                              PyTypeError::new_err(format!("Invalid type for name: {}", repr))
                         })?;
                         
-                        if let Ok(list) = v.downcast::<PyList>() {
+                        if let Ok(list) = v.cast::<PyList>() {
                             for item in list.iter() {
                                 process_file_item(py, &name, &item, &mut fields, &mimetypes)?;
                             }
@@ -404,9 +404,9 @@ impl MultipartStream {
                             process_file_item(py, &name, &v, &mut fields, &mimetypes)?;
                         }
                     }
-                } else if let Ok(list) = f.downcast::<PyList>() {
+                } else if let Ok(list) = f.cast::<PyList>() {
                     for item in list.iter() {
-                         let tuple = item.downcast::<PyTuple>()?;
+                         let tuple = item.cast::<PyTuple>()?;
                          let name: String = tuple.get_item(0)?.extract().map_err(|_| {
                              let k = tuple.get_item(0).unwrap();
                              let repr = k.repr().ok().map(|s| s.to_string_lossy().to_string()).unwrap_or_else(|| "unknown".to_string());

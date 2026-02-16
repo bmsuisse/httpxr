@@ -1,12 +1,10 @@
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
-use pyo3::{PyClassInitializer, Python};
+use pyo3::Python;
 
 use crate::models::{Headers, Request, Response};
-use crate::urls::URL;
 use std::io::Read;
 use std::sync::Arc;
-use crate::transports::base::AsyncBaseTransport;
 
 /// Synchronous HTTP Transport backed by ureq.
 #[pyclass]
@@ -71,7 +69,7 @@ impl HTTPTransport {
         let url_str = request.url.to_string();
         // Apply timeout
         let mut timeout_duration = None;
-        if let Ok(ext) = request.extensions.bind(py).downcast::<PyDict>() {
+        if let Ok(ext) = request.extensions.bind(py).cast::<PyDict>() {
                 if let Some(timeout_obj) = ext.get_item("timeout").ok().flatten() {
                     if let Ok(t) = timeout_obj.extract::<crate::config::Timeout>() {
                          if let Some(read) = t.read {
@@ -343,7 +341,7 @@ impl AsyncHTTPTransport {
         let mut read_timeout_val = None;
         let mut write_timeout_val = None;
         let mut pool_timeout_val = None;
-        if let Ok(ext) = request.extensions.bind(py).downcast::<PyDict>() {
+        if let Ok(ext) = request.extensions.bind(py).cast::<PyDict>() {
              if let Some(timeout_obj) = ext.get_item("timeout").ok().flatten() {
                   if let Ok(t) = timeout_obj.extract::<crate::config::Timeout>() {
                        connect_timeout_val = t.connect;

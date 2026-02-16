@@ -1,17 +1,20 @@
 use pyo3::prelude::*;
-use pyo3::types::{PyDict, PyTuple, PyModule};
+use pyo3::types::{PyTuple, PyModule};
 use pyo3::exceptions::PyValueError;
 use std::ffi::CStr;
 
 /// Default timeout (5 seconds for all operations)
+#[allow(dead_code)]
 pub const DEFAULT_TIMEOUT: f64 = 5.0;
 pub const DEFAULT_MAX_REDIRECTS: u32 = 20;
+#[allow(dead_code)]
 pub const DEFAULT_MAX_CONNECTIONS: u32 = 100;
+#[allow(dead_code)]
 pub const DEFAULT_MAX_KEEPALIVE: u32 = 20;
 pub const DEFAULT_KEEPALIVE_EXPIRY: f64 = 5.0;
 
 /// Timeout configuration.
-#[pyclass]
+#[pyclass(from_py_object)]
 #[derive(Clone, Debug)]
 pub struct Timeout {
     #[pyo3(get, set)]
@@ -43,7 +46,7 @@ impl Timeout {
                 // timeout=None explicitly — valid, all unspecified fields are None
             } else if let Ok(existing) = t.extract::<Timeout>() {
                 return Ok(existing);
-            } else if let Ok(tuple) = t.downcast::<PyTuple>() {
+            } else if let Ok(tuple) = t.cast::<PyTuple>() {
                 let len = tuple.len();
                 if len > 0 { if let Ok(val) = tuple.get_item(0).unwrap().extract::<f64>() { c = c.or(Some(val)); } }
                 if len > 1 { if let Ok(val) = tuple.get_item(1).unwrap().extract::<f64>() { r = r.or(Some(val)); } }
@@ -88,7 +91,7 @@ impl Timeout {
 }
 
 /// Connection pool limits.
-#[pyclass]
+#[pyclass(from_py_object)]
 #[derive(Clone, Debug)]
 pub struct Limits {
     #[pyo3(get, set)]
@@ -141,7 +144,7 @@ impl Limits {
 }
 
 /// Proxy configuration.
-#[pyclass]
+#[pyclass(from_py_object)]
 #[derive(Clone, Debug)]
 pub struct Proxy {
     #[pyo3(get, set)]
@@ -309,7 +312,7 @@ def patch(ctx):
 /// When attached to a Client or AsyncClient, requests that fail with
 /// status codes in `retry_on_status` will be retried up to `max_retries`
 /// times with exponential backoff.
-#[pyclass]
+#[pyclass(from_py_object)]
 #[derive(Clone, Debug)]
 pub struct RetryConfig {
     #[pyo3(get, set)]

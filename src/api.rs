@@ -70,7 +70,7 @@ pub fn request(
 
     // Build body
     let body = if let Some(c) = content {
-        if let Ok(b) = c.downcast::<pyo3::types::PyBytes>() {
+        if let Ok(b) = c.cast::<pyo3::types::PyBytes>() {
             Some(b.as_bytes().to_vec())
         } else if let Ok(s) = c.extract::<String>() {
             Some(s.into_bytes())

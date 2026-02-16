@@ -3,7 +3,7 @@ use pyo3::types::PyDict;
 use std::collections::HashMap;
 
 /// HTTP status codes and reason phrases.
-#[pyclass]
+#[pyclass(from_py_object)]
 #[derive(Clone)]
 pub struct StatusCodes;
 

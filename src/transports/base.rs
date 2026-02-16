@@ -2,7 +2,7 @@ use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyTuple};
 
 /// BaseTransport: sync transport base class.
-#[pyclass(subclass)]
+#[pyclass(from_py_object, subclass)]
 #[derive(Clone)]
 pub struct BaseTransport;
 
@@ -39,7 +39,7 @@ impl BaseTransport {
 }
 
 /// AsyncBaseTransport: async transport base class.
-#[pyclass(subclass)]
+#[pyclass(from_py_object, subclass)]
 #[derive(Clone)]
 pub struct AsyncBaseTransport;
 

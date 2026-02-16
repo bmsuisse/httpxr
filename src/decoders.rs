@@ -101,6 +101,7 @@ impl ContentDecoder for DeflateDecoder {
 #[pyclass]
 pub struct PyDecoder {
     inner: Box<dyn ContentDecoder + Send + Sync>,
+    #[allow(dead_code)]
     encoding: String,
 }
 

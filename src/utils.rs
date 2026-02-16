@@ -1,22 +1,21 @@
 use pyo3::prelude::*;
 use pyo3::types::{PyBool, PyBytes, PyFloat, PyInt, PyString};
 
-/// Coerce a primitive data type into a string value.
 #[pyfunction]
-pub fn primitive_value_to_str(py: Python<'_>, value: &Bound<'_, PyAny>) -> PyResult<String> {
+pub fn primitive_value_to_str(_py: Python<'_>, value: &Bound<'_, PyAny>) -> PyResult<String> {
     if value.is_none() {
         return Ok(String::new());
     }
-    if let Ok(b) = value.downcast::<PyBool>() {
+    if let Ok(b) = value.cast::<PyBool>() {
         return Ok(if b.is_true() { "true" } else { "false" }.to_string());
     }
-    if let Ok(s) = value.downcast::<PyString>() {
+    if let Ok(s) = value.cast::<PyString>() {
         return Ok(s.to_str()?.to_string());
     }
-    if let Ok(_i) = value.downcast::<PyInt>() {
+    if let Ok(_i) = value.cast::<PyInt>() {
         return Ok(value.str()?.to_str()?.to_string());
     }
-    if let Ok(_f) = value.downcast::<PyFloat>() {
+    if let Ok(_f) = value.cast::<PyFloat>() {
         return Ok(value.str()?.to_str()?.to_string());
     }
     Ok(value.str()?.to_str()?.to_string())
@@ -26,13 +25,12 @@ pub fn primitive_value_to_str(py: Python<'_>, value: &Bound<'_, PyAny>) -> PyRes
 pub fn to_bytes(value: &Bound<'_, PyAny>, encoding: Option<&str>) -> PyResult<Py<PyAny>> {
     let enc = encoding.unwrap_or("utf-8");
     let py = value.py();
-    if let Ok(s) = value.downcast::<PyString>() {
+    if let Ok(s) = value.cast::<PyString>() {
         let bytes_val = s.to_str()?.as_bytes().to_vec();
         Ok(PyBytes::new(py, &bytes_val).into())
-    } else if let Ok(b) = value.downcast::<PyBytes>() {
+    } else if let Ok(b) = value.cast::<PyBytes>() {
         Ok(b.clone().into())
     } else {
-        // Try calling encode on the value
         let result = value.call_method1("encode", (enc,))?;
         Ok(result.into())
     }
@@ -41,9 +39,9 @@ pub fn to_bytes(value: &Bound<'_, PyAny>, encoding: Option<&str>) -> PyResult<Py
 #[pyfunction]
 pub fn to_str(value: &Bound<'_, PyAny>, encoding: Option<&str>) -> PyResult<String> {
     let _enc = encoding.unwrap_or("utf-8");
-    if let Ok(s) = value.downcast::<PyString>() {
+    if let Ok(s) = value.cast::<PyString>() {
         Ok(s.to_str()?.to_string())
-    } else if let Ok(b) = value.downcast::<PyBytes>() {
+    } else if let Ok(b) = value.cast::<PyBytes>() {
         Ok(String::from_utf8_lossy(b.as_bytes()).to_string())
     } else {
         Ok(value.str()?.to_str()?.to_string())
@@ -52,7 +50,7 @@ pub fn to_str(value: &Bound<'_, PyAny>, encoding: Option<&str>) -> PyResult<Stri
 
 #[pyfunction]
 pub fn to_bytes_or_str(py: Python<'_>, value: &str, match_type_of: &Bound<'_, PyAny>) -> PyResult<Py<PyAny>> {
-    if match_type_of.downcast::<PyString>().is_ok() {
+    if match_type_of.cast::<PyString>().is_ok() {
         Ok(PyString::new(py, value).into())
     } else {
         Ok(PyBytes::new(py, value.as_bytes()).into())
@@ -70,7 +68,6 @@ pub fn unquote(value: &str) -> String {
 
 #[pyfunction]
 pub fn peek_filelike_length(py: Python<'_>, stream: &Bound<'_, PyAny>) -> PyResult<Py<PyAny>> {
-    // Try fileno() first
     if let Ok(fd) = stream.call_method0("fileno") {
         let os = py.import("os")?;
         let stat = os.call_method1("fstat", (fd,))?;
@@ -78,8 +75,7 @@ pub fn peek_filelike_length(py: Python<'_>, stream: &Bound<'_, PyAny>) -> PyResu
         return Ok(size.into());
     }
 
-    // Try tell/seek
-    if let (Ok(offset), Ok(_)) = (stream.call_method0("tell"), stream.call_method0("tell")) {
+    if let (Ok(_offset), Ok(_)) = (stream.call_method0("tell"), stream.call_method0("tell")) {
         let offset = stream.call_method0("tell")?;
         let length = stream.call_method1("seek", (0i64, 2i64))?;
         stream.call_method1("seek", (offset,))?;
@@ -105,7 +101,6 @@ pub fn is_ipv6_hostname(hostname: &str) -> bool {
 
 #[pyfunction]
 pub fn get_environment_proxies(py: Python<'_>) -> PyResult<Py<PyAny>> {
-    // Delegate to Python's urllib.request.getproxies and process
     let urllib = py.import("urllib.request")?;
     let proxy_info = urllib.call_method0("getproxies")?;
     let dict = pyo3::types::PyDict::new(py);

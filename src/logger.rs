@@ -1,5 +1,4 @@
 use pyo3::prelude::*;
-use std::sync::Once;
 use log::{Metadata, Record};
 
 /// A simple wrapper around pyo3::Python::with_gil

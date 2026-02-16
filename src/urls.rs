@@ -1,5 +1,5 @@
 use pyo3::prelude::*;
-use pyo3::types::{PyBytes, PyDict, PyList, PyString, PyTuple};
+use pyo3::types::{PyBytes, PyDict, PyList, PyTuple};
 
 use crate::urlparse::{urlparse_impl, ParseResult, validate_host, quote, path_safe, userinfo_safe};
 use crate::exceptions::InvalidURL;
@@ -32,7 +32,7 @@ fn check_length(s: &str, limit: usize, component: Option<&str>) -> PyResult<()> 
 
 
 /// A URL class that wraps a ParseResult and provides a friendly API.
-#[pyclass]
+#[pyclass(from_py_object)]
 #[derive(Clone, Debug)]
 pub struct URL {
     pub(crate) parsed: ParseResult,
@@ -42,7 +42,7 @@ pub struct URL {
 fn extract_str_or_bytes(obj: &Bound<'_, PyAny>) -> PyResult<String> {
     if let Ok(s) = obj.extract::<String>() {
         Ok(s)
-    } else if let Ok(b) = obj.downcast::<PyBytes>() {
+    } else if let Ok(b) = obj.cast::<PyBytes>() {
         let bytes = b.as_bytes();
         std::str::from_utf8(bytes)
             .map(|s| s.to_string())
@@ -283,7 +283,7 @@ impl URL {
                 check_length(&s, 65536, None)?;
                 check_control_chars(&s, 0, None)?;
                 s
-            } else if let Ok(b) = u.downcast::<PyBytes>() {
+            } else if let Ok(b) = u.cast::<PyBytes>() {
                  let s = std::str::from_utf8(b.as_bytes())
                     .map_err(|e| pyo3::exceptions::PyUnicodeDecodeError::new_err(e.to_string()))?
                     .to_string();
@@ -685,7 +685,7 @@ impl URL {
 }
 
 /// Query parameters multidict.
-#[pyclass]
+#[pyclass(from_py_object)]
 #[derive(Clone, Debug)]
 pub struct QueryParams {
     items: Vec<(String, String)>,
@@ -747,18 +747,18 @@ impl QueryParams {
                 items = existing.items;
             } else if let Ok(s) = p.extract::<String>() {
                 return Ok(Self::from_query_string(&s));
-            } else if let Ok(b) = p.downcast::<PyBytes>() {
+            } else if let Ok(b) = p.cast::<PyBytes>() {
                 let s = std::str::from_utf8(b.as_bytes()).unwrap_or_default();
                 return Ok(Self::from_query_string(s));
-            } else if let Ok(d) = p.downcast::<PyDict>() {
+            } else if let Ok(d) = p.cast::<PyDict>() {
                 for (k, v) in d.iter() {
                     let key: String = k.str()?.extract()?;
                     // Check if value is a list or tuple (expand to multiple entries)
-                    if let Ok(list) = v.downcast::<PyList>() {
+                    if let Ok(list) = v.cast::<PyList>() {
                         for item in list.iter() {
                             items.push((key.clone(), Self::value_to_string(&item)?));
                         }
-                    } else if let Ok(tuple) = v.downcast::<PyTuple>() {
+                    } else if let Ok(tuple) = v.cast::<PyTuple>() {
                         for i in 0..tuple.len() {
                             let item = tuple.get_item(i)?;
                             items.push((key.clone(), Self::value_to_string(&item)?));
@@ -767,18 +767,18 @@ impl QueryParams {
                         items.push((key, Self::value_to_string(&v)?));
                     }
                 }
-            } else if let Ok(l) = p.downcast::<PyList>() {
+            } else if let Ok(l) = p.cast::<PyList>() {
                 for item in l.iter() {
-                    let tuple = item.downcast::<PyTuple>()?;
+                    let tuple = item.cast::<PyTuple>()?;
                     let k = tuple.get_item(0)?.str()?.extract::<String>()?;
                     let v = Self::value_to_string(&tuple.get_item(1)?)?;
                     items.push((k, v));
                 }
-            } else if let Ok(t) = p.downcast::<PyTuple>() {
+            } else if let Ok(t) = p.cast::<PyTuple>() {
                 // Handle tuple of tuples
                 for i in 0..t.len() {
                     let item = t.get_item(i)?;
-                    let inner = item.downcast::<PyTuple>()?;
+                    let inner = item.cast::<PyTuple>()?;
                     let k = inner.get_item(0)?.str()?.extract::<String>()?;
                     let v = Self::value_to_string(&inner.get_item(1)?)?;
                     items.push((k, v));
@@ -789,6 +789,7 @@ impl QueryParams {
     }
 }
 
+#[allow(dead_code)]
 fn percent_encode(s: &str) -> String {
     percent_encoding::utf8_percent_encode(s, percent_encoding::NON_ALPHANUMERIC).to_string()
 }

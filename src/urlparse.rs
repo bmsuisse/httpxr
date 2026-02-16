@@ -1,5 +1,5 @@
 use pyo3::prelude::*;
-use pyo3::types::{PyDict, PyList, PyString, PyTuple};
+use pyo3::types::PyDict;
 
 /// RFC3986 URL parsing implemented in Rust.
 
@@ -75,6 +75,7 @@ pub fn quote(string: &str, safe: &str) -> String {
 }
 
 /// Normalize dot segments in a URL path.
+#[allow(dead_code)]
 fn normalize_path(path: &str) -> String {
     let mut output: Vec<&str> = Vec::new();
     for segment in path.split('/') {
@@ -92,7 +93,7 @@ fn normalize_path(path: &str) -> String {
     }
 }
 
-#[pyclass]
+#[pyclass(from_py_object)]
 #[derive(Clone, Debug)]
 pub struct ParseResult {
     #[pyo3(get, set)]
@@ -225,7 +226,7 @@ impl ParseResult {
         self.get_netloc()
     }
 
-    fn copy_with(&self, py: Python<'_>, kwargs: Option<&Bound<'_, PyDict>>) -> PyResult<ParseResult> {
+    fn copy_with(&self, _py: Python<'_>, kwargs: Option<&Bound<'_, PyDict>>) -> PyResult<ParseResult> {
         let mut result = self.clone();
         if let Some(kw) = kwargs {
             for (key, value) in kw.iter() {
@@ -336,6 +337,7 @@ fn normalize_port_value(port_str: &str, scheme: &str) -> PyResult<Option<u16>> {
     }
 }
 
+#[allow(dead_code)]
 fn normalize_port(port: Option<u16>, _scheme: &str) -> Option<u16> {
     port
 }
@@ -346,10 +348,7 @@ pub fn validate_host(host: &str) -> PyResult<()> {
     if host.contains('%') { return Ok(()); }
     // If IDNA encoding fails, it's invalid. Use strict STD3 rules.
     let (unicode_host, _) = idna::domain_to_unicode(host);
-    if let Err(e) = idna::Config::default()
-        .use_std3_ascii_rules(true)
-        .to_ascii(&unicode_host) 
-    {
+    if idna::domain_to_ascii_strict(&unicode_host).is_err() {
          return Err(crate::exceptions::InvalidURL::new_err(format!("Invalid IDNA host: '{}'", host)));
     }
     // Check for specific symbol/emoji ranges that httpx rejects but rust-url accepts (UTS 46 mapping)
@@ -380,10 +379,7 @@ pub fn urlparse_impl(url: &str, kwargs: Option<&std::collections::HashMap<String
             if !host.is_empty() {
                 // If IDNA encoding fails, it's invalid. Use strict STD3 rules.
                 let (unicode_host, _) = idna::domain_to_unicode(&host);
-                if let Err(_) = idna::Config::default()
-                    .use_std3_ascii_rules(true)
-                    .to_ascii(&unicode_host) 
-                {
+                if idna::domain_to_ascii_strict(&unicode_host).is_err() {
                      return Err(crate::exceptions::InvalidURL::new_err(format!("Invalid IDNA host: '{}'", host)));
                 }
             }
@@ -425,7 +421,7 @@ pub fn urlparse_impl(url: &str, kwargs: Option<&std::collections::HashMap<String
         Err(url::ParseError::RelativeUrlWithoutBase) if url_str.starts_with("://") => {
              // Handle schemeless authority
              let dummy = format!("http{}", url_str);
-             let mut u = url::Url::parse(&dummy).map_err(|e| crate::exceptions::InvalidURL::new_err(e.to_string()))?;
+             let u = url::Url::parse(&dummy).map_err(|e| crate::exceptions::InvalidURL::new_err(e.to_string()))?;
              // We will clear scheme later
              u
         },
@@ -561,10 +557,7 @@ pub fn urlparse_impl(url: &str, kwargs: Option<&std::collections::HashMap<String
         if host_str.contains("xn--") || !host_str.is_ascii() {
             // If IDNA encoding fails, it's invalid. Use strict STD3 rules.
             let (unicode_host, _) = idna::domain_to_unicode(host_str);
-            if let Err(_) = idna::Config::default()
-                .use_std3_ascii_rules(true)
-                .to_ascii(&unicode_host) 
-            {
+            if idna::domain_to_ascii_strict(&unicode_host).is_err() {
                 return Err(crate::exceptions::InvalidURL::new_err(format!("Invalid IDNA host: '{}'", host_str)));
             }
              // Check for specific symbol/emoji ranges that httpx rejects but rust-url accepts (UTS 46 mapping)

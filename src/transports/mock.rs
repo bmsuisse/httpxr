@@ -18,7 +18,7 @@ impl MockTransport {
     fn handle_request(&self, py: Python<'_>, request: crate::models::Request) -> PyResult<crate::models::Response> {
         let result = self.handler.call1(py, (request,))?;
         let bound = result.bind(py);
-        let response: crate::models::Response = bound.downcast::<crate::models::Response>()?.borrow().clone();
+        let response: crate::models::Response = bound.cast::<crate::models::Response>()?.borrow().clone();
         Ok(response)
     }
 
@@ -38,7 +38,7 @@ impl MockTransport {
             pyo3_async_runtimes::tokio::future_into_py(py, async move {
                 Python::attach(|py| {
                     let bound = result.bind(py);
-                    let response: crate::models::Response = bound.downcast::<crate::models::Response>()?.borrow().clone();
+                    let response: crate::models::Response = bound.cast::<crate::models::Response>()?.borrow().clone();
                     Ok(response)
                 })
             })

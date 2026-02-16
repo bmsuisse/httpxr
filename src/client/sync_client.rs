@@ -1,5 +1,5 @@
 use pyo3::prelude::*;
-use pyo3::types::{PyAnyMethods, PyDictMethods, PyDict, PyBytes, PyString};
+use pyo3::types::{PyAnyMethods, PyDictMethods, PyDict, PyBytes};
 use std::time::Instant;
 
 use crate::config::{Limits, Timeout};
@@ -257,7 +257,7 @@ impl Client {
             request.extensions.bind(py).set_item("timeout", t)?;
         }
         if let Some(e) = extensions {
-            if let Ok(d) = e.downcast::<PyDict>() {
+            if let Ok(d) = e.cast::<PyDict>() {
                 for (k, v) in d.iter() {
                     request.extensions.bind(py).set_item(k, v)?;
                 }
@@ -322,7 +322,7 @@ impl Client {
         // Event hooks: request
         if let Some(hooks) = &self.event_hooks {
             if let Ok(l) = hooks.bind(py).get_item("request") {
-                if let Ok(l) = l.downcast::<pyo3::types::PyList>() {
+                if let Ok(l) = l.cast::<pyo3::types::PyList>() {
                     let req_py = Py::new(py, request.clone())?;
                     for hook in l.iter() {
                         hook.call1((req_py.bind(py),))?;
@@ -375,7 +375,7 @@ impl Client {
 
         // Set http_version in response extensions if not present
         let ext = response.extensions.bind(py);
-        if let Ok(d) = ext.downcast::<PyDict>() {
+        if let Ok(d) = ext.cast::<PyDict>() {
             if !d.contains("http_version")? {
                 d.set_item("http_version", PyBytes::new(py, b"HTTP/1.1"))?;
             }
@@ -387,7 +387,7 @@ impl Client {
             let url = request.url.to_string();
             let http_version = {
                 let ext = response.extensions.bind(py);
-                if let Ok(d) = ext.downcast::<PyDict>() {
+                if let Ok(d) = ext.cast::<PyDict>() {
                     d.get_item("http_version").ok().flatten()
                         .and_then(|v| v.extract::<Vec<u8>>().ok())
                         .map(|b| String::from_utf8_lossy(&b).to_string())
@@ -413,7 +413,7 @@ impl Client {
         // Event hooks: response
         if let Some(hooks) = &self.event_hooks {
             if let Ok(l) = hooks.bind(py).get_item("response") {
-                if let Ok(l) = l.downcast::<pyo3::types::PyList>() {
+                if let Ok(l) = l.cast::<pyo3::types::PyList>() {
                     let resp_py = Py::new(py, response.clone())?;
                     for hook in l.iter() {
                         hook.call1((resp_py.bind(py),))?;
@@ -479,7 +479,7 @@ impl Client {
 
             // Set http_version
             let ext = response.extensions.bind(py);
-            if let Ok(d) = ext.downcast::<PyDict>() {
+            if let Ok(d) = ext.cast::<PyDict>() {
                 if !d.contains("http_version")? {
                     d.set_item("http_version", PyBytes::new(py, b"HTTP/1.1"))?;
                 }
@@ -734,7 +734,7 @@ impl Client {
     }
     #[setter]
     fn set_event_hooks(&mut self, py: Python<'_>, value: &Bound<'_, PyAny>) {
-        if let Ok(d) = value.downcast::<PyDict>() {
+        if let Ok(d) = value.cast::<PyDict>() {
             if d.get_item("request").ok().flatten().is_none() {
                 let _ = d.set_item("request", pyo3::types::PyList::empty(py));
             }
@@ -749,6 +749,7 @@ impl Client {
     fn get_trust_env(&self) -> bool { self.trust_env }
 
     #[pyo3(signature = (method, url, *, content=None, data=None, files=None, json=None, params=None, headers=None, cookies=None, extensions=None))]
+    #[allow(unused_variables)]
     fn build_request(
         &self, py: Python<'_>, method: &str, url: &Bound<'_, PyAny>,
         content: Option<&Bound<'_, PyAny>>, data: Option<&Bound<'_, PyAny>>,
@@ -769,7 +770,7 @@ impl Client {
         }
 
         let body = if let Some(c) = content {
-            if let Ok(b) = c.downcast::<PyBytes>() {
+            if let Ok(b) = c.cast::<PyBytes>() {
                 Some(b.as_bytes().to_vec())
             } else if let Ok(s) = c.extract::<String>() {
                 Some(s.into_bytes())
@@ -1101,7 +1102,7 @@ impl Client {
         // Event hooks: response for the initial response
         if let Some(hooks) = &self.event_hooks {
             if let Ok(l) = hooks.bind(py).get_item("response") {
-                if let Ok(l) = l.downcast::<pyo3::types::PyList>() {
+                if let Ok(l) = l.cast::<pyo3::types::PyList>() {
                     let resp_py = Py::new(py, current_response.clone())?;
                     for hook in l.iter() {
                         hook.call1((resp_py.bind(py),))?;
@@ -1204,7 +1205,7 @@ impl Client {
             // Event hooks: request (redirect)
             if let Some(hooks) = &self.event_hooks {
                 if let Ok(l) = hooks.bind(py).get_item("request") {
-                    if let Ok(l) = l.downcast::<pyo3::types::PyList>() {
+                    if let Ok(l) = l.cast::<pyo3::types::PyList>() {
                         let req_py = Py::new(py, redirect_request.clone())?;
                         for hook in l.iter() {
                             hook.call1((req_py.bind(py),))?;
@@ -1223,7 +1224,7 @@ impl Client {
             // Event hooks: response (redirect)
             if let Some(hooks) = &self.event_hooks {
                 if let Ok(l) = hooks.bind(py).get_item("response") {
-                    if let Ok(l) = l.downcast::<pyo3::types::PyList>() {
+                    if let Ok(l) = l.cast::<pyo3::types::PyList>() {
                         let resp_py = Py::new(py, new_response.clone())?;
                         for hook in l.iter() {
                             hook.call1((resp_py.bind(py),))?;
@@ -1241,7 +1242,7 @@ impl Client {
                 let url = redirect_request.url.to_string();
                 let http_version = {
                     let ext = new_response.extensions.bind(py);
-                    if let Ok(d) = ext.downcast::<PyDict>() {
+                    if let Ok(d) = ext.cast::<PyDict>() {
                         d.get_item("http_version").ok().flatten()
                             .and_then(|v| v.extract::<Vec<u8>>().ok())
                             .map(|b| String::from_utf8_lossy(&b).to_string())

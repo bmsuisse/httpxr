@@ -1,8 +1,5 @@
 use pyo3::prelude::*;
-use pyo3::types::{PyBool, PyBytes, PyDict, PyFloat, PyList, PyString, PyTuple};
-use std::collections::HashMap;
-use std::io::Read;
-use std::time::Duration;
+use pyo3::types::{PyBool, PyBytes, PyDict, PyList, PyString, PyTuple};
 
 /// Convert a serde_json::Value to a Python object.
 /// This avoids going through Python's json module — pure Rust → Python object construction.
@@ -37,7 +34,7 @@ fn json_value_to_py(py: Python<'_>, val: &serde_json::Value) -> PyResult<Py<PyAn
 }
 
 /// Case-insensitive HTTP headers multidict.
-#[pyclass]
+#[pyclass(from_py_object)]
 #[derive(Clone, Debug)]
 pub struct Headers {
     pub raw: Vec<(Vec<u8>, Vec<u8>)>,
@@ -46,9 +43,9 @@ pub struct Headers {
 
 impl Headers {
     pub fn to_header_bytes_from(value: &Bound<'_, PyAny>) -> PyResult<Vec<u8>> {
-        if let Ok(b) = value.downcast::<PyBytes>() {
+        if let Ok(b) = value.cast::<PyBytes>() {
             Ok(b.as_bytes().to_vec())
-        } else if let Ok(s) = value.downcast::<PyString>() {
+        } else if let Ok(s) = value.cast::<PyString>() {
             Ok(s.to_str()?.as_bytes().to_vec())
         } else {
             Ok(value.str()?.to_str()?.as_bytes().to_vec())
@@ -155,15 +152,15 @@ impl Headers {
             if h.is_none() {
                 // None passed
             } else if let Ok(existing) = h.extract::<Headers>() {                raw = existing.raw;
-            } else if let Ok(d) = h.downcast::<PyDict>() {
+            } else if let Ok(d) = h.cast::<PyDict>() {
                 for (k, v) in d.iter() {
                     let key_bytes = Self::to_header_bytes_from(&k)?;
                     let val_bytes = Self::validate_header_value(&v)?;
                     raw.push((key_bytes, val_bytes));
                 }
-            } else if let Ok(l) = h.downcast::<PyList>() {
+            } else if let Ok(l) = h.cast::<PyList>() {
                 for item in l.iter() {
-                    let tuple = item.downcast::<PyTuple>()?;
+                    let tuple = item.cast::<PyTuple>()?;
                     let key_bytes = Self::to_header_bytes_from(&tuple.get_item(0)?)?;
                     let val_bytes = Self::validate_header_value(&tuple.get_item(1)?)?;
                     raw.push((key_bytes, val_bytes));
@@ -171,7 +168,7 @@ impl Headers {
             } else if let Ok(items) = h.call_method0("items") {
                 for item in items.try_iter()? {
                     let item: Bound<'_, PyAny> = item?;
-                    let tuple = item.downcast::<PyTuple>()?;
+                    let tuple = item.cast::<PyTuple>()?;
                     let key_bytes = Self::to_header_bytes_from(&tuple.get_item(0)?)?;
                     let val_bytes = Self::validate_header_value(&tuple.get_item(1)?)?;
                     raw.push((key_bytes, val_bytes));
@@ -331,14 +328,14 @@ impl Headers {
         }
     }
 
-    fn __eq__(&self, py: Python<'_>, other: &Bound<'_, PyAny>) -> bool {
+    fn __eq__(&self, _py: Python<'_>, other: &Bound<'_, PyAny>) -> bool {
         if let Ok(other_headers) = other.extract::<Headers>() {
             let mut s: Vec<(String, String)> = self.get_multi_items().into_iter().map(|(k,v)| (k.to_lowercase(), v)).collect();
             let mut o: Vec<(String, String)> = other_headers.get_multi_items().into_iter().map(|(k,v)| (k.to_lowercase(), v)).collect();
             s.sort();
             o.sort();
             s == o
-        } else if let Ok(d) = other.downcast::<pyo3::types::PyDict>() {
+        } else if let Ok(d) = other.cast::<pyo3::types::PyDict>() {
             // Dict comparison: treat each key-value pair as a header entry, case-insensitive sorted
             let mut s: Vec<(String, String)> = self.get_multi_items().into_iter().map(|(k,v)| (k.to_lowercase(), v)).collect();
             s.sort();
@@ -350,13 +347,13 @@ impl Headers {
             }
             o.sort();
             s == o
-        } else if let Ok(list) = other.downcast::<pyo3::types::PyList>() {
+        } else if let Ok(list) = other.cast::<pyo3::types::PyList>() {
             // Compare with list of tuples - case-insensitive sorted comparison
             let mut s: Vec<(String, String)> = self.get_multi_items().into_iter().map(|(k,v)| (k.to_lowercase(), v)).collect();
             s.sort();
             let mut o: Vec<(String, String)> = Vec::new();
             for item in list.iter() {
-                if let Ok(tuple) = item.downcast::<pyo3::types::PyTuple>() {
+                if let Ok(tuple) = item.cast::<pyo3::types::PyTuple>() {
                     if tuple.len() == 2 {
                         let k: String = tuple.get_item(0).ok().and_then(|v| v.extract().ok()).unwrap_or_default();
                         let v: String = tuple.get_item(1).ok().and_then(|v| v.extract().ok()).unwrap_or_default();
@@ -437,11 +434,11 @@ fn convert_value_for_urlencode(py: Python<'_>, v: &Bound<'_, PyAny>) -> Py<PyAny
 /// Handles list values, booleans (lowercased), and None values.
 fn encode_form_data(py: Python<'_>, d: &Bound<'_, PyAny>) -> PyResult<Option<Vec<u8>>> {
     let mut items: Vec<(Py<PyAny>, Py<PyAny>)> = Vec::new();
-    if let Ok(dict) = d.downcast::<pyo3::types::PyDict>() {
+    if let Ok(dict) = d.cast::<pyo3::types::PyDict>() {
         for (k, v) in dict.iter() {
             let k_obj = k.clone().unbind();
             // Check if value is a list - expand each element
-            if let Ok(list) = v.downcast::<pyo3::types::PyList>() {
+            if let Ok(list) = v.cast::<pyo3::types::PyList>() {
                 for item in list.iter() {
                     items.push((k_obj.clone_ref(py), convert_value_for_urlencode(py, &item)));
                 }
@@ -449,9 +446,9 @@ fn encode_form_data(py: Python<'_>, d: &Bound<'_, PyAny>) -> PyResult<Option<Vec
                 items.push((k_obj, convert_value_for_urlencode(py, &v)));
             }
         }
-    } else if let Ok(seq) = d.downcast::<pyo3::types::PyList>() {
+    } else if let Ok(seq) = d.cast::<pyo3::types::PyList>() {
         for item in seq.iter() {
-            if let Ok(pair) = item.downcast::<pyo3::types::PyTuple>() {
+            if let Ok(pair) = item.cast::<pyo3::types::PyTuple>() {
                 if pair.len() == 2 {
                     let k = pair.get_item(0)?;
                     let v = pair.get_item(1)?;
@@ -476,7 +473,7 @@ fn encode_form_data(py: Python<'_>, d: &Bound<'_, PyAny>) -> PyResult<Option<Vec
 }
 
 /// HTTP Request object.
-#[pyclass(module = "httpr._httpr")]
+#[pyclass(from_py_object, module = "httpr._httpr")]
 pub struct Request {
     #[pyo3(get, set)]
     pub method: String,
@@ -577,7 +574,7 @@ impl Request {
         let data_for_encoding = if used_data_as_content { None } else { data };
 
         let body = if let Some(c) = actual_content {
-            if let Ok(b) = c.downcast::<PyBytes>() {
+            if let Ok(b) = c.cast::<PyBytes>() {
                 Some(b.as_bytes().to_vec())
             } else if let Ok(s) = c.extract::<String>() {
                 Some(s.into_bytes())
@@ -650,16 +647,16 @@ impl Request {
         } else if let Some(f) = files {
             // If files are provided, use multipart/form-data encoding
             // Check if files dict/list is empty
-            let files_empty = if let Ok(dict) = f.downcast::<pyo3::types::PyDict>() {
+            let files_empty = if let Ok(dict) = f.cast::<pyo3::types::PyDict>() {
                 dict.len() == 0
-            } else if let Ok(list) = f.downcast::<pyo3::types::PyList>() {
+            } else if let Ok(list) = f.cast::<pyo3::types::PyList>() {
                 list.len() == 0
             } else {
                 f.is_none()
             };
 
             let data_empty = if let Some(d) = data_for_encoding {
-                if let Ok(dict) = d.downcast::<pyo3::types::PyDict>() {
+                if let Ok(dict) = d.cast::<pyo3::types::PyDict>() {
                     dict.len() == 0
                 } else {
                     d.is_none()
@@ -799,7 +796,7 @@ impl Request {
             loop {
                 match iter.call_method0("__next__") {
                     Ok(item) => {
-                        if let Ok(b) = item.downcast::<PyBytes>() {
+                        if let Ok(b) = item.cast::<PyBytes>() {
                             buf.extend_from_slice(b.as_bytes());
                         } else if let Ok(s) = item.extract::<String>() {
                             buf.extend_from_slice(s.as_bytes());
@@ -847,7 +844,7 @@ impl Request {
                 loop {
                     match iter.call_method0("__next__") {
                         Ok(item) => {
-                            if let Ok(b) = item.downcast::<PyBytes>() {
+                            if let Ok(b) = item.cast::<PyBytes>() {
                                 buf.extend_from_slice(b.as_bytes());
                             } else if let Ok(s) = item.extract::<String>() {
                                 buf.extend_from_slice(s.as_bytes());
@@ -918,7 +915,7 @@ impl Request {
     }
 
     fn __setstate__(&mut self, py: Python<'_>, state: &Bound<'_, PyAny>) -> PyResult<()> {
-        let dict = state.downcast::<pyo3::types::PyDict>()?;
+        let dict = state.cast::<pyo3::types::PyDict>()?;
         if let Some(content) = dict.get_item("content")? {
             self.content_body = Some(content.extract::<Vec<u8>>()?);
         }
@@ -945,7 +942,7 @@ impl Request {
 
 
 /// HTTP Response object.
-#[pyclass(module = "httpr._httpr")]
+#[pyclass(from_py_object, module = "httpr._httpr")]
 pub struct Response {
     #[pyo3(get, set)]
     pub status_code: u16,
@@ -1105,7 +1102,7 @@ impl Response {
                                 output.extend(decoded);
                                 break; // decode_all consumes all remaining frames
                             }
-                            Err(e) => {
+                            Err(_e) => {
                                 // Try frame-by-frame with a limited reader
                                 let mut decoder = zstd::stream::Decoder::new(remaining).map_err(|e| {
                                     crate::exceptions::DecodingError::new_err(format!("Zstd decompression failed: {}", e))
@@ -1157,7 +1154,7 @@ impl Response {
         
         // Check if content is a sync/async iterator (streaming body)
         let (content_bytes, stream_obj) = if let Some(c) = content {
-             if let Ok(b) = c.downcast::<PyBytes>() {
+             if let Ok(b) = c.cast::<PyBytes>() {
                 (Some(b.as_bytes().to_vec()), None)
             } else if let Ok(s) = c.extract::<String>() {
                 (Some(s.into_bytes()), None)
@@ -1230,7 +1227,7 @@ impl Response {
 
         // Merge explicit stream kwarg with content-derived stream
         let final_stream = stream.or(stream_obj);
-        let is_streaming = final_stream.is_some();
+        let _is_streaming = final_stream.is_some();
 
         // If no content and no stream, default content_bytes to empty and mark closed
         let (final_content, final_closed) = if content_bytes.is_none() && final_stream.is_none() {
@@ -1411,7 +1408,7 @@ impl Response {
             loop {
                 match iter_obj.call_method0("__next__") {
                     Ok(item) => {
-                        if let Ok(b) = item.downcast::<PyBytes>() {
+                        if let Ok(b) = item.cast::<PyBytes>() {
                             buf.extend_from_slice(b.as_bytes());
                         } else if let Ok(v) = item.extract::<Vec<u8>>() {
                             buf.extend(v);
@@ -1495,7 +1492,7 @@ impl Response {
              };
 
              // Clone headers if preserved, otherwise create new
-             let mut new_headers = if let Some(h) = headers {
+             let new_headers = if let Some(h) = headers {
                  h
              } else {
                  req.headers.clone_ref(py)
@@ -1610,7 +1607,7 @@ impl Response {
                 let mut buf = Vec::new();
                 for item in iter {
                     let item = item?;
-                    if let Ok(b) = item.downcast::<PyBytes>() {
+                    if let Ok(b) = item.cast::<PyBytes>() {
                         buf.extend_from_slice(b.as_bytes());
                     } else if let Ok(v) = item.extract::<Vec<u8>>() {
                         buf.extend(v);
@@ -1688,7 +1685,7 @@ async def _aread_impl(resp):
     }
 
     /// Helper for Python-based aread: take the stream out of the response
-    fn _take_stream(&mut self, py: Python<'_>) -> Option<Py<PyAny>> {
+    fn _take_stream(&mut self, _py: Python<'_>) -> Option<Py<PyAny>> {
         self.stream.take()
     }
 
@@ -1869,7 +1866,7 @@ async def _aread_impl(resp):
     }
 
     #[setter]
-    fn set_encoding(&mut self, py: Python<'_>, value: &str) -> PyResult<()> {
+    fn set_encoding(&mut self, _py: Python<'_>, value: &str) -> PyResult<()> {
         // In httpx, setting encoding after text has been accessed always raises ValueError
         if self.text_accessed.load(std::sync::atomic::Ordering::Relaxed) {
             return Err(pyo3::exceptions::PyValueError::new_err(
@@ -1999,7 +1996,7 @@ async def _aread_impl(resp):
             if let Ok(iter) = s.try_iter() {
                 for item in iter {
                     let item = item?;
-                    if let Ok(b) = item.downcast::<PyBytes>() {
+                    if let Ok(b) = item.cast::<PyBytes>() {
                         let bytes = b.as_bytes();
                         if !bytes.is_empty() {
                             total_bytes.extend_from_slice(bytes);
@@ -2082,7 +2079,7 @@ async def _aread_impl(resp):
                 if let Ok(iter) = s.try_iter() {
                     for item in iter {
                         let item = item?;
-                        if let Ok(b) = item.downcast::<PyBytes>() {
+                        if let Ok(b) = item.cast::<PyBytes>() {
                             raw_chunks.push(b.as_bytes().to_vec());
                         } else if let Ok(v) = item.extract::<Vec<u8>>() {
                             raw_chunks.push(v);
@@ -2414,7 +2411,7 @@ _result = _AsyncChunkIter(_aiter_bytes_impl(), _chunk_size, _response)
     }
 
     fn __setstate__(&mut self, py: Python<'_>, state: &Bound<'_, PyAny>) -> PyResult<()> {
-        let dict = state.downcast::<pyo3::types::PyDict>()?;
+        let dict = state.cast::<pyo3::types::PyDict>()?;
         if let Some(has_content) = dict.get_item("has_content")? {
             if has_content.extract::<bool>()? {
                 if let Some(content) = dict.get_item("content")? {
@@ -2461,7 +2458,7 @@ _result = _AsyncChunkIter(_aiter_bytes_impl(), _chunk_size, _response)
     }
 }
 
-#[pyclass]
+#[pyclass(from_py_object)]
 pub struct Cookies {
     pub jar: Py<PyAny>,
 }
@@ -2489,15 +2486,15 @@ impl Cookies {
                         let cookie = cookie?;
                         jar.call_method1("set_cookie", (cookie,))?;
                     }
-                } else if let Ok(d) = c.downcast::<PyDict>() {
+                } else if let Ok(d) = c.cast::<PyDict>() {
                     for (k, v) in d.iter() {
                         let name: String = k.extract()?;
                         let value: String = v.extract()?;
                         Self::set_cookie_on_jar_inner(py, &jar, &name, &value, "", "/")?;
                     }
-                } else if let Ok(l) = c.downcast::<PyList>() {
+                } else if let Ok(l) = c.cast::<PyList>() {
                     for item in l.iter() {
-                        let tuple = item.downcast::<PyTuple>()?;
+                        let tuple = item.cast::<PyTuple>()?;
                         let name: String = tuple.get_item(0)?.extract()?;
                         let value: String = tuple.get_item(1)?.extract()?;
                         Self::set_cookie_on_jar_inner(py, &jar, &name, &value, "", "/")?;
@@ -2622,7 +2619,7 @@ impl Cookies {
                     let cookie = cookie?;
                     self.jar.bind(py).call_method1("set_cookie", (cookie,))?;
                 }
-            } else if let Ok(d) = o.downcast::<PyDict>() {
+            } else if let Ok(d) = o.cast::<PyDict>() {
                 for (k, v) in d.iter() {
                     let name: String = k.extract()?;
                     let value: String = v.extract()?;

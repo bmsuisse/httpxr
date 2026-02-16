@@ -2,7 +2,7 @@ use pyo3::prelude::*;
 use pyo3::types::{PyBytes, PyDict};
 
 /// ByteStream: wraps raw bytes for request/response bodies.
-#[pyclass]
+#[pyclass(from_py_object)]
 #[derive(Clone)]
 pub struct ByteStream {
     data: Vec<u8>,
@@ -86,7 +86,7 @@ pub fn encode_request(
 
     // Raw content (bytes or str)
     if let Some(c) = content {
-        if let Ok(b) = c.downcast::<PyBytes>() {
+        if let Ok(b) = c.cast::<PyBytes>() {
             let body = b.as_bytes();
             headers.set_item("content-length", body.len().to_string())?;
             let stream = ByteStream::new(Some(body));
