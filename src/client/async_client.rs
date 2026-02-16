@@ -1501,6 +1501,266 @@ impl AsyncClient {
         })
     }
 
+    /// Dispatch multiple requests concurrently using asyncio.gather.
+    /// Returns a list of Response objects (or exceptions if return_exceptions=True).
+    /// This is an httpr extension — not available in httpx.
+    #[pyo3(signature = (requests, *, max_concurrency=10, return_exceptions=false))]
+    fn gather<'py>(
+        &self,
+        py: Python<'py>,
+        requests: Vec<Py<Request>>,
+        max_concurrency: usize,
+        return_exceptions: bool,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        if self.is_closed {
+            return Err(pyo3::exceptions::PyRuntimeError::new_err(
+                "Cannot send requests, as the client has been closed.",
+            ));
+        }
+
+        // Build all Request data we need upfront
+        let transport = self.transport.clone_ref(py);
+        let mounts = self.mounts.clone_ref(py);
+
+        pyo3_async_runtimes::tokio::future_into_py(py, async move {
+            if requests.is_empty() {
+                return Python::attach(|py| {
+                    Ok(pyo3::types::PyList::empty(py).unbind())
+                });
+            }
+
+            // Use asyncio.Semaphore + asyncio.gather for concurrent dispatch
+            let result: Py<PyAny> = Python::attach(|py| {
+                let asyncio = py.import("asyncio")?;
+
+                // Build coroutines for each request
+                let coros = pyo3::types::PyList::empty(py);
+                for req_py in &requests {
+                    let transport_to_use = {
+                        let req_bound = req_py.bind(py);
+                        let req_ref = req_bound.borrow();
+                        select_transport(
+                            mounts.bind(py).clone(),
+                            transport.clone_ref(py),
+                            &req_ref.url,
+                        )?
+                    };
+                    let t_bound = transport_to_use.bind(py);
+                    let coro = t_bound.call_method1("handle_async_request", (req_py,))?;
+                    coros.append(coro)?;
+                }
+
+                // Create a Python wrapper that limits concurrency via asyncio.Semaphore
+                let ns = pyo3::types::PyDict::new(py);
+                ns.set_item("asyncio", asyncio)?;
+                ns.set_item("coros", &coros)?;
+                ns.set_item("max_concurrency", max_concurrency)?;
+                ns.set_item("return_exceptions", return_exceptions)?;
+
+                py.run(
+                    c"
+import asyncio
+
+_sem = asyncio.Semaphore(max_concurrency)
+
+async def _limited(coro):
+    async with _sem:
+        return await coro
+
+_gather_coro = asyncio.gather(
+    *[_limited(c) for c in coros],
+    return_exceptions=return_exceptions,
+)
+",
+                    Some(&ns),
+                    Some(&ns),
+                )?;
+
+                let gather_coro = ns.get_item("_gather_coro")?.unwrap().unbind();
+                Ok::<_, PyErr>(gather_coro)
+            })?;
+
+            // Await the gather coroutine
+            let gather_future = Python::attach(|py| {
+                pyo3_async_runtimes::tokio::into_future(result.bind(py).clone())
+            })?;
+
+            let results_obj = gather_future.await?;
+
+            // Convert results to a proper list
+            Python::attach(|py| {
+                let results_bound = results_obj.bind(py);
+                let py_list = pyo3::types::PyList::empty(py);
+
+                if let Ok(result_list) = results_bound.cast::<pyo3::types::PyList>() {
+                    for (i, item) in result_list.iter().enumerate() {
+                        // Set request on response if possible
+                        if let Ok(mut resp) = item.extract::<Response>() {
+                            let req_bound = requests[i].bind(py);
+                            let req_ref = req_bound.borrow();
+                            resp.request = Some(req_ref.clone());
+                            py_list.append(Py::new(py, resp)?)?;
+                        } else {
+                            // Error case (return_exceptions=True)
+                            py_list.append(&item)?;
+                        }
+                    }
+                }
+                Ok(py_list.unbind())
+            })
+        })
+    }
+
+    /// Auto-follow pagination links, fetching all pages sequentially.
+    /// Supports JSON key extraction, Link header parsing, and custom callables.
+    /// This is an httpr extension — not available in httpx.
+    #[pyo3(signature = (method, url, *, next_url=None, next_header=None, next_func=None, max_pages=100, params=None, headers=None, cookies=None, timeout=None, extensions=None, **kwargs))]
+    #[allow(clippy::too_many_arguments, unused_variables)]
+    fn paginate<'py>(
+        &self,
+        py: Python<'py>,
+        method: &str,
+        url: &Bound<'_, PyAny>,
+        next_url: Option<String>,
+        next_header: Option<String>,
+        next_func: Option<Py<PyAny>>,
+        max_pages: usize,
+        params: Option<Py<PyAny>>,
+        headers: Option<Py<PyAny>>,
+        cookies: Option<Py<PyAny>>,
+        timeout: Option<Py<PyAny>>,
+        extensions: Option<Py<PyAny>>,
+        kwargs: Option<Py<PyDict>>,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        if self.is_closed {
+            return Err(pyo3::exceptions::PyRuntimeError::new_err(
+                "Cannot send requests, as the client has been closed.",
+            ));
+        }
+        if next_url.is_none() && next_header.is_none() && next_func.is_none() {
+            return Err(pyo3::exceptions::PyValueError::new_err(
+                "Must specify one of: next_url, next_header, or next_func",
+            ));
+        }
+
+        let method_owned = method.to_string();
+        let url_owned: Py<PyAny> = url.clone().unbind();
+        let transport = self.transport.clone_ref(py);
+        let mounts = self.mounts.clone_ref(py);
+
+        pyo3_async_runtimes::tokio::future_into_py(py, async move {
+            let mut pages: Vec<Py<Response>> = Vec::new();
+            let mut current_url: Py<PyAny> = url_owned;
+
+            for _page_num in 0..max_pages {
+                // Build and send the request
+                let response_coro = Python::attach(|py| {
+                    let url_bound = current_url.bind(py);
+                    let transport_to_use = {
+                        let url_str: String = url_bound.str()?.extract()?;
+                        let u = crate::urls::URL::create_from_str(&url_str)?;
+                        select_transport(
+                            mounts.bind(py).clone(),
+                            transport.clone_ref(py),
+                            &u,
+                        )?
+                    };
+                    let t_bound = transport_to_use.bind(py);
+
+                    // Build a minimal request
+                    let mut merged_headers = Headers::create(None, "utf-8")?;
+                    if let Some(ref h) = headers {
+                        merged_headers.update_from(Some(h.bind(py)))?;
+                    }
+
+                    let req = Request {
+                        method: method_owned.clone(),
+                        url: crate::urls::URL::create_from_str(&url_bound.str()?.extract::<String>()?)?,
+                        headers: Py::new(py, merged_headers)?,
+                        extensions: PyDict::new(py).into(),
+                        content_body: None,
+                        stream: None,
+                        stream_response: false,
+                    };
+
+                    if let Some(ref t) = timeout {
+                        req.extensions.bind(py).set_item("timeout", t)?;
+                    }
+
+                    let req_py = Py::new(py, req)?;
+                    t_bound
+                        .call_method1("handle_async_request", (req_py,))
+                        .map(|b| b.unbind())
+                })?;
+
+                let future = Python::attach(|py| {
+                    pyo3_async_runtimes::tokio::into_future(response_coro.bind(py).clone())
+                })?;
+                let response_obj: Py<PyAny> = future.await?;
+
+                let response = Python::attach(|py| {
+                    let resp: Response = response_obj.bind(py).extract()?;
+                    Py::new(py, resp)
+                })?;
+
+                // Extract next URL
+                let next: Option<String> = Python::attach(|py| {
+                    let resp_bound = response.bind(py);
+                    let resp_ref = resp_bound.borrow();
+
+                    if let Some(ref json_key) = next_url {
+                        let json_val = resp_bound.call_method0("json")?;
+                        if let Ok(val) = json_val.get_item(json_key.as_str()) {
+                            if !val.is_none() {
+                                return Ok::<_, PyErr>(val.extract::<String>().ok());
+                            }
+                        }
+                        return Ok(None);
+                    }
+
+                    if let Some(ref header_name) = next_header {
+                        let hdrs = resp_ref.headers.bind(py).borrow();
+                        if let Some(header_val) = hdrs.get_first_value(header_name) {
+                            return Ok(parse_link_next_async(&header_val));
+                        }
+                        return Ok(None);
+                    }
+
+                    if let Some(ref func) = next_func {
+                        let result = func.call1(py, (resp_bound,))?;
+                        let result_bound = result.bind(py);
+                        if result_bound.is_none() {
+                            return Ok(None);
+                        }
+                        return Ok(result_bound.extract::<String>().ok());
+                    }
+
+                    Ok(None)
+                })?;
+
+                pages.push(response);
+
+                match next {
+                    Some(next_url_str) => {
+                        current_url = Python::attach(|py| {
+                            Ok::<_, PyErr>(pyo3::types::PyString::new(py, &next_url_str).into_any().unbind())
+                        })?;
+                    }
+                    None => break,
+                }
+            }
+
+            // Convert Vec<Py<Response>> to PyList
+            Python::attach(|py| {
+                let py_list = pyo3::types::PyList::empty(py);
+                for resp in pages {
+                    py_list.append(resp.bind(py))?;
+                }
+                Ok(py_list.unbind())
+            })
+        })
+    }
+
     fn _transport_for_url(&self, url: &Bound<'_, PyAny>) -> PyResult<Py<PyAny>> {
         let py = url.py();
         let url_str: String = url.str()?.extract()?;
@@ -1713,4 +1973,21 @@ impl Drop for ReleaseGuard {
             // This is intentional - aclose should be called explicitly before Drop
         }
     }
+}
+
+/// Parse a Link header value to extract the URL with rel="next".
+fn parse_link_next_async(header: &str) -> Option<String> {
+    for part in header.split(',') {
+        let part = part.trim();
+        if part.contains("rel=\"next\"") || part.contains("rel='next'") {
+            if let Some(start) = part.find('<') {
+                if let Some(end) = part.find('>') {
+                    if start < end {
+                        return Some(part[start + 1..end].to_string());
+                    }
+                }
+            }
+        }
+    }
+    None
 }

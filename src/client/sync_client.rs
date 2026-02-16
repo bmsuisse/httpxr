@@ -1019,6 +1019,186 @@ impl Client {
         })
     }
 
+    /// Dispatch multiple requests concurrently using Rust's tokio runtime.
+    /// Returns a list of Response objects (or exceptions if return_exceptions=True).
+    /// This is an httpr extension — not available in httpx.
+    #[pyo3(signature = (requests, *, max_concurrency=10, return_exceptions=false))]
+    fn gather(
+        &self,
+        py: Python<'_>,
+        requests: Vec<Py<Request>>,
+        max_concurrency: usize,
+        return_exceptions: bool,
+    ) -> PyResult<Py<pyo3::types::PyList>> {
+        if self.is_closed {
+            return Err(pyo3::exceptions::PyRuntimeError::new_err(
+                "Cannot send requests, as the client has been closed.",
+            ));
+        }
+        if requests.is_empty() {
+            return Ok(pyo3::types::PyList::empty(py).unbind());
+        }
+
+        // Extract Request objects
+        let request_refs: Vec<Request> = requests
+            .iter()
+            .map(|r| {
+                let bound = r.bind(py);
+                let borrowed = bound.borrow();
+                borrowed.clone()
+            })
+            .collect();
+
+        // Try to downcast transport to HTTPTransport for batch dispatch
+        let transport_bound = self.transport.bind(py);
+        if let Ok(transport) = transport_bound.cast::<crate::transports::default::HTTPTransport>() {
+            let transport_ref = transport.borrow();
+            let results = transport_ref.send_batch_requests(py, &request_refs, max_concurrency)?;
+
+            let py_list = pyo3::types::PyList::empty(py);
+            for (i, result) in results.into_iter().enumerate() {
+                match result {
+                    Ok(mut response) => {
+                        response.request = Some(request_refs[i].clone());
+                        if let Some(ref de) = self.default_encoding {
+                            response.default_encoding = de.clone_ref(py);
+                        }
+                        py_list.append(Py::new(py, response)?)?;
+                    }
+                    Err(err) => {
+                        if return_exceptions {
+                            let err_str = format!("{}", err);
+                            py_list.append(pyo3::exceptions::PyRuntimeError::new_err(err_str).value(py))?;
+                        } else {
+                            return Err(err);
+                        }
+                    }
+                }
+            }
+            Ok(py_list.unbind())
+        } else {
+            // Fallback: non-native transport, send sequentially
+            let py_list = pyo3::types::PyList::empty(py);
+            for req in &request_refs {
+                let req_py = Py::new(py, req.clone())?;
+                match transport_bound.call_method1("handle_request", (req_py,)) {
+                    Ok(res_py) => {
+                        py_list.append(res_py)?;
+                    }
+                    Err(err) => {
+                        if return_exceptions {
+                            let err_str = format!("{}", err);
+                            py_list.append(pyo3::exceptions::PyRuntimeError::new_err(err_str).value(py))?;
+                        } else {
+                            return Err(err);
+                        }
+                    }
+                }
+            }
+            Ok(py_list.unbind())
+        }
+    }
+
+    /// Auto-follow pagination links, fetching all pages sequentially.
+    /// Supports JSON key extraction, Link header parsing, and custom callables.
+    /// This is an httpr extension — not available in httpx.
+    #[pyo3(signature = (method, url, *, next_url=None, next_header=None, next_func=None, max_pages=100, params=None, headers=None, cookies=None, timeout=None, extensions=None, **kwargs))]
+    #[allow(clippy::too_many_arguments)]
+    fn paginate(
+        &self,
+        py: Python<'_>,
+        method: &str,
+        url: &Bound<'_, PyAny>,
+        next_url: Option<&str>,
+        next_header: Option<&str>,
+        next_func: Option<&Bound<'_, PyAny>>,
+        max_pages: usize,
+        params: Option<&Bound<'_, PyAny>>,
+        headers: Option<&Bound<'_, PyAny>>,
+        cookies: Option<&Bound<'_, PyAny>>,
+        timeout: Option<&Bound<'_, PyAny>>,
+        extensions: Option<&Bound<'_, PyAny>>,
+        kwargs: Option<&Bound<'_, PyDict>>,
+    ) -> PyResult<Vec<Response>> {
+        if self.is_closed {
+            return Err(pyo3::exceptions::PyRuntimeError::new_err(
+                "Cannot send requests, as the client has been closed.",
+            ));
+        }
+        if next_url.is_none() && next_header.is_none() && next_func.is_none() {
+            return Err(pyo3::exceptions::PyValueError::new_err(
+                "Must specify one of: next_url, next_header, or next_func",
+            ));
+        }
+
+        let mut pages: Vec<Response> = Vec::new();
+        let mut current_url: Py<PyAny> = url.clone().unbind();
+
+        for _page_num in 0..max_pages {
+            // Send the request using standard request() method
+            let response = self.request(
+                py,
+                method,
+                current_url.bind(py),
+                None, None, None, None,
+                if pages.is_empty() { params } else { None },
+                headers,
+                cookies,
+                None,
+                timeout,
+                extensions,
+                kwargs,
+            )?;
+
+            // Extract next URL from response
+            let next: Option<String> = if let Some(json_key) = next_url {
+                // Extract from JSON body: response.json()[key]
+                let resp_py = Py::new(py, response.clone())?;
+                let json_val = resp_py.call_method0(py, "json")?;
+                let json_bound = json_val.bind(py);
+                if let Ok(val) = json_bound.get_item(json_key) {
+                    if !val.is_none() {
+                        val.extract::<String>().ok()
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            } else if let Some(header_name) = next_header {
+                // Extract from response header (e.g. Link header)
+                let hdrs = response.headers.bind(py).borrow();
+                if let Some(header_val) = hdrs.get_first_value(header_name) {
+                    parse_link_next(&header_val)
+                } else {
+                    None
+                }
+            } else if let Some(func) = next_func {
+                // Call custom function with the response
+                let resp_py = Py::new(py, response.clone())?;
+                let result = func.call1((resp_py,))?;
+                if result.is_none() {
+                    None
+                } else {
+                    result.extract::<String>().ok()
+                }
+            } else {
+                None
+            };
+
+            pages.push(response);
+
+            match next {
+                Some(next_url_str) => {
+                    current_url = pyo3::types::PyString::new(py, &next_url_str).into();
+                }
+                None => break,
+            }
+        }
+
+        Ok(pages)
+    }
+
     #[pyo3(signature = (request, *, auth=None, follow_redirects=None))]
     fn send(
         &self,
@@ -1565,4 +1745,24 @@ impl Client {
 
         Ok(current_response)
     }
+}
+
+/// Parse a Link header value to extract the URL with rel="next".
+/// Example: `<https://api.example.com/items?page=2>; rel="next", <...>; rel="prev"`
+fn parse_link_next(header: &str) -> Option<String> {
+    for part in header.split(',') {
+        let part = part.trim();
+        // Check if this part contains rel="next"
+        if part.contains("rel=\"next\"") || part.contains("rel='next'") {
+            // Extract URL from angle brackets
+            if let Some(start) = part.find('<') {
+                if let Some(end) = part.find('>') {
+                    if start < end {
+                        return Some(part[start + 1..end].to_string());
+                    }
+                }
+            }
+        }
+    }
+    None
 }
