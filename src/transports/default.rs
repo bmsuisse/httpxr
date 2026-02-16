@@ -113,13 +113,13 @@ impl HTTPTransport {
         let header_list = request.headers.bind(py).borrow().get_multi_items();
         let rt_handle = self.rt.handle().clone();
 
+        let method = reqwest::Method::from_bytes(method_str.as_bytes())
+            .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("Invalid method: {}", e)))?;
+
         // Release GIL for blocking I/O — run async reqwest on the persistent runtime
         let (status_code, resp_headers, body_bytes_result) = py
             .detach(move || {
                 rt_handle.block_on(async {
-                    let method = reqwest::Method::from_bytes(method_str.as_bytes())
-                        .map_err(|e| format!("Invalid method: {}", e))?;
-
                     let mut req_builder = client.request(method, &url_str);
                     for (key, value) in &header_list {
                         req_builder = req_builder.header(key.as_str(), value.as_str());
@@ -133,7 +133,7 @@ impl HTTPTransport {
                         req_builder = req_builder.timeout(t);
                     }
 
-                    let response = req_builder.send().await.map_err(|e| format!("{}", e))?;
+                    let response = req_builder.send().await?;
 
                     let status = response.status().as_u16();
                     let resp_headers: Vec<(String, String)> = response
@@ -142,44 +142,41 @@ impl HTTPTransport {
                         .map(|(k, v)| (k.as_str().to_string(), v.to_str().unwrap_or("").to_string()))
                         .collect();
 
-                    let bytes = response.bytes().await.map_err(|e| format!("{}", e))?;
-                    Ok::<_, String>((status, resp_headers, bytes.to_vec()))
+                    let bytes = response.bytes().await?;
+                    Ok::<_, reqwest::Error>((status, resp_headers, bytes.to_vec()))
                 })
             })
-            .map_err(|e: String| {
-                if e.contains("timed out") || e.contains("Timeout") || e.contains("timeout")
-                    || e.contains("error decoding response body")
-                {
-                    // Classify timeout type — check before connect errors since
-                    // timeout messages may also contain "error sending request"
-                    if connect_timeout_val.is_some()
-                        && read_timeout_val.is_none()
-                        && write_timeout_val.is_none()
+            .map_err(|e: reqwest::Error| {
+                let msg = format!("{}", e);
+                if e.is_timeout() {
+                    // Classify timeout type based on what was configured
+                    if e.is_connect()
+                        || (connect_timeout_val.is_some()
+                            && read_timeout_val.is_none()
+                            && write_timeout_val.is_none())
                     {
-                        crate::exceptions::ConnectTimeout::new_err(e)
+                        crate::exceptions::ConnectTimeout::new_err(msg)
                     } else if write_timeout_val.is_some()
                         && has_body
                         && read_timeout_val.is_none()
                     {
-                        crate::exceptions::WriteTimeout::new_err(e)
+                        crate::exceptions::WriteTimeout::new_err(msg)
                     } else {
-                        crate::exceptions::ReadTimeout::new_err(e)
+                        crate::exceptions::ReadTimeout::new_err(msg)
                     }
-                } else if e.contains("dns error") || e.contains("resolve") {
-                    crate::exceptions::ConnectError::new_err(e)
-                } else if e.contains("error trying to connect")
-                    || e.contains("error sending request")
-                    || e.contains("Connection refused")
-                    || e.contains("certificate")
-                    || e.contains("tls")
-                    || e.contains("ssl")
-                    || e.contains("handshake")
-                {
-                    crate::exceptions::ConnectError::new_err(e)
-                } else if e.contains("Unknown Scheme") || e.contains("URL scheme is not allowed") {
-                    crate::exceptions::UnsupportedProtocol::new_err(e)
+                } else if e.is_connect() {
+                    crate::exceptions::ConnectError::new_err(msg)
+                } else if e.is_body() || e.is_decode() {
+                    // Body/decode errors during read are typically timeout-related
+                    if read_timeout_val.is_some() || write_timeout_val.is_some() {
+                        crate::exceptions::ReadTimeout::new_err(msg)
+                    } else {
+                        crate::exceptions::NetworkError::new_err(msg)
+                    }
+                } else if msg.contains("Unknown Scheme") || msg.contains("URL scheme is not allowed") {
+                    crate::exceptions::UnsupportedProtocol::new_err(msg)
                 } else {
-                    crate::exceptions::NetworkError::new_err(e)
+                    crate::exceptions::NetworkError::new_err(msg)
                 }
             })?;
 
