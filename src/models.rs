@@ -125,6 +125,13 @@ impl Headers {
         Headers { raw, encoding }
     }
 
+    /// Construct Headers directly from byte pairs — zero conversion.
+    /// Use when response headers are already in byte form.
+    pub fn from_raw_byte_pairs(raw: Vec<(Vec<u8>, Vec<u8>)>) -> Self {
+        let encoding = Self::detect_encoding(&raw, "utf-8");
+        Headers { raw, encoding }
+    }
+
     pub fn contains_header(&self, key: &str) -> bool {
         let key_lower = key.to_lowercase();
         self.raw

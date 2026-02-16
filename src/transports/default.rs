@@ -1,5 +1,5 @@
 use pyo3::prelude::*;
-use pyo3::types::PyDict;
+use pyo3::types::{PyDict, PyString};
 use pyo3::Python;
 
 use crate::models::{Headers, Request, Response};
@@ -134,11 +134,12 @@ impl HTTPTransport {
 
                     let status = response.status().as_u16();
                     let headers = response.headers();
-                    let mut resp_headers = Vec::with_capacity(headers.len());
+                    let mut resp_headers: Vec<(Vec<u8>, Vec<u8>)> =
+                        Vec::with_capacity(headers.len());
                     for (k, v) in headers.iter() {
                         resp_headers.push((
-                            k.as_str().to_string(),
-                            v.to_str().unwrap_or("").to_string(),
+                            k.as_str().as_bytes().to_vec(),
+                            v.as_bytes().to_vec(),
                         ));
                     }
 
@@ -178,8 +179,8 @@ impl HTTPTransport {
                 }
             })?;
 
-        // Build Response (requires GIL) — use from_raw_pairs for O(n) construction
-        let hdrs = Headers::from_raw_pairs(resp_headers);
+        // Build Response (requires GIL) — use from_raw_byte_pairs for zero-conversion
+        let hdrs = Headers::from_raw_byte_pairs(resp_headers);
 
         let ext = PyDict::new(py);
 
@@ -204,7 +205,7 @@ impl HTTPTransport {
             history: Vec::new(),
             content_bytes,
             stream: stream_obj,
-            default_encoding: "utf-8".into_pyobject(py).unwrap().into_any().unbind(),
+            default_encoding: PyString::intern(py, "utf-8").into_any().unbind(),
             default_encoding_override: None,
             elapsed: None,
             is_closed_flag: false,
@@ -487,11 +488,12 @@ impl AsyncHTTPTransport {
             let status_code = response.status().as_u16();
             let version = response.version();
             let headers = response.headers();
-            let mut resp_headers = Vec::with_capacity(headers.len());
+            let mut resp_headers: Vec<(Vec<u8>, Vec<u8>)> =
+                Vec::with_capacity(headers.len());
             for (k, v) in headers.iter() {
                 resp_headers.push((
-                    k.as_str().to_string(),
-                    v.to_str().unwrap_or("").to_string(),
+                    k.as_str().as_bytes().to_vec(),
+                    v.as_bytes().to_vec(),
                 ));
             }
 
@@ -516,7 +518,7 @@ impl AsyncHTTPTransport {
             };
 
             pyo3::Python::attach(|py| {
-                let hdrs = Headers::from_raw_pairs(resp_headers);
+                let hdrs = Headers::from_raw_byte_pairs(resp_headers);
                 let ext = PyDict::new(py);
                 let version_str = match version {
                     reqwest::Version::HTTP_09 => "HTTP/0.9",
@@ -551,7 +553,7 @@ impl AsyncHTTPTransport {
                     history: Vec::new(),
                     content_bytes: content_bytes,
                     stream: stream_obj,
-                    default_encoding: "utf-8".into_pyobject(py).unwrap().into_any().unbind(),
+                    default_encoding: PyString::intern(py, "utf-8").into_any().unbind(),
                     default_encoding_override: None,
                     elapsed: None,
                     is_closed_flag: false,
