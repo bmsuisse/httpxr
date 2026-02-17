@@ -70,15 +70,14 @@ jobs:
           args: --release --out dist --find-interpreter
           sccache: ${{ !startsWith(github.ref, 'refs/tags/') }}
           manylinux: auto
+          container-options: -e AWS_LC_SYS_CMAKE_BUILDER=1
           before-script-linux: |
-            # Install cmake for aws-lc-sys cross-compilation on aarch64
+            export AWS_LC_SYS_CMAKE_BUILDER=1
             if command -v yum &> /dev/null; then
               yum install -y cmake3 2>/dev/null || yum install -y cmake
             elif command -v apk &> /dev/null; then
               apk add cmake
             fi
-        env:
-          AWS_LC_SYS_CMAKE_BUILDER: '1'
       - name: Upload wheels
         uses: actions/upload-artifact@v5
         with:
@@ -106,15 +105,14 @@ jobs:
           args: --release --out dist --find-interpreter
           sccache: ${{ !startsWith(github.ref, 'refs/tags/') }}
           manylinux: musllinux_1_2
+          container-options: -e AWS_LC_SYS_CMAKE_BUILDER=1
           before-script-linux: |
-            # Install cmake for aws-lc-sys cross-compilation on aarch64
+            export AWS_LC_SYS_CMAKE_BUILDER=1
             if command -v yum &> /dev/null; then
               yum install -y cmake3 2>/dev/null || yum install -y cmake
             elif command -v apk &> /dev/null; then
               apk add cmake
             fi
-        env:
-          AWS_LC_SYS_CMAKE_BUILDER: '1'
       - name: Upload wheels
         uses: actions/upload-artifact@v5
         with:
