@@ -143,23 +143,23 @@ impl ByteStreamAsyncIter {
 }
 
 /// Iterator for streaming bytes from a blocking reader (e.g. reqwest::blocking)
-#[pyclass(unsendable)]
+#[pyclass]
 pub struct BlockingBytesIterator {
-    reader: Option<Box<dyn std::io::Read + Send>>,
+    reader: std::sync::Mutex<Option<Box<dyn std::io::Read + Send>>>,
     buffer_size: usize,
 }
 
 impl BlockingBytesIterator {
     pub fn new(reader: Box<dyn std::io::Read + Send>) -> Self {
         BlockingBytesIterator {
-            reader: Some(reader),
+            reader: std::sync::Mutex::new(Some(reader)),
             buffer_size: 8192, // Default chunk size
         }
     }
 
     #[allow(dead_code)]
-    pub fn take_reader(&mut self) -> Option<Box<dyn std::io::Read + Send>> {
-        self.reader.take()
+    pub fn take_reader(&self) -> Option<Box<dyn std::io::Read + Send>> {
+        self.reader.lock().unwrap().take()
     }
 }
 
@@ -169,15 +169,16 @@ impl BlockingBytesIterator {
         slf
     }
 
-    fn __next__(&mut self, py: Python<'_>) -> PyResult<Option<Py<PyAny>>> {
-        if let Some(reader) = &mut self.reader {
+    fn __next__(&self, py: Python<'_>) -> PyResult<Option<Py<PyAny>>> {
+        let mut guard = self.reader.lock().unwrap();
+        if let Some(reader) = guard.as_mut() {
             let mut buf = vec![0u8; self.buffer_size];
             // Release GIL during blocking read
             // TODO: Restore allow_threads when pyo3 version compatibility is resolved
             let n = reader.read(&mut buf)?;
 
             if n == 0 {
-                self.reader = None; // Close/Drop reader
+                *guard = None; // Close/Drop reader
                 Ok(None)
             } else {
                 buf.truncate(n);
