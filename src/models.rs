@@ -2108,9 +2108,28 @@ async def _aread_impl(resp):
     }
 
     fn raise_for_status(slf: Bound<'_, Self>) -> PyResult<Bound<'_, Self>> {
-        let self_ = slf.borrow();
         let py = slf.py();
-        if let None = &self_.request {
+        // Materialize lazy request if needed (fast path sets lazy_request_* instead of request)
+        {
+            let mut self_mut = slf.borrow_mut();
+            if self_mut.request.is_none() {
+                if let (Some(method), Some(url_str)) = (self_mut.lazy_request_method.take(), self_mut.lazy_request_url.take()) {
+                    let req_url = crate::urls::URL::create_from_str_fast(&url_str);
+                    let req = Request {
+                        method,
+                        url: req_url,
+                        headers: Py::new(py, Headers::empty())?,
+                        extensions: PyDict::new(py).into(),
+                        content_body: None,
+                        stream: None,
+                        stream_response: false,
+                    };
+                    self_mut.request = Some(req);
+                }
+            }
+        }
+        let self_ = slf.borrow();
+        if self_.request.is_none() {
             return Err(pyo3::exceptions::PyRuntimeError::new_err(
                 "Cannot call `raise_for_status` as the request instance has not been set on this response."
             ));
@@ -2195,6 +2214,8 @@ async def _aread_impl(resp):
     pub(crate) fn url(&self) -> PyResult<crate::urls::URL> {
         if let Some(ref req) = self.request {
             Ok(req.url.clone())
+        } else if let Some(ref url_str) = self.lazy_request_url {
+            Ok(crate::urls::URL::create_from_str_fast(url_str))
         } else {
             Ok(crate::urls::URL::create_from_str("")?)
         }
