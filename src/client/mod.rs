@@ -1,4 +1,6 @@
 pub mod async_client;
+mod async_client_send;
+mod async_client_methods;
 pub mod common;
 pub mod sync_client;
 
