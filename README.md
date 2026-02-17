@@ -61,7 +61,7 @@ Libraries like `httpr` and `pyreqwest` achieve lower single-request latency (~0.
 - `Request` back-reference, redirect `history`, `elapsed` timing
 - Event hooks, auth flows, cookie persistence, transport mounts
 
-This ~0.08ms of extra per-request overhead is the cost of **100% API compatibility** with httpx. Under real-world workloads (sequential/concurrent), httpxr's Rust transport layer dominates and **beats httpr in both scenarios**.
+This ~0.08ms of extra per-request overhead is the cost of **100% API compatibility** with httpx. Under real-world workloads (sequential/concurrent), httpxr's Rust transport layer dominates and **beats httpx in both scenarios**.
 
 ```bash
 # Reproduce benchmarks locally:
