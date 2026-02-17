@@ -18,9 +18,9 @@ import httpxr
 # ---------------------------------------------------------------------------
 
 
-def test_sync_client_https_get(https_server, cert_pem_file):
+def test_sync_client_https_get(https_server, ca_cert_pem_file):
     """Sync Client can make a GET request over HTTPS when given the CA cert."""
-    with httpxr.Client(verify=cert_pem_file) as client:
+    with httpxr.Client(verify=ca_cert_pem_file) as client:
         response = client.get(https_server.url)
     assert response.status_code == 200
     assert response.text == "Hello, world!"
@@ -34,10 +34,10 @@ def test_sync_client_https_verify_false(https_server):
     assert response.text == "Hello, world!"
 
 
-def test_sync_client_ssl_context_verify(https_server, cert_pem_file):
+def test_sync_client_ssl_context_verify(https_server, ca_cert_pem_file):
     """Sync Client accepts a pre-built ssl.SSLContext as the verify parameter."""
     ctx = httpxr.create_ssl_context()
-    ctx.load_verify_locations(cert_pem_file)
+    ctx.load_verify_locations(ca_cert_pem_file)
     with httpxr.Client(verify=ctx) as client:
         response = client.get(https_server.url)
     assert response.status_code == 200
@@ -51,28 +51,28 @@ def test_sync_client_https_untrusted_cert_fails(https_server):
             client.get(https_server.url)
 
 
-def test_sync_client_https_post(https_server, cert_pem_file):
+def test_sync_client_https_post(https_server, ca_cert_pem_file):
     """Sync Client can POST a body over HTTPS."""
     url = https_server.url.copy_with(path="/echo_body")
-    with httpxr.Client(verify=cert_pem_file) as client:
+    with httpxr.Client(verify=ca_cert_pem_file) as client:
         response = client.post(url, content=b"secure payload")
     assert response.status_code == 200
     assert response.content == b"secure payload"
 
 
-def test_sync_client_https_stream(https_server, cert_pem_file):
+def test_sync_client_https_stream(https_server, ca_cert_pem_file):
     """Sync Client can stream a response over HTTPS."""
-    with httpxr.Client(verify=cert_pem_file) as client:
+    with httpxr.Client(verify=ca_cert_pem_file) as client:
         with client.stream("GET", https_server.url) as response:
             body = response.read()
     assert response.status_code == 200
     assert body == b"Hello, world!"
 
 
-def test_sync_client_https_redirect(https_server, cert_pem_file):
+def test_sync_client_https_redirect(https_server, ca_cert_pem_file):
     """Sync Client follows a 301 redirect over HTTPS."""
     url = https_server.url.copy_with(path="/redirect_301")
-    with httpxr.Client(verify=cert_pem_file, follow_redirects=True) as client:
+    with httpxr.Client(verify=ca_cert_pem_file, follow_redirects=True) as client:
         response = client.get(url)
     assert response.status_code == 200
     assert len(response.history) == 1
@@ -85,9 +85,9 @@ def test_sync_client_https_redirect(https_server, cert_pem_file):
 
 
 @pytest.mark.anyio
-async def test_async_client_https_get(https_server, cert_pem_file):
+async def test_async_client_https_get(https_server, ca_cert_pem_file):
     """AsyncClient can make a GET request over HTTPS when given the CA cert."""
-    async with httpxr.AsyncClient(verify=cert_pem_file) as client:
+    async with httpxr.AsyncClient(verify=ca_cert_pem_file) as client:
         response = await client.get(https_server.url)
     assert response.status_code == 200
     assert response.text == "Hello, world!"
@@ -103,10 +103,10 @@ async def test_async_client_https_verify_false(https_server):
 
 
 @pytest.mark.anyio
-async def test_async_client_ssl_context_verify(https_server, cert_pem_file):
+async def test_async_client_ssl_context_verify(https_server, ca_cert_pem_file):
     """AsyncClient accepts a pre-built ssl.SSLContext as the verify parameter."""
     ctx = httpxr.create_ssl_context()
-    ctx.load_verify_locations(cert_pem_file)
+    ctx.load_verify_locations(ca_cert_pem_file)
     async with httpxr.AsyncClient(verify=ctx) as client:
         response = await client.get(https_server.url)
     assert response.status_code == 200
@@ -122,19 +122,19 @@ async def test_async_client_https_untrusted_cert_fails(https_server):
 
 
 @pytest.mark.anyio
-async def test_async_client_https_post(https_server, cert_pem_file):
+async def test_async_client_https_post(https_server, ca_cert_pem_file):
     """AsyncClient can POST a body over HTTPS."""
     url = https_server.url.copy_with(path="/echo_body")
-    async with httpxr.AsyncClient(verify=cert_pem_file) as client:
+    async with httpxr.AsyncClient(verify=ca_cert_pem_file) as client:
         response = await client.post(url, content=b"secure payload")
     assert response.status_code == 200
     assert response.content == b"secure payload"
 
 
 @pytest.mark.anyio
-async def test_async_client_https_stream(https_server, cert_pem_file):
+async def test_async_client_https_stream(https_server, ca_cert_pem_file):
     """AsyncClient can stream a response over HTTPS."""
-    async with httpxr.AsyncClient(verify=cert_pem_file) as client:
+    async with httpxr.AsyncClient(verify=ca_cert_pem_file) as client:
         async with client.stream("GET", https_server.url) as response:
             body = await response.aread()
     assert response.status_code == 200
@@ -142,10 +142,10 @@ async def test_async_client_https_stream(https_server, cert_pem_file):
 
 
 @pytest.mark.anyio
-async def test_async_client_https_redirect(https_server, cert_pem_file):
+async def test_async_client_https_redirect(https_server, ca_cert_pem_file):
     """AsyncClient follows a 301 redirect over HTTPS."""
     url = https_server.url.copy_with(path="/redirect_301")
-    async with httpxr.AsyncClient(verify=cert_pem_file, follow_redirects=True) as client:
+    async with httpxr.AsyncClient(verify=ca_cert_pem_file, follow_redirects=True) as client:
         response = await client.get(url)
     assert response.status_code == 200
     assert response.text == "Hello, world!"

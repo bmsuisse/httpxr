@@ -79,9 +79,9 @@ def test_load_ssl_config_no_verify():
     assert context.check_hostname is False
 
 
-def test_SSLContext_with_get_request(https_server, cert_pem_file):
+def test_SSLContext_with_get_request(https_server, ca_cert_pem_file):
     context = httpxr.create_ssl_context()
-    context.load_verify_locations(cert_pem_file)
+    context.load_verify_locations(ca_cert_pem_file)
     response = httpxr.get(https_server.url, verify=context)
     assert response.status_code == 200
 
