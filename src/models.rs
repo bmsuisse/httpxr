@@ -169,6 +169,14 @@ impl Headers {
         }
     }
 
+    /// Empty headers — fastest construction for minimal Request objects.
+    pub fn empty() -> Self {
+        Headers {
+            raw: Vec::new(),
+            encoding: "ascii".to_string(),
+        }
+    }
+
     pub fn contains_header(&self, key: &str) -> bool {
         let key_lower = key.to_lowercase();
         self.raw

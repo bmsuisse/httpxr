@@ -12,10 +12,10 @@ use std::io::Read;
 /// avoiding the ~300μs overhead of per-request runtime creation.
 #[pyclass]
 pub struct HTTPTransport {
-    client: reqwest::Client,
+    pub(crate) client: reqwest::Client,
     /// Kept alive for RAII — the `handle` references this runtime.
     _rt: tokio::runtime::Runtime,
-    handle: tokio::runtime::Handle,
+    pub(crate) handle: tokio::runtime::Handle,
     proxy_url: Option<String>,
 }
 

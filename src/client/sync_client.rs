@@ -25,6 +25,16 @@ pub struct Client {
     pub(crate) event_hooks: Option<Py<PyAny>>,
     pub(crate) timeout: Option<Py<PyAny>>,
     pub(crate) default_encoding: Option<Py<PyAny>>,
+    // ── Cached fields for ultra-fast path ──
+    /// Pre-built raw header bytes — avoids cloning Headers on every request
+    pub(crate) cached_raw_headers: Vec<(Vec<u8>, Vec<u8>)>,
+    /// Pre-parsed timeout duration for the fast path
+    pub(crate) cached_timeout: Option<std::time::Duration>,
+    pub(crate) cached_connect_timeout: Option<f64>,
+    pub(crate) cached_read_timeout: Option<f64>,
+    pub(crate) cached_write_timeout: Option<f64>,
+    /// Pre-computed base URL string (trimmed of trailing /) for fast path concatenation
+    pub(crate) cached_base_url_str: Option<String>,
 }
 
 #[pymethods]
@@ -104,6 +114,29 @@ impl Client {
         let to = timeout.map(|t| t.clone().unbind());
         let de = default_encoding.map(|e| e.clone().unbind());
 
+        // Pre-cache raw headers for the ultra-fast path
+        let cached_raw_headers = hdrs_py.bind(py).borrow().get_raw_items_owned();
+
+        // Pre-parse timeout for the ultra-fast path
+        let (cached_timeout, cached_connect_timeout, cached_read_timeout, cached_write_timeout) =
+            if let Some(ref t) = to {
+                if let Ok(t_val) = t.extract::<Timeout>(py) {
+                    let dur = [t_val.connect, t_val.read, t_val.write]
+                        .iter()
+                        .filter_map(|t| *t)
+                        .reduce(f64::min)
+                        .map(std::time::Duration::from_secs_f64);
+                    (dur, t_val.connect, t_val.read, t_val.write)
+                } else {
+                    (None, None, None, None)
+                }
+            } else {
+                (None, None, None, None)
+            };
+
+        // Pre-compute base URL string before base is moved into struct
+        let cached_base_url_str = base.as_ref().map(|b| b.to_string().trim_end_matches('/').to_string());
+
         Ok(Client {
             base_url: base,
             auth: auth
@@ -127,6 +160,12 @@ impl Client {
             event_hooks: eh,
             timeout: to,
             default_encoding: de,
+            cached_raw_headers,
+            cached_timeout,
+            cached_connect_timeout,
+            cached_read_timeout,
+            cached_write_timeout,
+            cached_base_url_str,
         })
     }
 
@@ -156,6 +195,313 @@ impl Client {
         }
 
         let start = Instant::now();
+
+        // ── ULTRA-FAST PATH ────────────────────────────────────────────
+        // For simple GET/HEAD/DELETE/OPTIONS with no body, auth, hooks,
+        // or per-request overrides: bypass ALL Python overhead and go
+        // straight to reqwest.
+        let method_upper = method.to_uppercase();
+        let is_bodyless = matches!(method_upper.as_str(), "GET" | "HEAD" | "DELETE" | "OPTIONS");
+        // Extract URL string early for fast-path validation
+        let url_str_for_check = url.str()?.extract::<String>()?;
+        let has_valid_scheme = (url_str_for_check.starts_with("http://") && url_str_for_check.len() > 7)
+            || (url_str_for_check.starts_with("https://") && url_str_for_check.len() > 8)
+            || url_str_for_check.starts_with("/");
+        let can_fast_path = is_bodyless
+            && has_valid_scheme
+            && content.is_none()
+            && data.is_none()
+            && files.is_none()
+            && json.is_none()
+            && params.is_none()
+            && cookies.is_none()
+            && extensions.is_none()
+            && kwargs.is_none()
+            && self.auth.is_none()
+            && self.params.is_none()
+            && self.event_hooks.is_none()
+            && self.mounts.is_empty();
+
+        if can_fast_path {
+            // Try to extract our HTTPTransport for direct Rust dispatch
+            let t_bound = self.transport.bind(py);
+            if let Ok(t) = t_bound.cast::<crate::transports::default::HTTPTransport>() {
+                let transport = t.borrow();
+
+                // Resolve URL — fast string concat using cached base URL string
+                let url_str = url_str_for_check;
+                let full_url = if let Some(ref base_str) = self.cached_base_url_str {
+                    if url_str.starts_with("http://") || url_str.starts_with("https://") {
+                        url_str
+                    } else {
+                        format!("{}{}", base_str, url_str)
+                    }
+                } else {
+                    url_str
+                };
+
+                // No reqwest::Url::parse needed — reqwest parses internally in .get()/.request()
+
+                // Extract timeout — use cached values unless per-request override
+                let (timeout_val, connect_timeout_val, read_timeout_val, write_timeout_val) =
+                    if let Some(t_arg) = timeout {
+                        if t_arg.is_none() {
+                            (None, None, None, None)
+                        } else {
+                            let t =
+                                Timeout::new(py, Some(t_arg), None, None, None, None)?;
+                            let dur = [t.connect, t.read, t.write]
+                                .iter()
+                                .filter_map(|t| *t)
+                                .reduce(f64::min)
+                                .map(std::time::Duration::from_secs_f64);
+                            (dur, t.connect, t.read, t.write)
+                        }
+                    } else {
+                        // Use pre-cached timeout — no Python extraction needed
+                        (self.cached_timeout, self.cached_connect_timeout, self.cached_read_timeout, self.cached_write_timeout)
+                    };
+
+                // Use pre-cached raw headers — no cloning needed
+                let raw_headers = &self.cached_raw_headers;
+
+                // Merge per-request headers if any
+                let extra_raw: Vec<(Vec<u8>, Vec<u8>)> = if let Some(h) = headers {
+                    let extra = Headers::create(Some(h), "utf-8")?;
+                    extra.get_raw_items_owned()
+                } else {
+                    Vec::new()
+                };
+
+                let method_reqwest = match method_upper.as_str() {
+                    "GET" => reqwest::Method::GET,
+                    "HEAD" => reqwest::Method::HEAD,
+                    "DELETE" => reqwest::Method::DELETE,
+                    "OPTIONS" => reqwest::Method::OPTIONS,
+                    _ => unreachable!(),
+                };
+
+                let do_follow_redirects = follow_redirects.unwrap_or(self.follow_redirects);
+                let max_redirects = self.max_redirects;
+
+                // Build reqwest request — no host header needed (reqwest adds it)
+                let mut req_builder = transport.client.request(method_reqwest.clone(), &full_url);
+                for (key, value) in raw_headers {
+                    req_builder = req_builder.header(key.as_slice(), value.as_slice());
+                }
+                for (key, value) in &extra_raw {
+                    req_builder = req_builder.header(key.as_slice(), value.as_slice());
+                }
+                if let Some(t) = timeout_val {
+                    req_builder = req_builder.timeout(t);
+                }
+
+                let built = req_builder.build().map_err(|e| {
+                    pyo3::exceptions::PyRuntimeError::new_err(format!("Failed to build request: {}", e))
+                })?;
+
+                let client = transport.client.clone();
+                let handle = transport.handle.clone();
+                // Clone raw_headers for the redirect-loop closure (only used on redirects)
+                let raw_headers_owned = raw_headers.clone();
+
+                // Redirect loop with GIL released
+                let result = py.detach(move || {
+                    handle.block_on(async {
+                        let mut current_url = full_url;
+                        let mut redirects_remaining = max_redirects;
+                        let mut current_request = Some(built);
+                        let mut history: Vec<(u16, Vec<(Vec<u8>, Vec<u8>)>, Vec<u8>, String)> = Vec::new();
+
+                        loop {
+                            let req = if let Some(r) = current_request.take() {
+                                r
+                            } else {
+                                let mut rb = client.request(method_reqwest.clone(),
+                                    reqwest::Url::parse(&current_url).unwrap());
+                                for (key, value) in &raw_headers_owned {
+                                    rb = rb.header(key.as_slice(), value.as_slice());
+                                }
+                                for (key, value) in &extra_raw {
+                                    rb = rb.header(key.as_slice(), value.as_slice());
+                                }
+                                if let Some(t) = timeout_val {
+                                    rb = rb.timeout(t);
+                                }
+
+                                rb.build()?
+                            };
+
+                            let response = client.execute(req).await?;
+                            let status = response.status().as_u16();
+                            let is_redirect = (300..400).contains(&status);
+
+                            let redirect_location = if is_redirect && do_follow_redirects {
+                                response.headers()
+                                    .get("location")
+                                    .and_then(|v| v.to_str().ok())
+                                    .map(|s| s.to_string())
+                            } else {
+                                None
+                            };
+
+                            let resp_headers: Vec<(Vec<u8>, Vec<u8>)> = response
+                                .headers()
+                                .iter()
+                                .map(|(k, v)| (k.as_str().as_bytes().to_vec(), v.as_bytes().to_vec()))
+                                .collect();
+
+                            let body = response.bytes().await?;
+
+                            if let Some(loc) = redirect_location {
+                                if redirects_remaining == 0 {
+                                    // Signal too-many-redirects via a special Result type
+                                    break Ok((0u16, Vec::new(), b"too many redirects".to_vec(), current_url, history));
+                                }
+                                // Save this redirect response in history
+                                history.push((status, resp_headers, body.to_vec(), current_url.clone()));
+                                redirects_remaining -= 1;
+                                current_url = if loc.starts_with("http://") || loc.starts_with("https://") {
+                                    loc
+                                } else if let Ok(base) = reqwest::Url::parse(&current_url) {
+                                    base.join(&loc).map(|u| u.to_string()).unwrap_or(loc)
+                                } else {
+                                    loc
+                                };
+                                continue;
+                            }
+
+                            break Ok((status, resp_headers, body.to_vec(), current_url, history));
+                        }
+                    })
+                }).map_err(|e: reqwest::Error| {
+                    let msg = format!("{}", e);
+                    if e.is_timeout() {
+                        if e.is_connect()
+                            || (connect_timeout_val.is_some()
+                                && read_timeout_val.is_none()
+                                && write_timeout_val.is_none())
+                        {
+                            crate::exceptions::ConnectTimeout::new_err(msg)
+                        } else {
+                            crate::exceptions::ReadTimeout::new_err(msg)
+                        }
+                    } else if e.is_connect() {
+                        crate::exceptions::ConnectError::new_err(msg)
+                    } else if msg.contains("too many redirects") {
+                        crate::exceptions::TooManyRedirects::new_err(msg)
+                    } else {
+                        crate::exceptions::NetworkError::new_err(msg)
+                    }
+                })?;
+
+                let (status_code, resp_headers, body_bytes, final_url, redirect_history) = result;
+
+                // Check for too-many-redirects sentinel
+                if status_code == 0 {
+                    return Err(crate::exceptions::TooManyRedirects::new_err(
+                        "Too many redirects".to_string(),
+                    ));
+                }
+
+                let elapsed = start.elapsed().as_secs_f64();
+
+                // Helper: status code to reason phrase
+                let reason_for = |code: u16| -> &'static str {
+                    match code {
+                        200 => "OK", 201 => "Created", 204 => "No Content",
+                        301 => "Moved Permanently", 302 => "Found", 303 => "See Other",
+                        304 => "Not Modified", 307 => "Temporary Redirect", 308 => "Permanent Redirect",
+                        400 => "Bad Request", 401 => "Unauthorized", 403 => "Forbidden",
+                        404 => "Not Found", 500 => "Internal Server Error",
+                        _ => "",
+                    }
+                };
+
+                // Build history Response objects from redirect data
+                let mut history_responses: Vec<Response> = Vec::new();
+                for (hist_status, hist_headers, hist_body, hist_url) in &redirect_history {
+                    let h_hdrs = Headers::from_raw_byte_pairs(hist_headers.clone());
+                    let h_ext = pyo3::types::PyDict::new(py);
+                    h_ext.set_item("http_version", PyBytes::new(py, b"HTTP/1.1"))?;
+                    let h_req_url = crate::urls::URL::create_from_str_fast(hist_url);
+                    let h_req = Request {
+                        method: method_upper.clone(),
+                        url: h_req_url,
+                        headers: Py::new(py, Headers::empty())?,
+                        extensions: pyo3::types::PyDict::new(py).into(),
+                        content_body: None,
+                        stream: None,
+                        stream_response: false,
+                    };
+                    if log::log_enabled!(target: "httpr", log::Level::Info) {
+                        log::info!(target: "httpr", "HTTP Request: {} {} \"HTTP/1.1 {} {}\"", method_upper, hist_url, hist_status, reason_for(*hist_status));
+                    }
+                    history_responses.push(Response {
+                        status_code: *hist_status,
+                        headers: Py::new(py, h_hdrs)?,
+                        extensions: h_ext.into(),
+                        request: Some(h_req),
+                        history: Vec::new(),
+                        content_bytes: Some(hist_body.clone()),
+                        stream: None,
+                        default_encoding: pyo3::types::PyString::intern(py, "utf-8").into_any().unbind(),
+                        default_encoding_override: None,
+                        elapsed: None,
+                        is_closed_flag: false,
+                        is_stream_consumed: false,
+                        was_streaming: false,
+                        text_accessed: std::sync::atomic::AtomicBool::new(false),
+                        num_bytes_downloaded_counter: std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+                    });
+                }
+
+                let hdrs = Headers::from_raw_byte_pairs(resp_headers);
+                let ext = pyo3::types::PyDict::new(py);
+                ext.set_item("http_version", PyBytes::new(py, b"HTTP/1.1"))?;
+
+                // Build minimal Request for response.url / response.request
+                let req_url = crate::urls::URL::create_from_str_fast(&final_url);
+                let req_hdrs = Py::new(py, Headers::empty())?;
+                let req_ext = pyo3::types::PyDict::new(py);
+                let minimal_request = Request {
+                    method: method_upper.clone(),
+                    url: req_url,
+                    headers: req_hdrs,
+                    extensions: req_ext.into(),
+                    content_body: None,
+                    stream: None,
+                    stream_response: false,
+                };
+
+                if log::log_enabled!(target: "httpr", log::Level::Info) {
+                    log::info!(target: "httpr", "HTTP Request: {} {} \"HTTP/1.1 {} {}\"", method_upper, final_url, status_code, reason_for(status_code));
+                }
+
+                return Ok(Response {
+                    status_code,
+                    headers: Py::new(py, hdrs)?,
+                    extensions: ext.into(),
+                    request: Some(minimal_request),
+                    history: history_responses,
+                    content_bytes: Some(body_bytes),
+                    stream: None,
+                    default_encoding: pyo3::types::PyString::intern(py, "utf-8")
+                        .into_any()
+                        .unbind(),
+                    default_encoding_override: None,
+                    elapsed: Some(elapsed),
+                    is_closed_flag: false,
+                    is_stream_consumed: false,
+                    was_streaming: false,
+                    text_accessed: std::sync::atomic::AtomicBool::new(false),
+                    num_bytes_downloaded_counter: std::sync::Arc::new(
+                        std::sync::atomic::AtomicUsize::new(0),
+                    ),
+                });
+            }
+        }
+        // ── END ULTRA-FAST PATH ────────────────────────────────────────
 
         // Build URL
         let url_str = url.str()?.extract::<String>()?;
@@ -243,7 +589,6 @@ impl Client {
         let body = build_request_body(py, content, data, files, json, &mut merged_headers)?;
 
         // For POST/PUT/PATCH with no body, set content-length: 0
-        let method_upper = method.to_uppercase();
         if body.is_none()
             && content.is_none()
             && data.is_none()

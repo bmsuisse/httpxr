@@ -27,6 +27,14 @@ pub struct AsyncClient {
     pub(crate) event_hooks: Option<Py<PyAny>>,
     #[allow(dead_code)]
     pub(crate) default_encoding: Option<Py<PyAny>>,
+    // Cached values for fast path (pre-computed at construction time)
+    pub(crate) cached_raw_headers: Vec<(Vec<u8>, Vec<u8>)>,
+    pub(crate) cached_timeout: Option<std::time::Duration>,
+    pub(crate) cached_connect_timeout: Option<f64>,
+    pub(crate) cached_read_timeout: Option<f64>,
+    pub(crate) cached_write_timeout: Option<f64>,
+    pub(crate) cached_pool_timeout: Option<f64>,
+    pub(crate) cached_base_url_str: Option<String>,
 }
 
 #[pymethods]
@@ -91,9 +99,14 @@ impl AsyncClient {
         if !hdrs.contains_header("connection") {
             hdrs.set_header("connection", "keep-alive");
         }
+        // Pre-compute cached raw headers for fast path
+        let cached_raw_headers = hdrs.get_raw_items_owned();
         let hdrs_py = Py::new(py, hdrs)?;
         let ckies = Cookies::create(py, cookies)?;
         let base = parse_base_url(base_url)?;
+
+        // Pre-compute cached base URL string
+        let cached_base_url_str = base.as_ref().map(|b| b.to_string().trim_end_matches('/').to_string());
 
         let transport_obj = if let Some(t) = transport {
             t.clone().unbind()
@@ -110,6 +123,24 @@ impl AsyncClient {
         } else {
             PyDict::new(py).into()
         };
+
+        // Pre-compute cached timeout values
+        let to = if let Some(t) = timeout {
+            t.extract::<Timeout>().ok()
+        } else {
+            None
+        };
+        let cached_timeout = to.as_ref().and_then(|t| {
+            [t.connect, t.read, t.write]
+                .iter()
+                .filter_map(|v| *v)
+                .reduce(f64::min)
+                .map(std::time::Duration::from_secs_f64)
+        });
+        let cached_connect_timeout = to.as_ref().and_then(|t| t.connect);
+        let cached_read_timeout = to.as_ref().and_then(|t| t.read);
+        let cached_write_timeout = to.as_ref().and_then(|t| t.write);
+        let cached_pool_timeout = to.as_ref().and_then(|t| t.pool);
 
         Ok(AsyncClient {
             base_url: base,
@@ -134,15 +165,18 @@ impl AsyncClient {
             follow_redirects,
             transport: transport_obj,
             mounts: mounts_dict,
-            timeout: if let Some(t) = timeout {
-                t.extract::<Timeout>().ok()
-            } else {
-                None
-            },
+            timeout: to,
             is_closed: false,
             trust_env,
             event_hooks: event_hooks.map(|e| e.clone().unbind()),
             default_encoding: default_encoding.map(|de| de.clone().unbind()),
+            cached_raw_headers,
+            cached_timeout,
+            cached_connect_timeout,
+            cached_read_timeout,
+            cached_write_timeout,
+            cached_pool_timeout,
+            cached_base_url_str,
         })
     }
 
@@ -1348,19 +1382,22 @@ impl AsyncClient {
         kwargs: Option<&Bound<'_, PyDict>>,
     ) -> PyResult<Bound<'py, PyAny>> {
         // ULTRA-FAST PATH: bypass both request() and send() entirely
-        // Conditions: no extra params/headers/cookies/extensions/kwargs,
-        // no client-level auth/hooks/base_url/params, default transport, no custom mounts
         let has_no_extras = params.is_none()
-            && headers.is_none()
             && cookies.is_none()
             && extensions.is_none()
             && (kwargs.is_none() || kwargs.map_or(true, |k| k.is_empty()));
 
+        // Extract URL string early for validation
+        let url_str_for_check = url.str()?.extract::<String>()?;
+        let has_valid_scheme = (url_str_for_check.starts_with("http://") && url_str_for_check.len() > 7)
+            || (url_str_for_check.starts_with("https://") && url_str_for_check.len() > 8)
+            || url_str_for_check.starts_with("/");
+
         if has_no_extras
+            && has_valid_scheme
             && !self.is_closed
             && self.auth.is_none()
             && self.event_hooks.is_none()
-            && self.base_url.is_none()
             && self.params.is_none()
         {
             let has_custom_mounts = !self.mounts.bind(py).is_empty();
@@ -1372,18 +1409,30 @@ impl AsyncClient {
                     let client = transport_borrow.get_client();
                     let pool_sem = transport_borrow.get_pool_semaphore();
 
-                    // Extract URL as string
-                    let url_str = url.str()?.extract::<String>()?;
+                    // Resolve URL using cached base URL string
+                    let url_str = url_str_for_check;
+                    let full_url = if let Some(ref base_str) = self.cached_base_url_str {
+                        if url_str.starts_with("http://") || url_str.starts_with("https://") {
+                            url_str
+                        } else {
+                            format!("{}{}", base_str, url_str)
+                        }
+                    } else {
+                        url_str
+                    };
 
-                    // Only fast-path for valid http/https URLs with a host
-                    let can_use_fast = (url_str.starts_with("http://") || url_str.starts_with("https://"))
-                        && reqwest::Url::parse(&url_str).map_or(false, |u| u.host_str().is_some());
-                    if can_use_fast {
+                    // Use pre-cached raw headers
+                    let raw_headers = self.cached_raw_headers.clone();
 
-                    // Extract default headers as raw bytes (no clone of Headers struct needed)
-                    let raw_headers = self.default_headers.bind(py).borrow().get_raw_items_owned();
+                    // Merge per-request headers if any
+                    let extra_raw: Vec<(Vec<u8>, Vec<u8>)> = if let Some(h) = headers {
+                        let extra = Headers::create(Some(h), "utf-8")?;
+                        extra.get_raw_items_owned()
+                    } else {
+                        Vec::new()
+                    };
 
-                    // Extract timeout — preserve individual components for error classification
+                    // Extract timeout — use cached values unless per-request override
                     let (timeout_val, connect_timeout_val, read_timeout_val, write_timeout_val, pool_timeout_val) = if let Some(t_arg) = timeout {
                         if t_arg.is_none() {
                             (None, None, None, None, None)
@@ -1396,15 +1445,8 @@ impl AsyncClient {
                                 .map(std::time::Duration::from_secs_f64);
                             (dur, t.connect, t.read, t.write, t.pool)
                         }
-                    } else if let Some(ref t) = self.timeout {
-                        let dur = [t.connect, t.read, t.write]
-                            .iter()
-                            .filter_map(|t| *t)
-                            .reduce(f64::min)
-                            .map(std::time::Duration::from_secs_f64);
-                        (dur, t.connect, t.read, t.write, t.pool)
                     } else {
-                        (None, None, None, None, None)
+                        (self.cached_timeout, self.cached_connect_timeout, self.cached_read_timeout, self.cached_write_timeout, self.cached_pool_timeout)
                     };
 
                     let max_redirects = self.max_redirects;
@@ -1437,25 +1479,19 @@ impl AsyncClient {
                         };
 
                         // Build and send request (with redirect handling in Rust)
-                        let mut current_url = url_str;
+                        let mut current_url = full_url;
                         let mut redirects_remaining = max_redirects;
+                        let mut history: Vec<(u16, Vec<(Vec<u8>, Vec<u8>)>, Vec<u8>, String)> = Vec::new();
 
                         let (final_status, final_headers_raw, final_body, final_url) = loop {
                             let mut req_builder = client.get(&current_url);
                             for (key, value) in &raw_headers {
                                 req_builder = req_builder.header(key.as_slice(), value.as_slice());
                             }
-                            // Add host header
-                            if let Ok(parsed) = reqwest::Url::parse(&current_url) {
-                                if let Some(host) = parsed.host_str() {
-                                    let host_val = if let Some(port) = parsed.port() {
-                                        format!("{}:{}", host, port)
-                                    } else {
-                                        host.to_string()
-                                    };
-                                    req_builder = req_builder.header("host", &host_val);
-                                }
+                            for (key, value) in &extra_raw {
+                                req_builder = req_builder.header(key.as_slice(), value.as_slice());
                             }
+                            // No host header needed — reqwest adds it automatically
                             if let Some(t) = timeout_val {
                                 req_builder = req_builder.timeout(t);
                             }
@@ -1509,8 +1545,8 @@ impl AsyncClient {
                                         "Too many redirects".to_string(),
                                     ));
                                 }
+                                history.push((status, resp_headers, body.to_vec(), current_url.clone()));
                                 redirects_remaining -= 1;
-                                // Resolve relative redirect
                                 let new_url = if loc.starts_with("http://") || loc.starts_with("https://") {
                                     loc
                                 } else if let Ok(base) = reqwest::Url::parse(&current_url) {
@@ -1529,25 +1565,75 @@ impl AsyncClient {
 
                         let elapsed = start.elapsed().as_secs_f64();
 
+                        // Helper: status code to reason phrase
+                        let reason_for = |code: u16| -> &'static str {
+                            match code {
+                                200 => "OK", 201 => "Created", 204 => "No Content",
+                                301 => "Moved Permanently", 302 => "Found", 303 => "See Other",
+                                304 => "Not Modified", 307 => "Temporary Redirect", 308 => "Permanent Redirect",
+                                400 => "Bad Request", 401 => "Unauthorized", 403 => "Forbidden",
+                                404 => "Not Found", 500 => "Internal Server Error",
+                                _ => "",
+                            }
+                        };
+
                         // Single GIL acquisition to build Response
                         Python::attach(|py| {
+                            // Build history Response objects from redirect data
+                            let mut history_responses: Vec<crate::models::Response> = Vec::new();
+                            for (hist_status, hist_headers, hist_body, hist_url) in &history {
+                                let h_hdrs = crate::models::Headers::from_raw_byte_pairs(hist_headers.clone());
+                                let h_ext = PyDict::new(py);
+                                h_ext.set_item("http_version", PyBytes::new(py, b"HTTP/1.1"))?;
+                                let h_req_url = crate::urls::URL::create_from_str_fast(hist_url);
+                                let h_req = crate::models::Request {
+                                    method: "GET".to_string(),
+                                    url: h_req_url,
+                                    headers: Py::new(py, crate::models::Headers::empty())?,
+                                    extensions: PyDict::new(py).into(),
+                                    content_body: None,
+                                    stream: None,
+                                    stream_response: false,
+                                };
+                                if log::log_enabled!(target: "httpr", log::Level::Info) {
+                                    log::info!(target: "httpr", "HTTP Request: GET {} \"HTTP/1.1 {} {}\"", hist_url, hist_status, reason_for(*hist_status));
+                                }
+                                history_responses.push(crate::models::Response {
+                                    status_code: *hist_status,
+                                    headers: Py::new(py, h_hdrs)?,
+                                    extensions: h_ext.into(),
+                                    request: Some(h_req),
+                                    history: Vec::new(),
+                                    content_bytes: Some(hist_body.clone()),
+                                    stream: None,
+                                    default_encoding: PyString::intern(py, "utf-8").into_any().unbind(),
+                                    default_encoding_override: None,
+                                    elapsed: None,
+                                    is_closed_flag: false,
+                                    is_stream_consumed: false,
+                                    was_streaming: false,
+                                    text_accessed: std::sync::atomic::AtomicBool::new(false),
+                                    num_bytes_downloaded_counter: std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+                                });
+                            }
+
                             let headers_obj = crate::models::Headers::from_raw_byte_pairs(final_headers_raw);
 
                             // Build the request object for response.request
-                            let req_url = crate::urls::URL::create_from_str(&final_url)?;
-                            let req_headers = crate::models::Headers {
-                                raw: raw_headers.clone(),
-                                encoding: "utf-8".to_string(),
-                            };
+                            let req_url = crate::urls::URL::create_from_str_fast(&final_url);
                             let request_obj = crate::models::Request {
                                 method: "GET".to_string(),
                                 url: req_url,
-                                headers: Py::new(py, req_headers)?,
+                                headers: Py::new(py, crate::models::Headers::empty())?,
                                 extensions: PyDict::new(py).into(),
                                 content_body: None,
                                 stream: None,
                                 stream_response: false,
                             };
+
+                            if log::log_enabled!(target: "httpr", log::Level::Info) {
+                                log::info!(target: "httpr", "HTTP Request: GET {} \"HTTP/1.1 {} {}\"", final_url, final_status, reason_for(final_status));
+                            }
 
                             let ext = PyDict::new(py);
                             ext.set_item("http_version", PyBytes::new(py, b"HTTP/1.1"))?;
@@ -1568,7 +1654,7 @@ impl AsyncClient {
                                 request: Some(request_obj),
                                 elapsed: Some(elapsed),
                                 extensions: ext.into(),
-                                history: Vec::new(),
+                                history: history_responses,
                                 num_bytes_downloaded_counter: std::sync::Arc::new(
                                     std::sync::atomic::AtomicUsize::new(0),
                                 ),
@@ -1577,7 +1663,6 @@ impl AsyncClient {
                             Ok(Py::new(py, response)?)
                         })
                     });
-                    } // is_http_url
                 }
             }
         }

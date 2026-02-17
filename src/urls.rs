@@ -63,6 +63,100 @@ impl URL {
         Ok(URL { parsed })
     }
 
+    /// Fast URL constructor for URLs already validated by reqwest.
+    /// Skips urlparse_impl (url::Url::parse, IDNA, control char checks).
+    /// Only use for URLs known to be valid http/https URLs.
+    pub fn create_from_str_fast(url_str: &str) -> Self {
+        // Quick split: scheme://[userinfo@]host[:port]/path[?query][#fragment]
+        let (scheme, rest) = if let Some(pos) = url_str.find("://") {
+            (&url_str[..pos], &url_str[pos + 3..])
+        } else {
+            return URL {
+                parsed: ParseResult {
+                    scheme: String::new(),
+                    userinfo: String::new(),
+                    host: String::new(),
+                    port: None,
+                    path: url_str.to_string(),
+                    query: None,
+                    fragment: None,
+                },
+            };
+        };
+
+        // Split authority from path
+        let (authority, path_query_frag) = if let Some(slash_pos) = rest.find('/') {
+            (&rest[..slash_pos], &rest[slash_pos..])
+        } else if let Some(q_pos) = rest.find('?') {
+            (&rest[..q_pos], &rest[q_pos..])
+        } else {
+            (rest, "")
+        };
+
+        // Split userinfo from host:port
+        let (userinfo, host_port) = if let Some(at_pos) = authority.find('@') {
+            (authority[..at_pos].to_string(), &authority[at_pos + 1..])
+        } else {
+            (String::new(), authority)
+        };
+
+        // Split host and port (handle IPv6)
+        let (host, port) = if host_port.starts_with('[') {
+            // IPv6
+            if let Some(bracket_end) = host_port.find(']') {
+                let h = &host_port[1..bracket_end];
+                let port_part = &host_port[bracket_end + 1..];
+                let p = if port_part.starts_with(':') {
+                    port_part[1..].parse::<u16>().ok()
+                } else {
+                    None
+                };
+                (h.to_string(), p)
+            } else {
+                (host_port.to_string(), None)
+            }
+        } else if let Some(colon_pos) = host_port.rfind(':') {
+            if let Ok(p) = host_port[colon_pos + 1..].parse::<u16>() {
+                (host_port[..colon_pos].to_string(), Some(p))
+            } else {
+                (host_port.to_string(), None)
+            }
+        } else {
+            (host_port.to_string(), None)
+        };
+
+        // Split path, query, fragment
+        let (path_str, fragment) = if let Some(h_pos) = path_query_frag.find('#') {
+            (&path_query_frag[..h_pos], Some(path_query_frag[h_pos + 1..].to_string()))
+        } else {
+            (path_query_frag, None)
+        };
+        let (path, query) = if let Some(q_pos) = path_str.find('?') {
+            (path_str[..q_pos].to_string(), Some(path_str[q_pos + 1..].to_string()))
+        } else {
+            (path_str.to_string(), None)
+        };
+
+        // Strip default ports
+        let normalized_port = match (scheme, port) {
+            ("http", Some(80)) | ("https", Some(443)) => None,
+            _ => port,
+        };
+
+        URL {
+            parsed: ParseResult {
+                scheme: scheme.to_string(),
+                userinfo,
+                host,
+                port: normalized_port,
+                path,
+                query,
+                fragment,
+            },
+        }
+    }
+
+
     pub fn to_string(&self) -> String {
         self.parsed.to_url_string()
     }
