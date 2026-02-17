@@ -36,7 +36,7 @@ Scenarios: **Single GET**, **50 Sequential GETs**, **50 Concurrent GETs**.
 
 ![HTTP Library Benchmark](docs/benchmark_results.png)
 
-> 📊 **[Interactive version →](docs/benchmark_results.html)** (open locally for full hover/zoom)
+> 📊 **[Interactive version →](https://bmsuisse.github.io/httpxr/benchmarks/)** with full hover/zoom
 
 ### Summary (median, ms — lower is better)
 
