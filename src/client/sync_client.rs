@@ -325,7 +325,7 @@ impl Client {
                     }
                 }
 
-                let hyper_client = &transport.hyper_client;
+                let hyper_client = transport.hyper_client.as_ref().unwrap();
                 let reqwest_client = &transport.client;
                 let handle = &transport.handle;
 
@@ -471,7 +471,7 @@ impl Client {
                         } else {
                             crate::exceptions::ReadTimeout::new_err(msg)
                         }
-                    } else if msg.contains("connect") || msg.contains("dns") || msg.contains("resolve") {
+                    } else if msg.contains("connect") || msg.contains("Connect") || msg.contains("dns") || msg.contains("resolve") || msg.contains("certificate") {
                         crate::exceptions::ConnectError::new_err(msg)
                     } else if msg.contains("too many redirects") {
                         crate::exceptions::TooManyRedirects::new_err(msg)

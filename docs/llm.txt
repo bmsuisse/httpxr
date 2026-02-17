@@ -1,0 +1,42 @@
+# httpxr Context for LLMs
+
+## Project Overview
+**httpxr** is a high-performance, 1:1 Rust port of the Python `httpx` library.
+- **Goal**: Maintain 100% API compatibility with `httpx` while replacing internals with Rust for speed.
+- **Tech Stack**: Rust (Core), Python (Bindings via PyO3), Maturin (Build), uv (dependency management).
+- **Versioning**: Follows `httpx` versioning where possible.
+
+## Implementation Architecture
+The project uses `pyo3` to create a native Python extension module.
+- **Rust Entry Point**: `src/lib.rs` defines the `_httpxr` module and registers submodules.
+- **Python Entry Point**: `httpxr/__init__.py` imports symbols from the compiled `_httpxr` extension.
+- **Internal Logic**: All HTTP logic (clients, requests, responses, transports) is implemented in Rust using `reqwest` and `tokio`.
+- **Zero Dependencies**: The Python package has NO runtime dependencies (unlike `httpx` which relies on `httpcore`, `anyio`, etc.).
+
+## Directory Structure
+- `src/`: Rust source code.
+    - `lib.rs`: Module registration.
+    - `client.rs`: `Client` and `AsyncClient` implementations.
+    - `transports/`: Network transport layers.
+- `httpxr/`: Python package source.
+    - `__init__.py`: Exposes the public API.
+    - `_transports.py`: Python-side transport wrappers (WSGI/ASGI).
+- `tests/`: Complete `httpx` test suite, ported to validate `httpxr`.
+- `benchmarks/`: Performance comparison scripts.
+
+## Development Workflow
+- **Dependency Management**: uses `uv`.
+- **Build**: `maturin develop` compiles the Rust extension and installs it into the virtual environment.
+- **Test**: `uv run pytest` runs the test suite.
+- **Type Check**: `uv run pyright`.
+- **Lint**: `uv run ruff check .`
+
+## Key Differences from httpx
+1. **Performance**: `httpxr` is significantly faster due to Rust internals and GIL-release during I/O.
+2. **Concurrency**: `gather()` method for parallel request execution in Rust.
+3. **Raw API**: `*_raw()` methods (e.g., `get_raw`) for maximum performance, bypassing Python object overhead.
+4. **Pagination**: Built-in `paginate()` helper for auto-following API links.
+
+## Common Tasks
+- **Adding a Feature**: Implement in Rust (`src/`), expose via PyO3, update `httpxr/__init__.py` if needed.
+- **Fixing a Bug**: Locate the standard `httpx` test in `tests/`, reproduce failure, fix in Rust.
