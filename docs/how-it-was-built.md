@@ -3,6 +3,14 @@
 !!! info "🤖 100% AI-Generated"
     Every line of Rust, Python, and configuration in httpxr was autonomously written, debugged, and tested by an AI coding agent. No human wrote any code.
 
+## Why This Exists
+
+Great Rust-powered Python HTTP clients already exist — [pyreqwest](https://github.com/deedy5/pyreqwest_impersonate), [httpr](https://github.com/pyo3-rs/httpr), [rnet](https://github.com/nickel-org/rnet), and many more. This project was never about reinventing the wheel.
+
+It started as an **experiment**: _How well can an AI coding agent perform when given a clear, well-scoped goal in a domain with established solutions?_ The two objectives below provided a tight, measurable feedback loop to push the agent's capabilities.
+
+Along the way the result turned into a genuinely useful library — a **full httpx drop-in replacement** with zero Python dependencies and significantly better performance — so we decided to ship it. 🙂
+
 ## The Goal
 
 Build a **production-grade, httpx-compatible HTTP client** backed by Rust — and do it entirely with AI. The agent was given two clear objectives:
@@ -13,16 +21,23 @@ Build a **production-grade, httpx-compatible HTTP client** backed by Rust — an
 The agent iterated on these two goals until both were achieved.
 
 ```mermaid
+%%{init: {'theme': 'base', 'themeVariables': {'fontSize': '14px', 'fontFamily': 'Inter, sans-serif'}}}%%
 flowchart LR
-    A["📝 Write Rust Code"] --> B["🧪 Run 1300+ Tests"]
-    B --> C{"All Pass?"}
-    C -->|"❌ No"| D["🔍 Read Failures"]
+    A["📝 Write Rust Code"]:::work --> B["🧪 Run 1300+ Tests"]:::test
+    B --> C{"All Pass?"}:::decision
+    C -->|"❌ No"| D["🔍 Read Failures"]:::fail
     D --> A
-    C -->|"✅ Yes"| E["⏱ Run Benchmarks"]
-    E --> F{"Fast Enough?"}
-    F -->|"❌ No"| G["🔬 Profile & Optimize"]
+    C -->|"✅ Yes"| E["⏱ Run Benchmarks"]:::test
+    E --> F{"Fast Enough?"}:::decision
+    F -->|"❌ No"| G["🔬 Profile & Optimize"]:::fail
     G --> B
-    F -->|"✅ Yes"| H["🚀 Ship It"]
+    F -->|"✅ Yes"| H["🚀 Ship It"]:::success
+
+    classDef work fill:#7C4DFF,stroke:#5E35B1,color:#fff,rx:8,ry:8
+    classDef test fill:#B388FF,stroke:#7C4DFF,color:#fff,rx:8,ry:8
+    classDef decision fill:#FFD54F,stroke:#FFC107,color:#333,rx:8,ry:8
+    classDef fail fill:#EF9A9A,stroke:#E57373,color:#333,rx:8,ry:8
+    classDef success fill:#66BB6A,stroke:#43A047,color:#fff,rx:8,ry:8
 ```
 
 ---
@@ -34,15 +49,22 @@ The first priority was **correctness, not speed**. The complete httpx test suite
 The AI agent worked through each test module — `test_client.py`, `test_async_client.py`, `test_models.py`, `test_urls.py`, `test_content.py`, and many more — porting the expected behavior into Rust via [PyO3](https://pyo3.rs/). Each iteration followed the same loop:
 
 ```mermaid
+%%{init: {'theme': 'base', 'themeVariables': {'fontSize': '14px', 'fontFamily': 'Inter, sans-serif'}}}%%
 flowchart TD
-    A["Port next test module"] --> B["uv run pytest tests/ -x"]
-    B --> C{"Tests pass?"}
-    C -->|"Failures"| D["Read error traceback"]
-    D --> E["Fix Rust impl in src/"]
-    E --> F["maturin develop --release"]
+    A["Port next test module"]:::work --> B["uv run pytest tests/ -x"]:::test
+    B --> C{"Tests pass?"}:::decision
+    C -->|"Failures"| D["Read error traceback"]:::fail
+    D --> E["Fix Rust impl in src/"]:::work
+    E --> F["maturin develop --release"]:::work
     F --> B
-    C -->|"All green ✅"| G["Move to next module"]
+    C -->|"All green ✅"| G["Move to next module"]:::success
     G --> A
+
+    classDef work fill:#7C4DFF,stroke:#5E35B1,color:#fff,rx:8,ry:8
+    classDef test fill:#B388FF,stroke:#7C4DFF,color:#fff,rx:8,ry:8
+    classDef decision fill:#FFD54F,stroke:#FFC107,color:#333,rx:8,ry:8
+    classDef fail fill:#EF9A9A,stroke:#E57373,color:#333,rx:8,ry:8
+    classDef success fill:#66BB6A,stroke:#43A047,color:#fff,rx:8,ry:8
 ```
 
 This phase covered the full API surface:
@@ -70,20 +92,27 @@ Three scenarios were measured: **single GET**, **50 sequential GETs**, and **50 
 The agent then iterated on the Rust transport layer:
 
 ```mermaid
+%%{init: {'theme': 'base', 'themeVariables': {'fontSize': '14px', 'fontFamily': 'Inter, sans-serif'}}}%%
 flowchart TD
-    A["Run benchmark suite"] --> B["Profile hot path"]
-    B --> C["Identify bottleneck"]
-    C --> D["Implement optimization"]
-    D --> E["uv run pytest tests/ -x"]
-    E --> F{"Tests still pass?"}
-    F -->|"❌ Regression"| G["Revert & fix"]
+    A["Run benchmark suite"]:::test --> B["Profile hot path"]:::work
+    B --> C["Identify bottleneck"]:::work
+    C --> D["Implement optimization"]:::work
+    D --> E["uv run pytest tests/ -x"]:::test
+    E --> F{"Tests still pass?"}:::decision
+    F -->|"❌ Regression"| G["Revert & fix"]:::fail
     G --> E
-    F -->|"✅ Green"| H["Re-run benchmarks"]
-    H --> I{"Faster?"}
-    I -->|"Yes"| J["Keep optimization"]
+    F -->|"✅ Green"| H["Re-run benchmarks"]:::test
+    H --> I{"Faster?"}:::decision
+    I -->|"Yes"| J["Keep optimization"]:::success
     J --> A
-    I -->|"No"| K["Revert"]
+    I -->|"No"| K["Revert"]:::fail
     K --> A
+
+    classDef work fill:#7C4DFF,stroke:#5E35B1,color:#fff,rx:8,ry:8
+    classDef test fill:#B388FF,stroke:#7C4DFF,color:#fff,rx:8,ry:8
+    classDef decision fill:#FFD54F,stroke:#FFC107,color:#333,rx:8,ry:8
+    classDef fail fill:#EF9A9A,stroke:#E57373,color:#333,rx:8,ry:8
+    classDef success fill:#66BB6A,stroke:#43A047,color:#fff,rx:8,ry:8
 ```
 
 Key optimizations the agent discovered and applied:

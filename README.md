@@ -227,7 +227,11 @@ A **pre-push hook** runs `pytest` and `pyright` automatically before every push.
 
 ## How It Was Built
 
-This entire project was **autonomously created by an AI coding agent** — no human wrote any code. The agent was given two objectives and iterated until both were achieved:
+This entire project was **autonomously created by an AI coding agent** — no human wrote any code.
+
+> **Why build another Rust HTTP library?** Great Rust-powered Python HTTP clients already exist — [pyreqwest](https://github.com/deedy5/pyreqwest_impersonate), [httpr](https://github.com/pyo3-rs/httpr), [rnet](https://github.com/nickel-org/rnet), and others. This project was never about reinventing the wheel. It started as an **experiment to see how well an AI coding agent performs** when given a clear, well-scoped goal in a domain with established solutions. The two objectives — pass every httpx test and beat httpx in benchmarks — provided a tight feedback loop to push the agent's capabilities. Along the way the result turned into a genuinely useful library, so here it is. 🙂
+
+The agent was given two objectives and iterated until both were achieved:
 
 ### Phase 1: Correctness — Pass All httpx Tests
 
