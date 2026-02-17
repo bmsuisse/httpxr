@@ -200,8 +200,12 @@ impl Client {
         // For simple GET/HEAD/DELETE/OPTIONS with no body, auth, hooks,
         // or per-request overrides: bypass ALL Python overhead and go
         // straight to reqwest.
-        let method_upper = method.to_uppercase();
-        let is_bodyless = matches!(method_upper.as_str(), "GET" | "HEAD" | "DELETE" | "OPTIONS");
+        // Fast method check — avoid to_uppercase() String allocation
+        let method_bytes = method.as_bytes();
+        let is_bodyless = method_bytes.eq_ignore_ascii_case(b"GET")
+            || method_bytes.eq_ignore_ascii_case(b"HEAD")
+            || method_bytes.eq_ignore_ascii_case(b"DELETE")
+            || method_bytes.eq_ignore_ascii_case(b"OPTIONS");
         // Extract URL string early for fast-path validation
         let url_str_for_check = url.str()?.extract::<String>()?;
         let has_valid_scheme = (url_str_for_check.starts_with("http://") && url_str_for_check.len() > 7)
@@ -230,6 +234,7 @@ impl Client {
 
                 // Resolve URL — fast string concat using cached base URL string
                 let url_str = url_str_for_check;
+
                 let full_url = if let Some(ref base_str) = self.cached_base_url_str {
                     if url_str.starts_with("http://") || url_str.starts_with("https://") {
                         url_str
@@ -273,12 +278,14 @@ impl Client {
                     Vec::new()
                 };
 
-                let method_reqwest = match method_upper.as_str() {
-                    "GET" => reqwest::Method::GET,
-                    "HEAD" => reqwest::Method::HEAD,
-                    "DELETE" => reqwest::Method::DELETE,
-                    "OPTIONS" => reqwest::Method::OPTIONS,
-                    _ => unreachable!(),
+                let method_reqwest = if method_bytes.eq_ignore_ascii_case(b"GET") {
+                    reqwest::Method::GET
+                } else if method_bytes.eq_ignore_ascii_case(b"HEAD") {
+                    reqwest::Method::HEAD
+                } else if method_bytes.eq_ignore_ascii_case(b"DELETE") {
+                    reqwest::Method::DELETE
+                } else {
+                    reqwest::Method::OPTIONS
                 };
 
                 let do_follow_redirects = follow_redirects.unwrap_or(self.follow_redirects);
@@ -464,7 +471,7 @@ impl Client {
                         h_ext.set_item("http_version", PyBytes::new(py, b"HTTP/1.1"))?;
                         let h_req_url = crate::urls::URL::create_from_str_fast(hist_url);
                         let h_req = Request {
-                            method: method_upper.clone(),
+                            method: method.to_uppercase(),
                             url: h_req_url,
                             headers: Py::new(py, Headers::empty())?,
                             extensions: pyo3::types::PyDict::new(py).into(),
@@ -473,7 +480,7 @@ impl Client {
                             stream_response: false,
                         };
                         if log::log_enabled!(target: "httpxr", log::Level::Info) {
-                            log::info!(target: "httpxr", "HTTP Request: {} {} \"HTTP/1.1 {} {}\"", method_upper, hist_url, hist_status, reason_for(*hist_status));
+                            log::info!(target: "httpxr", "HTTP Request: {} {} \"HTTP/1.1 {} {}\"", method, hist_url, hist_status, reason_for(*hist_status));
                         }
                         hist.push(Response {
                             status_code: *hist_status,
@@ -504,11 +511,11 @@ impl Client {
 
                 // Build minimal Request for response.url / response.request
                 // → Use lazy fields to defer construction until first `.request` access
-                let lazy_method = method_upper.clone();
+                let lazy_method = method.to_uppercase();
                 let lazy_url = final_url.clone();
 
                 if log::log_enabled!(target: "httpxr", log::Level::Info) {
-                    log::info!(target: "httpxr", "HTTP Request: {} {} \"HTTP/1.1 {} {}\"", method_upper, final_url, status_code, reason_for(status_code));
+                    log::info!(target: "httpxr", "HTTP Request: {} {} \"HTTP/1.1 {} {}\"", method, final_url, status_code, reason_for(status_code));
                 }
 
                 return Ok(Response {
@@ -537,6 +544,9 @@ impl Client {
             }
         }
         // ── END ULTRA-FAST PATH ────────────────────────────────────────
+
+        // Slow path needs uppercase method — only allocate here (fast path already returned above)
+        let method_upper = method.to_uppercase();
 
         // Build URL
         let url_str = url.str()?.extract::<String>()?;

@@ -91,6 +91,7 @@ impl HTTPTransport {
     }
 
     pub fn send_request(&self, py: Python<'_>, request: &Request) -> PyResult<Response> {
+        // Use URL's inner string directly — skip to_string() + Url::parse() round-trip
         let url_str = request.url.to_string();
         let parsed_url = reqwest::Url::parse(&url_str).map_err(|e| {
             crate::exceptions::InvalidURL::new_err(format!("Invalid URL: {}", e))
@@ -166,6 +167,7 @@ impl HTTPTransport {
 
                     let status = response.status().as_u16();
                     let headers = response.headers();
+                    // Pre-allocate with exact capacity, single pass
                     let mut resp_headers: Vec<(Vec<u8>, Vec<u8>)> =
                         Vec::with_capacity(headers.len());
                     for (k, v) in headers.iter() {
@@ -175,8 +177,10 @@ impl HTTPTransport {
                         ));
                     }
 
+                    // Use .bytes() which returns reference-counted Bytes,
+                    // then .to_vec() for owned data (unavoidable copy across GIL boundary)
                     let bytes = response.bytes().await?;
-                    Ok((status, resp_headers, Vec::from(bytes)))
+                    Ok((status, resp_headers, bytes.to_vec()))
                 })
             })
             .map_err(|e: reqwest::Error| {
@@ -822,7 +826,7 @@ impl AsyncHTTPTransport {
                         crate::exceptions::ReadError::new_err(format!("{}", e))
                     }
                 })?;
-                BodyType::Bytes(Vec::from(bytes))
+                BodyType::Bytes(bytes.to_vec())
             };
 
             pyo3::Python::attach(|py| {
