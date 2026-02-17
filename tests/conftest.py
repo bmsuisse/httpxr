@@ -217,6 +217,13 @@ def cert_pem_file(localhost_cert):
 
 
 @pytest.fixture(scope="session")
+def ca_cert_pem_file(cert_authority):
+    """CA root certificate — used by clients for ``verify=``."""
+    with cert_authority.cert_pem.tempfile() as tmp:
+        yield tmp
+
+
+@pytest.fixture(scope="session")
 def cert_private_key_file(localhost_cert):
     with localhost_cert.private_key_pem.tempfile() as tmp:
         yield tmp
