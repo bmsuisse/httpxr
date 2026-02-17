@@ -28,3 +28,4 @@ All notable changes to httpxr will be documented here.
 - Raw API (`get_raw()`, `post_raw()`, etc.) for maximum-speed dispatch
 - Optional CLI via `httpxr[cli]`
 - Zero runtime Python dependencies
+
