@@ -24,3 +24,13 @@ target/
 
 # Reference files (original Python source)
 _reference/
+
+# Agent / AI tooling
+.agent/
+.claude/
+
+# Benchmarks (generated)
+benchmarks/
+
+# Linter cache
+.ruff_cache/
