@@ -1165,6 +1165,10 @@ pub struct Response {
     pub headers: Py<Headers>,
     pub extensions: Py<PyAny>,
     pub request: Option<Request>,
+    /// Lazy request fields — set by the fast path to defer Request construction.
+    /// When set, the Request is materialized on first `.request` property access.
+    pub lazy_request_method: Option<String>,
+    pub lazy_request_url: Option<String>,
     #[pyo3(get, set)]
     pub history: Vec<Response>,
     pub content_bytes: Option<Vec<u8>>,
@@ -1186,6 +1190,8 @@ impl Clone for Response {
             headers: self.headers.clone_ref(py),
             extensions: self.extensions.clone_ref(py),
             request: self.request.clone(),
+            lazy_request_method: self.lazy_request_method.clone(),
+            lazy_request_url: self.lazy_request_url.clone(),
             history: self.history.clone(),
             content_bytes: self.content_bytes.clone(),
             stream: self.stream.as_ref().map(|s| s.clone_ref(py)),
@@ -1213,6 +1219,24 @@ impl Response {
             && self.headers.bind(py).borrow().contains_header("location")
     }
 
+    /// Get method string for comparison — works with both eager and lazy request fields.
+    fn get_method_str(&self) -> Option<String> {
+        if let Some(ref r) = self.request {
+            Some(r.method.clone())
+        } else {
+            self.lazy_request_method.clone()
+        }
+    }
+
+    /// Get URL string for comparison — works with both eager and lazy request fields.
+    fn get_url_str(&self) -> Option<String> {
+        if let Some(ref r) = self.request {
+            Some(r.url.to_string())
+        } else {
+            self.lazy_request_url.clone()
+        }
+    }
+
     pub fn create(
         status_code: u16,
         headers: Py<Headers>,
@@ -1225,6 +1249,8 @@ impl Response {
             headers,
             extensions,
             request,
+            lazy_request_method: None,
+            lazy_request_url: None,
             history: Vec::new(),
             content_bytes,
             stream: None,
@@ -1532,6 +1558,8 @@ impl Response {
             headers: hdrs_py,
             extensions: ext,
             request,
+            lazy_request_method: None,
+            lazy_request_url: None,
             history: history.unwrap_or_default(),
             content_bytes: final_content,
             stream: final_stream,
@@ -1601,11 +1629,9 @@ impl Response {
 
     fn __eq__(&self, other: &Response) -> bool {
         self.status_code == other.status_code
-            // Check request equality (method/url)
-            && self.request.as_ref().map(|r| r.method.clone()) == other.request.as_ref().map(|r| r.method.clone())
-            && self.request.as_ref().map(|r| r.url.to_string()) == other.request.as_ref().map(|r| r.url.to_string())
-            // Ideally check headers/content too, but for history tracking, this might be enough
-            // Check content length to distinguish different responses?
+            // Check request equality (method/url) — consider lazy fields too
+            && self.get_method_str() == other.get_method_str()
+            && self.get_url_str() == other.get_url_str()
             && self.content_bytes.as_ref().map(|c| c.len()) == other.content_bytes.as_ref().map(|c| c.len())
     }
 
@@ -1647,7 +1673,23 @@ impl Response {
     }
 
     #[getter]
-    fn get_request(&self) -> PyResult<Request> {
+    fn get_request(&mut self, py: Python<'_>) -> PyResult<Request> {
+        // Materialize lazy request if needed
+        if self.request.is_none() {
+            if let (Some(method), Some(url_str)) = (self.lazy_request_method.take(), self.lazy_request_url.take()) {
+                let req_url = crate::urls::URL::create_from_str_fast(&url_str);
+                let req = Request {
+                    method,
+                    url: req_url,
+                    headers: Py::new(py, Headers::empty())?,
+                    extensions: PyDict::new(py).into(),
+                    content_body: None,
+                    stream: None,
+                    stream_response: false,
+                };
+                self.request = Some(req);
+            }
+        }
         match &self.request {
             Some(r) => Ok(r.clone()),
             None => Err(pyo3::exceptions::PyRuntimeError::new_err(
@@ -1863,7 +1905,13 @@ impl Response {
     }
 
     #[getter]
-    fn extensions(&self, py: Python<'_>) -> Py<PyAny> {
+    fn extensions(&mut self, py: Python<'_>) -> Py<PyAny> {
+        // Lazy construction: if extensions is py.None(), build the dict on first access
+        if self.extensions.is_none(py) {
+            let ext = PyDict::new(py);
+            let _ = ext.set_item("http_version", PyBytes::new(py, b"HTTP/1.1"));
+            self.extensions = ext.into_any().unbind();
+        }
         self.extensions.clone_ref(py)
     }
 

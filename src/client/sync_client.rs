@@ -300,8 +300,6 @@ impl Client {
                     pyo3::exceptions::PyRuntimeError::new_err(format!("Failed to build request: {}", e))
                 })?;
 
-                let do_follow_redirects = follow_redirects.unwrap_or(self.follow_redirects);
-                let max_redirects = self.max_redirects;
                 let client = &transport.client;
                 let handle = &transport.handle;
 
@@ -482,6 +480,8 @@ impl Client {
                             headers: Py::new(py, h_hdrs)?,
                             extensions: h_ext.into(),
                             request: Some(h_req),
+                            lazy_request_method: None,
+                            lazy_request_url: None,
                             history: Vec::new(),
                             content_bytes: Some(hist_body.clone()),
                             stream: None,
@@ -499,22 +499,13 @@ impl Client {
                 };
 
                 let hdrs = Headers::from_raw_byte_pairs(resp_headers);
-                let ext = pyo3::types::PyDict::new(py);
-                ext.set_item("http_version", PyBytes::new(py, b"HTTP/1.1"))?;
+                // Skip extensions dict creation — use py.None() sentinel.
+                // The getter will lazily build the dict on first access.
 
                 // Build minimal Request for response.url / response.request
-                let req_url = crate::urls::URL::create_from_str_fast(&final_url);
-                let req_hdrs = Py::new(py, Headers::empty())?;
-                let req_ext = pyo3::types::PyDict::new(py);
-                let minimal_request = Request {
-                    method: method_upper.clone(),
-                    url: req_url,
-                    headers: req_hdrs,
-                    extensions: req_ext.into(),
-                    content_body: None,
-                    stream: None,
-                    stream_response: false,
-                };
+                // → Use lazy fields to defer construction until first `.request` access
+                let lazy_method = method_upper.clone();
+                let lazy_url = final_url.clone();
 
                 if log::log_enabled!(target: "httpxr", log::Level::Info) {
                     log::info!(target: "httpxr", "HTTP Request: {} {} \"HTTP/1.1 {} {}\"", method_upper, final_url, status_code, reason_for(status_code));
@@ -523,8 +514,10 @@ impl Client {
                 return Ok(Response {
                     status_code,
                     headers: Py::new(py, hdrs)?,
-                    extensions: ext.into(),
-                    request: Some(minimal_request),
+                    extensions: py.None(),
+                    request: None,
+                    lazy_request_method: Some(lazy_method),
+                    lazy_request_url: Some(lazy_url),
                     history: history_responses,
                     content_bytes: Some(body_bytes),
                     stream: None,
