@@ -32,9 +32,9 @@ Unlike httpx (which depends on `httpcore`, `certifi`, `anyio`, `idna`, and optio
 All benchmarks run against **9 HTTP libraries** on a local ASGI server (uvicorn), 20 rounds each.
 Scenarios: **Single GET**, **50 Sequential GETs**, **50 Concurrent GETs**.
 
-![HTTP Library Benchmark](benchmarks/benchmark_results.png)
+![HTTP Library Benchmark](docs/benchmark_results.png)
 
-> 📊 **[Interactive version →](benchmarks/benchmark_results.html)** (open locally for full hover/zoom)
+> 📊 **[Interactive version →](docs/benchmark_results.html)** (open locally for full hover/zoom)
 
 ### Summary (median, ms — lower is better)
 
