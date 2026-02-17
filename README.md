@@ -211,7 +211,7 @@ The port is validated against the **complete httpx test suite** — **1303 tests
 ## Development
 
 ```bash
-git clone <repo-url>
+git clone https://github.com/bmsuisse/httpxr.git
 cd httpxr
 uv sync --group dev
 maturin develop

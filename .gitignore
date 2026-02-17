@@ -28,6 +28,7 @@ _reference/
 # Agent / AI tooling
 .agent/
 .claude/
+AGENTS.md
 
 # Benchmarks (generated)
 benchmarks/

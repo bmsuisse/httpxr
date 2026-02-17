@@ -43,7 +43,7 @@ cli = [
 httpxr = "httpxr:main"
 
 [project.urls]
-Source = "https://dev.azure.com/bmeurope/BMS%20-%20Data/_git/httpxr"
+Source = "https://github.com/bmsuisse/httpxr"
 
 [tool.maturin]
 features = ["pyo3/extension-module"]
