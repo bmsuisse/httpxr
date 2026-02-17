@@ -48,6 +48,11 @@ pub fn extract_verify_path(v_bound: &Bound<'_, PyAny>) -> (bool, Option<String>)
     }
 }
 
+/// Returns true if the verify value is an SSL context object (not bool, not str).
+pub fn is_ssl_context(v_bound: &Bound<'_, PyAny>) -> bool {
+    v_bound.extract::<bool>().is_err() && v_bound.extract::<String>().is_err()
+}
+
 pub fn extract_from_kwargs<'py>(
     kwargs: Option<&Bound<'py, PyDict>>,
     key: &str,
@@ -790,6 +795,7 @@ pub fn create_default_sync_transport(
     proxy: Option<&Bound<'_, PyAny>>,
 ) -> PyResult<Py<PyAny>> {
     let proxy_obj = parse_proxy(proxy)?;
+    let has_custom_ssl_context = verify.map(|v| is_ssl_context(v)).unwrap_or(false);
     let (verify_bool, verify_path) = if let Some(v) = verify {
         extract_verify_path(v)
     } else {
@@ -802,6 +808,7 @@ pub fn create_default_sync_transport(
         limits,
         proxy_obj.as_ref(),
         0,
+        has_custom_ssl_context,
     )?;
     Ok(Py::new(py, t)?.into())
 }

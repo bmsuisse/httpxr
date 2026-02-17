@@ -231,6 +231,8 @@ impl Client {
             let t_bound = self.transport.bind(py);
             if let Ok(t) = t_bound.cast::<crate::transports::default::HTTPTransport>() {
                 let transport = t.borrow();
+                // Only use hyper path when no custom certs/proxy
+                if transport.use_hyper_fast_path {
 
                 // Resolve URL — fast string concat using cached base URL string
                 let url_str = url_str_for_check;
@@ -291,45 +293,77 @@ impl Client {
                 let do_follow_redirects = follow_redirects.unwrap_or(self.follow_redirects);
                 let max_redirects = self.max_redirects;
 
-                // Build reqwest request — no host header needed (reqwest adds it)
-                let mut req_builder = transport.client.request(method_reqwest.clone(), &full_url);
-                for (key, value) in raw_headers {
-                    req_builder = req_builder.header(key.as_slice(), value.as_slice());
-                }
-                for (key, value) in &extra_raw {
-                    req_builder = req_builder.header(key.as_slice(), value.as_slice());
-                }
-                if let Some(t) = timeout_val {
-                    req_builder = req_builder.timeout(t);
-                }
-
-                let built = req_builder.build().map_err(|e| {
-                    pyo3::exceptions::PyRuntimeError::new_err(format!("Failed to build request: {}", e))
+                // Build hyper::Request directly — bypass reqwest's RequestBuilder overhead
+                let uri: hyper::Uri = full_url.parse().map_err(|e: hyper::http::uri::InvalidUri| {
+                    pyo3::exceptions::PyValueError::new_err(format!("Invalid URL: {}", e))
                 })?;
+                let method_hyper = hyper::Method::from(method_reqwest.clone());
+                let mut req = hyper::Request::builder()
+                    .method(method_hyper)
+                    .uri(&uri)
+                    .body(http_body_util::Empty::<bytes::Bytes>::new())
+                    .map_err(|e| {
+                        pyo3::exceptions::PyRuntimeError::new_err(format!("Failed to build request: {}", e))
+                    })?;
+                {
+                    let headers = req.headers_mut();
+                    for (key, value) in raw_headers {
+                        if let (Ok(name), Ok(val)) = (
+                            hyper::header::HeaderName::from_bytes(key),
+                            hyper::header::HeaderValue::from_bytes(value),
+                        ) {
+                            headers.append(name, val);
+                        }
+                    }
+                    for (key, value) in &extra_raw {
+                        if let (Ok(name), Ok(val)) = (
+                            hyper::header::HeaderName::from_bytes(key),
+                            hyper::header::HeaderValue::from_bytes(value),
+                        ) {
+                            headers.append(name, val);
+                        }
+                    }
+                }
 
-                let client = &transport.client;
+                let hyper_client = &transport.hyper_client;
+                let reqwest_client = &transport.client;
                 let handle = &transport.handle;
 
                 // ── TIER 1: No-redirect fast path (covers 99% of requests) ──
-                // Execute directly without any redirect loop infrastructure.
+                // Execute directly via hyper — no reqwest middleware overhead.
                 // Only allocate redirect tracking if we actually get a 3xx.
+                type FastPathError = Box<dyn std::error::Error + Send + Sync>;
                 let result = py.detach(|| {
                     handle.block_on(async {
-                        let response = client.execute(built).await?;
+                        // Send via hyper with optional timeout
+                        let response = if let Some(t) = timeout_val {
+                            match tokio::time::timeout(t, hyper_client.request(req)).await {
+                                Ok(r) => r.map_err(|e| -> FastPathError { Box::new(e) }),
+                                Err(_) => Err(Box::new(std::io::Error::new(std::io::ErrorKind::TimedOut, "request timed out")) as FastPathError),
+                            }
+                        } else {
+                            hyper_client.request(req).await.map_err(|e| -> FastPathError { Box::new(e) })
+                        }?;
+
                         let status = response.status().as_u16();
                         let is_redirect = do_follow_redirects && (300..400).contains(&status);
 
                         if !is_redirect {
-                            // Happy path: no redirect, extract response directly
+                            // Happy path: no redirect, extract response via hyper
                             let resp_headers: Vec<(Vec<u8>, Vec<u8>)> = response
                                 .headers()
                                 .iter()
                                 .map(|(k, v)| (k.as_str().as_bytes().to_vec(), v.as_bytes().to_vec()))
                                 .collect();
-                            let url = response.url().to_string();
-                            let body = response.bytes().await?;
-                            Ok::<_, reqwest::Error>((status, resp_headers, body.to_vec(), url, Vec::new()))
+                            let url = uri.to_string();
+                            // Collect body via http-body-util
+                            use http_body_util::BodyExt;
+                            let body = response.into_body().collect().await
+                                .map_err(|e| -> FastPathError { Box::new(e) })?
+                                .to_bytes();
+                            Ok::<_, FastPathError>((status, resp_headers, body.to_vec(), url, Vec::new()))
                         } else {
+
                             // ── TIER 2: Redirect path ──
                             let redirect_location = response.headers()
                                 .get("location")
@@ -340,8 +374,12 @@ impl Client {
                                 .iter()
                                 .map(|(k, v)| (k.as_str().as_bytes().to_vec(), v.as_bytes().to_vec()))
                                 .collect();
-                            let mut current_url = response.url().to_string();
-                            let body = response.bytes().await?;
+                            let mut current_url = uri.to_string();
+                            // Collect body via http-body-util
+                            use http_body_util::BodyExt;
+                            let body = response.into_body().collect().await
+                                .map_err(|e| -> FastPathError { Box::new(e) })?
+                                .to_bytes();
 
                             let Some(loc) = redirect_location else {
                                 return Ok((status, resp_headers, body.to_vec(), current_url, Vec::new()));
@@ -362,9 +400,11 @@ impl Client {
                             // Clone headers only now (redirect actually happened)
                             let raw_headers_owned = raw_headers.clone();
 
+                            // Redirect loop uses reqwest (full-featured) for subsequent requests
                             loop {
-                                let mut rb = client.request(method_reqwest.clone(),
+                                let mut rb = reqwest_client.request(method_reqwest.clone(),
                                     reqwest::Url::parse(&current_url).unwrap());
+
                                 for (key, value) in &raw_headers_owned {
                                     rb = rb.header(key.as_slice(), value.as_slice());
                                 }
@@ -375,7 +415,7 @@ impl Client {
                                     rb = rb.timeout(t);
                                 }
 
-                                let response = client.execute(rb.build()?).await?;
+                                let response = reqwest_client.execute(rb.build()?).await?;
                                 let status = response.status().as_u16();
                                 let is_redirect = (300..400).contains(&status);
 
@@ -416,19 +456,22 @@ impl Client {
                             }
                         }
                     })
-                }).map_err(|e: reqwest::Error| {
-                    let msg = format!("{}", e);
-                    if e.is_timeout() {
-                        if e.is_connect()
-                            || (connect_timeout_val.is_some()
-                                && read_timeout_val.is_none()
-                                && write_timeout_val.is_none())
-                        {
+                }).map_err(|e: FastPathError| {
+                    // Traverse the full error chain to get the most informative message
+                    let mut msg = e.to_string();
+                    let mut source = e.source();
+                    while let Some(s) = source {
+                        msg.push_str(": ");
+                        msg.push_str(&s.to_string());
+                        source = s.source();
+                    }
+                    if msg.contains("timed out") || msg.contains("deadline has elapsed") {
+                        if msg.contains("connect") {
                             crate::exceptions::ConnectTimeout::new_err(msg)
                         } else {
                             crate::exceptions::ReadTimeout::new_err(msg)
                         }
-                    } else if e.is_connect() {
+                    } else if msg.contains("connect") || msg.contains("dns") || msg.contains("resolve") {
                         crate::exceptions::ConnectError::new_err(msg)
                     } else if msg.contains("too many redirects") {
                         crate::exceptions::TooManyRedirects::new_err(msg)
@@ -436,6 +479,7 @@ impl Client {
                         crate::exceptions::NetworkError::new_err(msg)
                     }
                 })?;
+
 
                 let (status_code, resp_headers, body_bytes, final_url, redirect_history) = result;
 
@@ -541,6 +585,7 @@ impl Client {
                         std::sync::atomic::AtomicUsize::new(0),
                     ),
                 });
+                } // end if transport.use_hyper_fast_path
             }
         }
         // ── END ULTRA-FAST PATH ────────────────────────────────────────
@@ -1751,6 +1796,7 @@ impl Client {
                         headers: None,
                     }),
                     0,
+                    false,
                 )?;
                 return Ok(Py::new(py, transport)?.into());
             }
