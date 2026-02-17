@@ -139,7 +139,7 @@ impl HTTPTransport {
             hyper_util::client::legacy::Client::builder(
                 hyper_util::rt::TokioExecutor::new()
             )
-                .pool_idle_timeout(std::time::Duration::from_secs(300))
+                .pool_idle_timeout(None) // None = no background idle-cleanup task spawned
                 .pool_max_idle_per_host(64)
                 .build(https_connector)
         };
