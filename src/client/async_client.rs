@@ -27,7 +27,6 @@ pub struct AsyncClient {
     pub(crate) event_hooks: Option<Py<PyAny>>,
     #[allow(dead_code)]
     pub(crate) default_encoding: Option<Py<PyAny>>,
-    // Cached values for fast path (pre-computed at construction time)
     pub(crate) cached_raw_headers: Vec<(Vec<u8>, Vec<u8>)>,
     pub(crate) cached_timeout: Option<std::time::Duration>,
     pub(crate) cached_connect_timeout: Option<f64>,
@@ -83,7 +82,6 @@ impl AsyncClient {
         event_hooks: Option<&Bound<'_, PyAny>>,
     ) -> PyResult<Self> {
         let mut hdrs = Headers::create(headers, "utf-8")?;
-        // Add default headers if not already present
         if !hdrs.contains_header("user-agent") {
             hdrs.set_header(
                 "user-agent",
@@ -99,13 +97,11 @@ impl AsyncClient {
         if !hdrs.contains_header("connection") {
             hdrs.set_header("connection", "keep-alive");
         }
-        // Pre-compute cached raw headers for fast path
         let cached_raw_headers = hdrs.get_raw_items_owned();
         let hdrs_py = Py::new(py, hdrs)?;
         let ckies = Cookies::create(py, cookies)?;
         let base = parse_base_url(base_url)?;
 
-        // Pre-compute cached base URL string
         let cached_base_url_str = base.as_ref().map(|b| b.to_string().trim_end_matches('/').to_string());
 
         let transport_obj = if let Some(t) = transport {
@@ -124,7 +120,6 @@ impl AsyncClient {
             PyDict::new(py).into()
         };
 
-        // Pre-compute cached timeout values
         let to = if let Some(t) = timeout {
             t.extract::<Timeout>().ok()
         } else {
@@ -147,7 +142,6 @@ impl AsyncClient {
             auth: auth
                 .map(|a| {
                     if let AuthArg::Custom(p) = a {
-                        // Validate custom auth
                         if let Err(e) = validate_auth_type(py, p.bind(py)) {
                             return Err(e);
                         }
@@ -194,7 +188,6 @@ impl AsyncClient {
             req.stream_response = true;
         }
 
-        // Apply client-level timeout to request if it doesn't already have one
         if let Some(ref t) = self.timeout {
             let ext = req.extensions.bind(py);
             if let Ok(d) = ext.cast::<PyDict>() {
@@ -207,10 +200,6 @@ impl AsyncClient {
         let follow_redirects = follow_redirects.unwrap_or(self.follow_redirects);
         let is_streaming = stream;
 
-        // ── FAST PATH ──────────────────────────────────────────────────
-        // For simple non-streaming requests with no auth flow, no event hooks,
-        // and no custom mounts: bypass all Python overhead and call reqwest
-        // directly from Rust. This reduces GIL acquisitions from ~6 to 2.
         let has_auth_flow = auth.is_some();
         let has_hooks = self.event_hooks.is_some() && {
             let hooks = self.event_hooks.as_ref().unwrap().bind(py);
@@ -226,7 +215,6 @@ impl AsyncClient {
         };
         let has_custom_mounts = !self.mounts.bind(py).is_empty();
 
-        // Try to extract the reqwest::Client directly from our transport
         let can_fast_path = !has_auth_flow && !has_hooks && !has_custom_mounts && !is_streaming;
 
         if can_fast_path {
@@ -237,7 +225,6 @@ impl AsyncClient {
                 let client = transport_borrow.get_client();
                 let pool_sem = transport_borrow.get_pool_semaphore();
 
-                // Extract all request data under THIS GIL hold (no additional Python::attach needed)
                 let url_str = req.url.to_string();
                 let method_str = req.method.clone();
                 let raw_headers = req.headers.bind(py).borrow().get_raw_items_owned();
@@ -268,11 +255,9 @@ impl AsyncClient {
 
                 let max_redirects = self.max_redirects;
 
-                // All data extracted — now release GIL and do everything in Rust
                 return pyo3_async_runtimes::tokio::future_into_py(py, async move {
                     let start = Instant::now();
 
-                    // Pool semaphore
                     let _pool_permit = if let Some(ref sem) = pool_sem {
                         let pool_dur = pool_timeout_val
                             .map(std::time::Duration::from_secs_f64)
@@ -294,7 +279,6 @@ impl AsyncClient {
                         None
                     };
 
-                    // Handle redirects in Rust (no GIL needed for simple redirect logic)
                     let mut current_url = url_str;
                     let mut current_method = method_str;
                     let mut current_headers = raw_headers;
@@ -355,7 +339,6 @@ impl AsyncClient {
                             .map(|(k, v)| (k.as_str().as_bytes().to_vec(), v.as_bytes().to_vec()))
                             .collect();
 
-                        // Check for redirect (in Rust, no GIL)
                         if follow_redirects && (300..400).contains(&status_code) {
                             let location = resp_headers.iter()
                                 .find(|(k, _)| k == b"location")
@@ -369,23 +352,19 @@ impl AsyncClient {
                                     )));
                                 }
 
-                                // Read body for history entry
                                 let body_bytes = response.bytes().await
                                     .map_err(|e| crate::exceptions::ReadError::new_err(format!("{}", e)))?;
                                 history_entries.push((status_code, resp_headers, Vec::from(body_bytes), current_url.clone()));
 
-                                // Resolve redirect URL
                                 let redirect_url = req_url.join_relative(&loc)
                                     .map_err(|e| crate::exceptions::RemoteProtocolError::new_err(e.to_string()))?;
                                 current_url = redirect_url.to_string();
 
-                                // Method change for 303
                                 if status_code == 303 {
                                     current_method = "GET".to_string();
                                     current_body = None;
                                 }
 
-                                // Strip auth on cross-origin redirect
                                 let original_host = req_url.get_raw_host().to_lowercase();
                                 let redirect_host = redirect_url.get_raw_host().to_lowercase();
                                 if original_host != redirect_host {
@@ -394,7 +373,6 @@ impl AsyncClient {
                                         key_lower != "authorization"
                                     });
                                 }
-                                // Update host header
                                 let new_host = crate::client::common::build_host_header(&redirect_url);
                                 current_headers.retain(|(k, _)| {
                                     let key_lower = String::from_utf8_lossy(k).to_lowercase();
@@ -407,7 +385,6 @@ impl AsyncClient {
                             }
                         }
 
-                        // Final response — read body
                         let body_bytes = response.bytes().await.map_err(|e| {
                             if e.is_timeout() {
                                 crate::exceptions::ReadTimeout::new_err(format!("{}", e))
@@ -418,7 +395,6 @@ impl AsyncClient {
 
                         let elapsed = start.elapsed().as_secs_f64();
 
-                        // Single GIL acquisition to build Response
                         return Python::attach(|py| {
                             let hdrs = Headers::from_raw_byte_pairs(resp_headers);
                             let ext = PyDict::new(py);
@@ -432,7 +408,6 @@ impl AsyncClient {
                             };
                             ext.set_item("http_version", version_str.as_bytes())?;
 
-                            // Build history if we had redirects
                             let history = if history_entries.is_empty() {
                                 Vec::new()
                             } else {
@@ -498,8 +473,6 @@ impl AsyncClient {
             }
         }
 
-        // ── SLOW PATH ──────────────────────────────────────────────────
-        // Full-featured path with auth flows, event hooks, streaming, etc.
         let transport = self.transport.clone_ref(py);
         let mounts = self.mounts.clone_ref(py);
         let max_redirects = self.max_redirects;
@@ -517,7 +490,6 @@ impl AsyncClient {
         pyo3_async_runtimes::tokio::future_into_py(py, async move {
             let start = Instant::now();
 
-            // If we have an auth flow, drive it
             if let Some(flow) = auth {
                 return Self::_send_with_auth_flow(
                     start,
@@ -533,12 +505,10 @@ impl AsyncClient {
                 .await;
             }
 
-            // No auth flow, send normally with redirect handling
             let mut current_req: Request = req;
             let mut redirect_count: u32 = 0;
 
             loop {
-                // Event hooks: request
                 if let Some(hooks) = &event_hooks {
                     let hook_list: Vec<Py<PyAny>> = Python::attach(|py| {
                         let h: &Bound<'_, PyAny> = hooks.bind(py);
@@ -601,7 +571,6 @@ impl AsyncClient {
                     resp.request = Some(current_req.clone());
                     resp.elapsed = Some(start.elapsed().as_secs_f64());
 
-                    // Set http_version
                     let ext = resp.extensions.bind(py);
                     if let Ok(d) = ext.cast::<PyDict>() {
                         if !d.contains("http_version")? {
@@ -613,7 +582,6 @@ impl AsyncClient {
                     Ok::<Py<crate::models::Response>, PyErr>(resp_handle)
                 })?;
 
-                // Response hooks
                 if let Some(hooks) = &event_hooks {
                     let hook_list: Vec<Py<PyAny>> = Python::attach(|py| {
                         let h: &Bound<'_, PyAny> = hooks.bind(py);
@@ -681,7 +649,6 @@ impl AsyncClient {
                             crate::exceptions::RemoteProtocolError::new_err(e.to_string())
                         })?;
 
-                    // Fragment preservation
                     if redirect_url.parsed.fragment.is_none() {
                         redirect_url.parsed.fragment = current_req.url.parsed.fragment.clone();
                     }
@@ -698,7 +665,6 @@ impl AsyncClient {
                         current_req.content_body.clone()
                     };
 
-                    // Strip authorization on cross-origin redirect
                     let mut redirect_headers = current_req.headers.bind(py).borrow().clone();
                     let current_host = current_req.url.get_raw_host().to_lowercase();
                     let redirect_host = redirect_url.get_raw_host().to_lowercase();
@@ -706,7 +672,6 @@ impl AsyncClient {
                         redirect_headers.remove_header("authorization");
                     }
 
-                    // Update host header
                     redirect_headers.set_header("host", &build_host_header(&redirect_url));
 
                     let new_req = Request {
@@ -731,7 +696,6 @@ impl AsyncClient {
                     redirect_count += 1;
                 } else {
                     let final_response = maybe_redirect.1.unwrap();
-                    // Eagerly read body for non-streaming requests
                     if !is_streaming {
                         let has_async_stream = Python::attach(|py| {
                             let resp_bound = final_response.bind(py);
@@ -815,7 +779,6 @@ _task.add_done_callback(_on_done)
     }
 }
 
-// Non-pymethods helper functions for AsyncClient
 impl AsyncClient {
     async fn _send_with_auth_flow(
         start: Instant,
@@ -830,10 +793,8 @@ impl AsyncClient {
     ) -> PyResult<Py<Response>> {
         let mut history: Vec<Response> = Vec::new();
 
-        // Check if flow is async generator
         let is_async_flow = Python::attach(|py| flow.bind(py).hasattr("__anext__"))?;
 
-        // Get the first request from the flow
         let first_req = if is_async_flow {
             let coro =
                 Python::attach(|py| flow.bind(py).call_method0("__anext__").map(|b| b.unbind()))?;
@@ -867,7 +828,6 @@ impl AsyncClient {
         let mut current_req = match first_req {
             Some(r) => r,
             None => {
-                // Empty flow, send original request directly
                 return Self::_send_single_async(
                     start,
                     original_req,
@@ -880,7 +840,6 @@ impl AsyncClient {
         };
 
         loop {
-            // Send the request
             let response_coro = Python::attach(|py| {
                 let transport_to_use = select_transport(
                     mounts.bind(py).clone(),
@@ -908,7 +867,6 @@ impl AsyncClient {
                 if let Some(ref de) = default_encoding {
                     let current_encoding: String = resp.default_encoding.bind(py).extract()?;
                     if current_encoding == "utf-8" {
-                        // Only override if default
                         let new_encoding: String = de.bind(py).extract()?;
                         resp.default_encoding = pyo3::types::PyString::new(py, &new_encoding)
                             .into_any()
@@ -926,7 +884,6 @@ impl AsyncClient {
                 Ok::<Response, PyErr>(resp)
             })?;
 
-            // Check requires_response_body
             let resp_body_needed = Python::attach(|py| {
                 let flow_bound = flow.bind(py);
                 flow_bound
@@ -946,7 +903,6 @@ impl AsyncClient {
                 }
             }
 
-            // Feed response to the flow and get next request
             let next_req = if is_async_flow {
                 let coro = Python::attach(|py| {
                     flow.bind(py)
@@ -1034,7 +990,6 @@ impl AsyncClient {
                 }
             }
 
-            // Log the request/response
             {
                 let method = &resp
                     .request
@@ -1122,7 +1077,6 @@ impl AsyncClient {
         let method_str = method.to_uppercase();
         let url_str = url.str()?.extract::<String>()?;
 
-        // Build URL
         let mut target_url = match resolve_url(&self.base_url, &url_str) {
             Ok(u) => u,
             Err(e) => {
@@ -1143,22 +1097,18 @@ impl AsyncClient {
             }
         };
 
-        // Merge client-level params and per-request params into URL
         {
             let mut merged_qp_items: Vec<(String, String)> = Vec::new();
-            // First add client-level params
             if let Some(ref client_params) = self.params {
                 let bound = client_params.bind(py);
                 let qp = crate::urls::QueryParams::create(Some(bound))?;
                 merged_qp_items.extend(qp.items_raw());
             }
-            // Then add per-request params
             if let Some(req_params) = params {
                 let qp = crate::urls::QueryParams::create(Some(req_params))?;
                 merged_qp_items.extend(qp.items_raw());
             }
             if !merged_qp_items.is_empty() {
-                // Merge with existing URL query params
                 if let Some(ref existing_q) = target_url.parsed.query {
                     let existing_qp = crate::urls::QueryParams::from_query_string(existing_q);
                     let mut all_items = existing_qp.items_raw();
@@ -1170,7 +1120,6 @@ impl AsyncClient {
             }
         }
 
-        // Validate resolved URL has valid scheme and host
         let scheme = target_url.get_scheme();
         let host = target_url.get_host();
         if scheme.is_empty() || scheme == "://" {
@@ -1202,7 +1151,6 @@ impl AsyncClient {
             )));
         }
 
-        // Build merged headers
         let mut merged_headers = self.default_headers.bind(py).borrow().clone();
         if let Some(h) = headers {
             merged_headers.update_from(Some(h))?;
@@ -1212,8 +1160,6 @@ impl AsyncClient {
             merged_headers.set_header("host", &build_host_header(&target_url));
         }
 
-        // Build body
-        // Build body and stream
         let (body, stream_obj): (Option<Vec<u8>>, Option<Py<PyAny>>) = if let Some(c) = content {
             if let Ok(b) = c.cast::<PyBytes>() {
                 (Some(b.as_bytes().to_vec()), None)
@@ -1227,7 +1173,6 @@ impl AsyncClient {
                         "The content argument must be an async iterator.",
                     ));
                 }
-                // It is an async iterator (or treated as such)
                 let wrapper = crate::types::ResponseAsyncIteratorStream::new(c.clone().unbind());
                 let wrapper_py = Py::new(py, wrapper)?;
                 (None, Some(wrapper_py.into_any()))
@@ -1272,10 +1217,8 @@ impl AsyncClient {
             merged_headers.set_header("host", target_url.get_raw_host());
         }
 
-        // URL auth
         apply_url_auth(&target_url, &mut merged_headers);
 
-        // Apply cookies
         apply_cookies(py, &self.cookies, cookies, &mut merged_headers)?;
 
         let mut request = Request {
@@ -1288,7 +1231,6 @@ impl AsyncClient {
             stream_response: stream,
         };
 
-        // Attach timeout
         let t_val = if let Some(t_arg) = timeout {
             if t_arg.is_none() {
                 None
@@ -1320,17 +1262,6 @@ impl AsyncClient {
             }
         }
 
-        // Apply auth
-        // auth default is True (use client auth).
-        // auth=None or False means "Disable Auth".
-        // auth=object means "Use Object".
-        // Apply auth
-        // AuthArg handles usage.
-        // None (missing arg) -> Use Client Auth.
-        // Some(AuthArg::Boolean(true)) -> Use Client Auth.
-        // Some(AuthArg::Boolean(false)) -> Disable Auth.
-        // Some(AuthArg::Custom(obj)) -> If None: Disable, Else: Use Object.
-        // Extract auth from kwargs
         let auth_kw = if let Some(kw) = kwargs {
             kw.get_item("auth").unwrap_or(None)
         } else {
@@ -1356,7 +1287,6 @@ impl AsyncClient {
             auth_explicitly_none,
         )?;
 
-        // Get optional auth flow for passing to send
         let auth_flow = match auth_result {
             AuthResult::Flow(flow) => Some(flow),
             _ => None,
@@ -1385,13 +1315,11 @@ impl AsyncClient {
         extensions: Option<&Bound<'_, PyAny>>,
         kwargs: Option<&Bound<'_, PyDict>>,
     ) -> PyResult<Bound<'py, PyAny>> {
-        // ULTRA-FAST PATH: bypass both request() and send() entirely
         let has_no_extras = params.is_none()
             && cookies.is_none()
             && extensions.is_none()
             && (kwargs.is_none() || kwargs.map_or(true, |k| k.is_empty()));
 
-        // Extract URL string early for validation
         let url_str_for_check = url.str()?.extract::<String>()?;
         let has_valid_scheme = (url_str_for_check.starts_with("http://") && url_str_for_check.len() > 7)
             || (url_str_for_check.starts_with("https://") && url_str_for_check.len() > 8)
@@ -1413,7 +1341,6 @@ impl AsyncClient {
                     let client = transport_borrow.get_client();
                     let pool_sem = transport_borrow.get_pool_semaphore();
 
-                    // Resolve URL using cached base URL string
                     let url_str = url_str_for_check;
                     let full_url = if let Some(ref base_str) = self.cached_base_url_str {
                         if url_str.starts_with("http://") || url_str.starts_with("https://") {
@@ -1425,10 +1352,8 @@ impl AsyncClient {
                         url_str
                     };
 
-                    // Use pre-cached raw headers
                     let raw_headers = self.cached_raw_headers.clone();
 
-                    // Merge per-request headers if any
                     let extra_raw: Vec<(Vec<u8>, Vec<u8>)> = if let Some(h) = headers {
                         let extra = Headers::create(Some(h), "utf-8")?;
                         extra.get_raw_items_owned()
@@ -1436,7 +1361,6 @@ impl AsyncClient {
                         Vec::new()
                     };
 
-                    // Extract timeout — use cached values unless per-request override
                     let (timeout_val, connect_timeout_val, read_timeout_val, write_timeout_val, pool_timeout_val) = if let Some(t_arg) = timeout {
                         if t_arg.is_none() {
                             (None, None, None, None, None)
@@ -1456,11 +1380,9 @@ impl AsyncClient {
                     let max_redirects = self.max_redirects;
                     let do_follow_redirects = follow_redirects.unwrap_or(self.follow_redirects);
 
-                    // ALL data extracted — release GIL, do everything in Rust
                     return pyo3_async_runtimes::tokio::future_into_py(py, async move {
                         let start = Instant::now();
 
-                        // Pool semaphore
                         let _pool_permit = if let Some(ref sem) = pool_sem {
                             let pool_dur = pool_timeout_val
                                 .map(std::time::Duration::from_secs_f64)
@@ -1482,7 +1404,6 @@ impl AsyncClient {
                             None
                         };
 
-                        // Build and send request (with redirect handling in Rust)
                         let mut current_url = full_url;
                         let mut redirects_remaining = max_redirects;
                         let mut history: Vec<(u16, Vec<(Vec<u8>, Vec<u8>)>, Vec<u8>, String)> = Vec::new();
@@ -1495,7 +1416,6 @@ impl AsyncClient {
                             for (key, value) in &extra_raw {
                                 req_builder = req_builder.header(key.as_slice(), value.as_slice());
                             }
-                            // No host header needed — reqwest adds it automatically
                             if let Some(t) = timeout_val {
                                 req_builder = req_builder.timeout(t);
                             }
@@ -1569,7 +1489,6 @@ impl AsyncClient {
 
                         let elapsed = start.elapsed().as_secs_f64();
 
-                        // Helper: status code to reason phrase
                         let reason_for = |code: u16| -> &'static str {
                             match code {
                                 200 => "OK", 201 => "Created", 204 => "No Content",
@@ -1581,9 +1500,7 @@ impl AsyncClient {
                             }
                         };
 
-                        // Single GIL acquisition to build Response
                         Python::attach(|py| {
-                            // Build history Response objects from redirect data
                             let mut history_responses: Vec<crate::models::Response> = Vec::new();
                             for (hist_status, hist_headers, hist_body, hist_url) in &history {
                                 let h_hdrs = crate::models::Headers::from_raw_byte_pairs(hist_headers.clone());
@@ -1625,7 +1542,6 @@ impl AsyncClient {
 
                             let headers_obj = crate::models::Headers::from_raw_byte_pairs(final_headers_raw);
 
-                            // Build the request object for response.request
                             let req_url = crate::urls::URL::create_from_str_fast(&final_url);
                             let request_obj = crate::models::Request {
                                 method: "GET".to_string(),
@@ -1675,7 +1591,6 @@ impl AsyncClient {
             }
         }
 
-        // SLOW PATH: fall through to normal request() → send()
         let timeout_kw = extract_from_kwargs(kwargs, "timeout");
         let t = if let Some(t) = timeout {
             Some(t)
@@ -2122,13 +2037,11 @@ impl AsyncClient {
         let transport = self.transport.clone_ref(py);
         let mounts = self.mounts.clone_ref(py);
 
-        // Check if the transport supports batch requests (our optimized path)
         let has_batch = transport
             .bind(py)
             .hasattr("handle_async_requests_batch")
             .unwrap_or(false);
 
-        // Check that no request uses a custom mount (all use default transport)
         let all_default_transport = requests.iter().all(|req_py| {
             let req = req_py.bind(py).borrow();
             let selected = select_transport(
@@ -2143,7 +2056,6 @@ impl AsyncClient {
         });
 
         if has_batch && all_default_transport && !return_exceptions {
-            // Fast path: use Rust batch transport — minimal GIL contention
             let t_bound = transport.bind(py);
             let req_list = pyo3::types::PyList::new(py, &requests)?;
             return t_bound.call_method1(
@@ -2152,7 +2064,6 @@ impl AsyncClient {
             ).map(|b| b.clone());
         }
 
-        // Fallback path: use asyncio.gather (for custom transports or return_exceptions)
         let coros = pyo3::types::PyList::empty(py);
         for req_py in &requests {
             let transport_to_use = {
@@ -2198,28 +2109,24 @@ _gather_coro = asyncio.gather(
         let gather_coro = ns.get_item("_gather_coro")?.unwrap().unbind();
 
         pyo3_async_runtimes::tokio::future_into_py(py, async move {
-            // Await the gather coroutine (created in the main thread)
             let gather_future = Python::attach(|py| {
                 pyo3_async_runtimes::tokio::into_future(gather_coro.bind(py).clone())
             })?;
 
             let results_obj = gather_future.await?;
 
-            // Convert results to a proper list
             Python::attach(|py| {
                 let results_bound = results_obj.bind(py);
                 let py_list = pyo3::types::PyList::empty(py);
 
                 if let Ok(result_list) = results_bound.cast::<pyo3::types::PyList>() {
                     for (i, item) in result_list.iter().enumerate() {
-                        // Set request on response if possible
                         if let Ok(mut resp) = item.extract::<Response>() {
                             let req_bound = requests[i].bind(py);
                             let req_ref = req_bound.borrow();
                             resp.request = Some(req_ref.clone());
                             py_list.append(Py::new(py, resp)?)?;
                         } else {
-                            // Error case (return_exceptions=True)
                             py_list.append(&item)?;
                         }
                     }
@@ -2269,8 +2176,6 @@ _gather_coro = asyncio.gather(
             ));
         }
 
-        // Use a Python async generator for the iterator — this is the simplest
-        // and most correct approach since Python handles the state naturally.
         let ns = PyDict::new(py);
         ns.set_item("client", slf)?;
         ns.set_item("method", method)?;
@@ -2373,7 +2278,6 @@ _paginator = _AsyncPageIter()
         let url_str = url.to_string();
         let mounts_bound = self.mounts.bind(py);
 
-        // Check mounts with proper pattern matching
         let mut best_transport: Option<Py<PyAny>> = None;
         let mut best_priority = 0u32;
 
@@ -2400,7 +2304,6 @@ _paginator = _AsyncPageIter()
             return Ok(t);
         }
 
-        // Check environment proxy if trust_env is true
         if self.trust_env {
             if let Some(proxy_url) = get_env_proxy_url(&url_str) {
                 let transport = crate::transports::default::AsyncHTTPTransport::create(
@@ -2443,7 +2346,6 @@ _paginator = _AsyncPageIter()
         let mounts = slf.borrow().mounts.clone_ref(py);
 
         pyo3_async_runtimes::tokio::future_into_py(py, async move {
-            // Call __aenter__ on main transport
             let coro = Python::attach(|py| {
                 let t = transport.bind(py);
                 let coro = t.call_method0("__aenter__")?;
@@ -2451,7 +2353,6 @@ _paginator = _AsyncPageIter()
             })?;
             coro.await?;
 
-            // Call __aenter__ on all mounted transports
             let mount_transports: Vec<Py<PyAny>> = Python::attach(|py| {
                 let m = mounts.bind(py);
                 let mut transports = Vec::new();
@@ -2492,7 +2393,6 @@ _paginator = _AsyncPageIter()
         };
 
         pyo3_async_runtimes::tokio::future_into_py(py, async move {
-            // Call __aexit__ on main transport
             let coro = Python::attach(|py| {
                 let t = transport.bind(py);
                 let args = if let Some((ref t_exc, ref v, ref tb)) = exc_info {
@@ -2513,7 +2413,6 @@ _paginator = _AsyncPageIter()
             })?;
             coro.await?;
 
-            // Handle mounted transports
             let mount_transports: Vec<Py<PyAny>> = Python::attach(|py| {
                 let m = mounts.bind(py);
                 let mut transports = Vec::new();
@@ -2524,7 +2423,6 @@ _paginator = _AsyncPageIter()
             })?;
 
             for mt in mount_transports {
-                // Call __aexit__ on mounted transport
                 let coro = Python::attach(|py| {
                     let t = mt.bind(py);
                     let args = if let Some((ref t_exc, ref v, ref tb)) = exc_info {
@@ -2566,12 +2464,7 @@ struct ReleaseGuard {
 
 impl Drop for ReleaseGuard {
     fn drop(&mut self) {
-        // Don't call aclose here - it should be called explicitly with proper await
-        // Calling aclose in Drop using ensure_future doesn't work correctly
-        // because it doesn't properly await the coroutine
         if let Some(_stream) = self.stream.take() {
-            // Stream will be left unclosed if not explicitly handled
-            // This is intentional - aclose should be called explicitly before Drop
         }
     }
 }

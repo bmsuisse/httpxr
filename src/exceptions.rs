@@ -2,7 +2,6 @@ use pyo3::create_exception;
 use pyo3::exceptions::PyException;
 use pyo3::prelude::*;
 
-// Base exception
 create_exception!(
     _httpxr,
     HTTPError,
@@ -10,7 +9,6 @@ create_exception!(
     "Base class for RequestError and HTTPStatusError."
 );
 
-// Request errors
 create_exception!(
     _httpxr,
     RequestError,
@@ -24,7 +22,6 @@ create_exception!(
     "Base class for all exceptions that occur at the level of the Transport API."
 );
 
-// Timeout exceptions
 create_exception!(
     _httpxr,
     TimeoutException,
@@ -56,7 +53,6 @@ create_exception!(
     "Timed out waiting to acquire a connection from the pool."
 );
 
-// Network errors
 create_exception!(
     _httpxr,
     NetworkError,
@@ -88,7 +84,6 @@ create_exception!(
     "Failed to close a connection."
 );
 
-// Other transport exceptions
 create_exception!(
     _httpxr,
     ProxyError,
@@ -120,7 +115,6 @@ create_exception!(
     "The protocol was violated by the server."
 );
 
-// Other request exceptions
 create_exception!(
     _httpxr,
     DecodingError,
@@ -134,7 +128,6 @@ create_exception!(
     "Too many redirects."
 );
 
-// HTTP status error
 create_exception!(
     _httpxr,
     HTTPStatusError,
@@ -142,7 +135,6 @@ create_exception!(
     "Response sent an error status code."
 );
 
-// Stream errors
 create_exception!(
     _httpxr,
     StreamError,
@@ -174,7 +166,6 @@ create_exception!(
     "Attempted to access streaming request content, without having called `read()`."
 );
 
-// Invalid URL
 create_exception!(
     _httpxr,
     InvalidURL,
@@ -182,7 +173,6 @@ create_exception!(
     "URL was missing a hostname, or included an unsupported scheme."
 );
 
-// Cookie conflict
 create_exception!(
     _httpxr,
     CookieConflict,

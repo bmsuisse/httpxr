@@ -67,7 +67,6 @@ impl URL {
     /// Skips urlparse_impl (url::Url::parse, IDNA, control char checks).
     /// Only use for URLs known to be valid http/https URLs.
     pub fn create_from_str_fast(url_str: &str) -> Self {
-        // Quick split: scheme://[userinfo@]host[:port]/path[?query][#fragment]
         let (scheme, rest) = if let Some(pos) = url_str.find("://") {
             (&url_str[..pos], &url_str[pos + 3..])
         } else {
@@ -84,7 +83,6 @@ impl URL {
             };
         };
 
-        // Split authority from path
         let (authority, path_query_frag) = if let Some(slash_pos) = rest.find('/') {
             (&rest[..slash_pos], &rest[slash_pos..])
         } else if let Some(q_pos) = rest.find('?') {
@@ -93,16 +91,13 @@ impl URL {
             (rest, "")
         };
 
-        // Split userinfo from host:port
         let (userinfo, host_port) = if let Some(at_pos) = authority.find('@') {
             (authority[..at_pos].to_string(), &authority[at_pos + 1..])
         } else {
             (String::new(), authority)
         };
 
-        // Split host and port (handle IPv6)
         let (host, port) = if host_port.starts_with('[') {
-            // IPv6
             if let Some(bracket_end) = host_port.find(']') {
                 let h = &host_port[1..bracket_end];
                 let port_part = &host_port[bracket_end + 1..];
@@ -125,7 +120,6 @@ impl URL {
             (host_port.to_string(), None)
         };
 
-        // Split path, query, fragment
         let (path_str, fragment) = if let Some(h_pos) = path_query_frag.find('#') {
             (&path_query_frag[..h_pos], Some(path_query_frag[h_pos + 1..].to_string()))
         } else {
@@ -137,7 +131,6 @@ impl URL {
             (path_str.to_string(), None)
         };
 
-        // Strip default ports
         let normalized_port = match (scheme, port) {
             ("http", Some(80)) | ("https", Some(443)) => None,
             _ => port,
@@ -175,7 +168,6 @@ impl URL {
 
     pub fn join_relative(&self, url: &str) -> PyResult<URL> {
         let base_str = self.to_string();
-        // Handle relative base URL by prepending dummy scheme/host
         let (is_relative, parse_base) = match url::Url::parse(&base_str) {
             Ok(u) => (false, u),
             Err(url::ParseError::RelativeUrlWithoutBase) => {
@@ -190,8 +182,6 @@ impl URL {
             Err(e) => return Err(pyo3::exceptions::PyValueError::new_err(e.to_string())),
         };
 
-        // Extract explicit port from the redirect URL before joining
-        // (url::Url normalizes away default ports like :443 for https)
         let explicit_port = {
             let url_trimmed = url.trim();
             if let Some(scheme_end) = url_trimmed.find("://") {
@@ -211,7 +201,6 @@ impl URL {
         let joined = match parse_base.join(url) {
             Ok(u) => u,
             Err(url::ParseError::EmptyHost) => {
-                // If EmptyHost error, try to recover using base host
                 if let Some(base_host) = parse_base.host_str() {
                     if url.starts_with("https://:") {
                         let new_url = format!("https://{}{}", base_host, &url[8..]);
@@ -236,7 +225,6 @@ impl URL {
         let final_url_obj = if joined.host_str().unwrap_or("").is_empty()
             && (joined.scheme() == "http" || joined.scheme() == "https")
         {
-            // Existing fallback (if join succeeded but host empty)
             if let Some(base_host) = parse_base.host_str() {
                 let mut j = joined.clone();
                 if let Err(_) = j.set_host(Some(base_host)) {
@@ -252,7 +240,6 @@ impl URL {
         };
 
         let final_url = if is_relative {
-            // Strip http://dummy
             let s = final_url_obj.as_str();
             let path_start = s.find("http://dummy").map(|i| i + 12).unwrap_or(0);
             &s[path_start..]
@@ -262,7 +249,6 @@ impl URL {
 
         let mut parsed_url = urlparse_impl(final_url, None)?;
 
-        // Restore explicit port if it was stripped by url::Url normalization
         if let Some(port) = explicit_port {
             if parsed_url.port.is_none() {
                 parsed_url.port = Some(port);
@@ -353,7 +339,6 @@ impl URL {
         }
         let url_str = if let Some(u) = url {
             if let Ok(existing) = u.extract::<URL>() {
-                // Clone existing URL, then apply kwargs
                 let mut parsed = existing.parsed.clone();
                 if let Some(s) = scheme {
                     parsed.scheme = s.to_lowercase();
@@ -389,7 +374,6 @@ impl URL {
                     parsed.userinfo = u.to_string();
                 }
 
-                // Apply query params if provided
                 if let Some(p) = params {
                     if !p.is_none() {
                         let qp = QueryParams::create(Some(p))?;
@@ -418,7 +402,6 @@ impl URL {
             String::new()
         };
 
-        // Component validation
         if let Some(p) = path {
             check_length(p, 65536, Some("path"))?;
             check_control_chars(p, 0, Some("path"))?;
@@ -428,7 +411,6 @@ impl URL {
         }
 
         if let Some(s) = scheme {
-            // Validate scheme characters
             if !s
                 .chars()
                 .all(|c| c.is_ascii_alphanumeric() || c == '+' || c == '-' || c == '.')
@@ -440,7 +422,6 @@ impl URL {
         }
 
         if let Some(p) = path {
-            // Absolute URL checks
             match (scheme, host) {
                 (Some(_), Some(_)) | (Some(_), None) => {
                     if !p.is_empty() && !p.starts_with('/') {
@@ -466,17 +447,14 @@ impl URL {
 
         let mut parsed = urlparse_impl(&url_str, None)?;
 
-        // Apply kwargs overrides
         if let Some(s) = scheme {
             parsed.scheme = s.to_lowercase();
         }
-        // Validate host if it's not an IP address (heuristic: contains :) or encoded
         if !parsed.host.contains(':') && !parsed.host.contains('%') {
             validate_host(&parsed.host)?;
         }
         if let Some(h) = host {
             let h_lower = h.to_lowercase();
-            // Strip brackets from IPv6 host if present
             parsed.host = if h_lower.starts_with('[') && h_lower.ends_with(']') {
                 h_lower[1..h_lower.len() - 1].to_string()
             } else {
@@ -506,7 +484,6 @@ impl URL {
             parsed.userinfo = u.to_string();
         }
 
-        // Apply query params if provided
         if let Some(p) = params {
             if !p.is_none() {
                 let qp = QueryParams::create(Some(p))?;
@@ -588,8 +565,6 @@ impl URL {
     #[getter]
     fn netloc<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyBytes>> {
         let host = &self.parsed.host;
-        // If it looks like an IPv6 literal (contains colon), don't IDNA encode
-        // Note: parsed.host is unbracketed for IPv6
         let encoded_host = if host.contains(':') {
             format!("[{}]", host)
         } else {
@@ -643,7 +618,6 @@ impl URL {
     fn raw_host<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyBytes>> {
         let host = &self.parsed.host;
         if host.contains(':') {
-            // IPv6 literal - return as bytes (unbracketed for raw_host?)
             Ok(PyBytes::new(py, host.as_bytes()))
         } else {
             let ascii = idna::domain_to_ascii(host).map_err(|e| {
@@ -671,7 +645,6 @@ impl URL {
                 match key_str.as_str() {
                     "scheme" => {
                         let s = extract_str_or_bytes(&value)?;
-                        // Validate scheme chars: a-z A-Z 0-9 + . - and must start with alpha
                         if s.is_empty() || !s.chars().next().unwrap().is_ascii_alphabetic() {
                             return Err(crate::exceptions::InvalidURL::new_err(format!(
                                 "Invalid URL: scheme '{}' is invalid",
@@ -691,7 +664,6 @@ impl URL {
                     "host" => {
                         let h: String = extract_str_or_bytes(&value)?;
                         let h_lower = h.to_lowercase();
-                        // Strip brackets from IPv6 host if present
                         new_parsed.host = if h_lower.starts_with('[') && h_lower.ends_with(']') {
                             h_lower[1..h_lower.len() - 1].to_string()
                         } else {
@@ -715,7 +687,6 @@ impl URL {
                     }
                     "raw_path" => {
                         let rp_str = extract_str_or_bytes(&value)?;
-                        // Parse as partial/relative URL to extract path, query, fragment
                         let partial = urlparse_impl(&rp_str, None)?;
                         new_parsed.path = partial.path;
                         new_parsed.query = partial.query;
@@ -736,7 +707,6 @@ impl URL {
                         }
                     }
                     "userinfo" => {
-                        // Enforce bytes for userinfo as per httpx semantic expectations
                         if !value.is_instance_of::<pyo3::types::PyBytes>() {
                             return Err(pyo3::exceptions::PyTypeError::new_err(
                                 "userinfo must be bytes",
@@ -746,7 +716,6 @@ impl URL {
                     }
                     "netloc" => {
                         let netloc_str = extract_str_or_bytes(&value)?;
-                        // Parse as http://<netloc> to extract components
                         let temp_url = format!("http://{}", netloc_str);
                         let partial = urlparse_impl(&temp_url, None)?;
                         new_parsed.userinfo = partial.userinfo;
@@ -784,7 +753,6 @@ impl URL {
                 }
             }
 
-            // Normalize port after potential scheme change
             if let Some(p) = new_parsed.port {
                 if Some(p) == crate::urlparse::default_port(&new_parsed.scheme) {
                     new_parsed.port = None;
@@ -802,7 +770,6 @@ impl URL {
         self.to_string()
     }
     fn __repr__(&self) -> String {
-        // Mask password in repr for security
         if !self.parsed.userinfo.is_empty() && self.parsed.userinfo.contains(':') {
             let username = self.get_username();
             let mut masked = self.parsed.clone();
@@ -818,7 +785,6 @@ impl URL {
             self.to_string() == other_url.to_string()
         } else if let Ok(s) = other.extract::<String>() {
             let self_str = self.to_string();
-            // Allow comparison with/without trailing slash
             self_str == s || self_str.trim_end_matches('/') == s.trim_end_matches('/')
         } else {
             false
@@ -933,7 +899,6 @@ impl QueryParams {
         } else if let Ok(i) = v.extract::<i64>() {
             Ok(i.to_string())
         } else if let Ok(f) = v.extract::<f64>() {
-            // Format without trailing zeros for clean display
             let s = format!("{}", f);
             Ok(s)
         } else {
@@ -953,7 +918,6 @@ impl QueryParams {
         let mut items = Vec::new();
         if let Some(p) = params {
             if p.is_none() {
-                // Nothing
             } else if let Ok(existing) = p.extract::<QueryParams>() {
                 items = existing.items;
             } else if let Ok(s) = p.extract::<String>() {
@@ -964,7 +928,6 @@ impl QueryParams {
             } else if let Ok(d) = p.cast::<PyDict>() {
                 for (k, v) in d.iter() {
                     let key: String = k.str()?.extract()?;
-                    // Check if value is a list or tuple (expand to multiple entries)
                     if let Ok(list) = v.cast::<PyList>() {
                         for item in list.iter() {
                             items.push((key.clone(), Self::value_to_string(&item)?));
@@ -986,7 +949,6 @@ impl QueryParams {
                     items.push((k, v));
                 }
             } else if let Ok(t) = p.cast::<PyTuple>() {
-                // Handle tuple of tuples
                 for i in 0..t.len() {
                     let item = t.get_item(i)?;
                     let inner = item.cast::<PyTuple>()?;
@@ -1102,13 +1064,11 @@ impl QueryParams {
         let mut items = Vec::new();
         let other_keys: std::collections::HashSet<String> =
             other_qp.items.iter().map(|(k, _)| k.clone()).collect();
-        // Keep existing items whose keys are not in other
         for (k, v) in &self.items {
             if !other_keys.contains(k) {
                 items.push((k.clone(), v.clone()));
             }
         }
-        // Add all other items
         items.extend(other_qp.items);
         Ok(QueryParams { items })
     }
@@ -1143,7 +1103,6 @@ impl QueryParams {
     }
     fn __eq__(&self, other: &Bound<'_, PyAny>) -> bool {
         if let Ok(other_qp) = other.extract::<QueryParams>() {
-            // Compare sorted for order-independent equality
             let mut a = self.items.clone();
             let mut b = other_qp.items.clone();
             a.sort();

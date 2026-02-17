@@ -84,12 +84,10 @@ impl FileField {
 
         headers_str.push_str("\r\n");
 
-        // Render extra headers first
         for (k, v) in &self.headers {
             headers_str.push_str(&format!("{}: {}\r\n", k, v));
         }
 
-        // Render Content-Type if not in extra headers and we have one
         let has_ct = self
             .headers
             .iter()
@@ -240,14 +238,12 @@ fn process_file_item(
         };
         (fname, fobj, ctype, hdrs)
     } else {
-        // Direct file object
         let fname = if let Ok(n) = item.getattr("name") {
             n.extract::<String>()
                 .unwrap_or_else(|_| "upload".to_string())
         } else {
             "upload".to_string()
         };
-        // Extract only the basename of the file
         let fname_path = std::path::Path::new(&fname);
         let basename = fname_path
             .file_name()
@@ -296,7 +292,6 @@ fn process_file_item(
             } else if read_res.extract::<String>().is_ok() {
                 return Err(PyTypeError::new_err("Expected bytes, got str"));
             } else {
-                // Unknown type, try force extract or empty
                 if let Ok(b) = read_res.extract::<Vec<u8>>() {
                     b
                 } else {
@@ -376,7 +371,6 @@ impl MultipartStream {
 
         let mut fields: Vec<MultipartField> = Vec::new();
 
-        // Process data fields
         if let Some(d) = data {
             if !d.is_none() {
                 if let Ok(dict) = d.cast::<PyDict>() {
@@ -390,7 +384,6 @@ impl MultipartStream {
                             PyTypeError::new_err(format!("Invalid type for name: {}", repr))
                         })?;
 
-                        // Check for list/tuple (repeated fields)
                         if let Ok(list) = v.cast::<PyList>() {
                             for item in list.iter() {
                                 let value = extract_data_value(&item)?;
@@ -402,7 +395,6 @@ impl MultipartStream {
                                 fields.push(MultipartField::Data(DataField::new(&name, &value)));
                             }
                         } else {
-                            // Single value
                             let value = extract_data_value(&v)?;
                             fields.push(MultipartField::Data(DataField::new(&name, &value)));
                         }
@@ -427,7 +419,6 @@ impl MultipartStream {
             }
         }
 
-        // Process file fields
         if let Some(f) = files {
             if !f.is_none() {
                 let mimetypes = py.import("mimetypes")?;
@@ -499,7 +490,6 @@ impl MultipartStream {
         self.buffer.clone()
     }
 
-    // Iterator implementation for Python
     fn __iter__(slf: PyRef<'_, Self>) -> PyRef<'_, Self> {
         slf
     }

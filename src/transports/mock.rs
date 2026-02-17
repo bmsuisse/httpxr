@@ -32,13 +32,10 @@ impl MockTransport {
         py: Python<'py>,
         request: crate::models::Request,
     ) -> PyResult<Bound<'py, PyAny>> {
-        // Call the handler, which might be sync or async
         let result = self.handler.call1(py, (request,))?;
-        // If result is awaitable, return it; otherwise wrap in a completed future
         if result.bind(py).hasattr("__await__")? {
             Ok(result.into_bound(py))
         } else {
-            // Wrap sync result in an async-compatible form
             let _handler = self.handler.clone_ref(py);
             pyo3_async_runtimes::tokio::future_into_py(py, async move {
                 Python::attach(|py| {
@@ -114,13 +111,10 @@ impl AsyncMockTransport {
         py: Python<'py>,
         request: crate::models::Request,
     ) -> PyResult<Bound<'py, PyAny>> {
-        // Call the handler, which might be sync or async
         let result = self.handler.call1(py, (request,))?;
-        // If result is awaitable, return it; otherwise wrap
         if result.bind(py).hasattr("__await__")? {
             Ok(result.into_bound(py))
         } else {
-            // Wrap sync result in a coroutine
             let asyncio = py.import("asyncio")?;
             let coro = asyncio.call_method1("coroutine", (result,))?;
             Ok(coro)

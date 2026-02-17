@@ -24,7 +24,6 @@ impl Auth {
         py: Python<'_>,
         request: &crate::models::Request,
     ) -> PyResult<Py<PyAny>> {
-        // Default: yield the request unchanged (generator)
         let flow = SyncAuthFlow {
             request: Some(request.clone()),
         };
@@ -158,7 +157,6 @@ impl DigestAuth {
     ) -> PyResult<Py<PyAny>> {
         let auth: Py<DigestAuth> = slf.into();
 
-        // Check if we have a cached nonce: if so, build auth header immediately
         let has_cached_nonce = {
             let auth_bound = auth.bind(py);
             let auth_ref = auth_bound.borrow();
@@ -220,7 +218,6 @@ impl DigestAuth {
                     format!("{:x}", hasher.finalize())
                 }
                 _ => {
-                    // MD5 and default
                     let mut hasher = Md5::new();
                     hasher.update(data.as_bytes());
                     format!("{:x}", hasher.finalize())
@@ -277,23 +274,19 @@ impl DigestAuthFlow {
     fn __next__(&mut self, py: Python<'_>) -> PyResult<Option<Py<PyAny>>> {
         match self.state {
             0 => {
-                // First call: yield the initial request (without auth)
                 self.state = 1;
                 Ok(Some(self.request.clone().into_pyobject(py).unwrap().into()))
             }
             1 => {
-                // If send() was called, pending_response will be set
                 if let Some(response) = self.pending_response.take() {
                     let result = self.process_response(response.bind(py))?;
                     self.state = 2;
                     Ok(Some(result))
                 } else {
-                    // No response was sent, stop iteration
                     Ok(None)
                 }
             }
             3 => {
-                // Has cached nonce: build authenticated request immediately
                 self.state = 1; // Can still receive 401 and retry
                 let auth_bound = self.auth.bind(py);
                 let auth_ref = auth_bound.borrow();
@@ -303,7 +296,6 @@ impl DigestAuthFlow {
                     let result = self.build_cached_auth_request(py, &nonce_val)?;
                     Ok(Some(result))
                 } else {
-                    // No cached nonce available, yield request without auth
                     Ok(Some(self.request.clone().into_pyobject(py).unwrap().into()))
                 }
             }
@@ -315,7 +307,6 @@ impl DigestAuthFlow {
         if self.state != 1 {
             return Err(pyo3::exceptions::PyStopIteration::new_err(()));
         }
-        // Process the response directly in send()
         let result = self.process_response(response)?;
         self.state = 2;
         Ok(result)
@@ -347,7 +338,6 @@ impl DigestAuthFlow {
             return Err(pyo3::exceptions::PyStopIteration::new_err(()));
         }
 
-        // Parse challenge
         let mut realm = None;
         let mut nonce = None;
         let mut qop = None;
@@ -380,7 +370,6 @@ impl DigestAuthFlow {
                     "realm" => realm = Some(val.to_string()),
                     "nonce" => nonce = Some(val.to_string()),
                     "qop" => {
-                        // Parse QOP options and select the best one
                         let qop_options: Vec<&str> = val.split(',').map(|s| s.trim()).collect();
                         if qop_options.iter().any(|q| *q == "auth") {
                             qop = Some("auth".to_string());
@@ -426,7 +415,6 @@ impl DigestAuthFlow {
                 *nc_lock += 1;
             }
 
-            // Cache challenge values for subsequent flows
             *auth_rust.cached_realm.lock().unwrap() = Some(realm_val.clone());
             *auth_rust.cached_qop.lock().unwrap() = qop.clone();
             *auth_rust.cached_opaque.lock().unwrap() = opaque.clone();
@@ -438,7 +426,6 @@ impl DigestAuthFlow {
         let cnonce: String = if let Ok(res) =
             auth_bound.call_method1("_get_client_nonce", (nc, nonce_val.as_bytes()))
         {
-            // The method may return bytes or str
             if let Ok(s) = res.extract::<String>() {
                 s
             } else if let Ok(b) = res.extract::<Vec<u8>>() {
@@ -541,7 +528,6 @@ impl DigestAuthFlow {
             let opaque = auth_ref.cached_opaque.lock().unwrap().clone();
             let algorithm = auth_ref.cached_algorithm.lock().unwrap().clone();
 
-            // Increment nonce count
             let mut nc_lock = auth_ref.nonce_count.lock().unwrap();
             *nc_lock += 1;
             let nc = *nc_lock;
@@ -605,26 +591,13 @@ impl FunctionAuth {
         request: &mut crate::models::Request,
     ) -> PyResult<Py<PyAny>> {
         let result = self.func.call1(py, (request.clone(),))?;
-        // Logic for function auth might need to be wrapped in a generator if it returns one?
-        // Standard httpx FunctionAuth usually expects the function to yield requests.
-        // If the user function returns a generator, we return it.
-        // If it returns a request/list, we wrap it.
-        // Check if result is iterator?
-        // For now, assume it behaves like existing implementation but we need to return iterator.
-        // Existing impl returned a list. We can wrap that list in an iterator.
 
-        // Actually, if `self.func` returns a generator, we just return it.
-        // If it returns a request/None, we probably need to handle it.
-        // Let's assume for now the user function follows the protocol.
-        // But to be safe and compatible with previous list-return implementation:
-        // If it returns a Request or list, we make an iterator.
 
         let iter_check = result.call_method0(py, "__iter__");
         if iter_check.is_ok() {
             return Ok(result);
         }
 
-        // Wrap single result in 1-item iterator
         let list = pyo3::types::PyList::new(py, &[result])?;
         let iter = list.call_method0("__iter__")?;
         Ok(iter.into())

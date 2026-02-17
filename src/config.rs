@@ -43,7 +43,6 @@ impl Timeout {
 
         if let Some(t) = timeout {
             if t.is_none() {
-                // timeout=None explicitly — valid, all unspecified fields are None
             } else if let Ok(existing) = t.extract::<Timeout>() {
                 return Ok(existing);
             } else if let Ok(tuple) = t.cast::<PyTuple>() {
@@ -197,7 +196,6 @@ pub struct Proxy {
 }
 impl Proxy {
     pub fn create_from_url(url: &str) -> PyResult<Self> {
-        // Validate scheme
         let valid_schemes = ["http://", "https://", "socks5://", "socks5h://"];
         if !url.contains("://") || !valid_schemes.iter().any(|s| url.starts_with(s)) {
             return Err(PyValueError::new_err(
@@ -249,7 +247,6 @@ impl Proxy {
         let _ = ssl_context;
         let url_str: String = url.str()?.extract()?;
 
-        // Scheme validation: test_invalid_proxy_scheme expects ValueError
         let valid_schemes = ["http://", "https://", "socks5://", "socks5h://"];
         if !url_str.contains("://") || !valid_schemes.iter().any(|s| url_str.starts_with(s)) {
             return Err(PyValueError::new_err("Proxy URL must have a supported scheme (http://, https://, socks5://, socks5h://)."));

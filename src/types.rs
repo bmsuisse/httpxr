@@ -153,7 +153,7 @@ impl BlockingBytesIterator {
     pub fn new(reader: Box<dyn std::io::Read + Send>) -> Self {
         BlockingBytesIterator {
             reader: std::sync::Mutex::new(Some(reader)),
-            buffer_size: 8192, // Default chunk size
+            buffer_size: 8192,
         }
     }
 
@@ -173,12 +173,10 @@ impl BlockingBytesIterator {
         let mut guard = self.reader.lock().unwrap();
         if let Some(reader) = guard.as_mut() {
             let mut buf = vec![0u8; self.buffer_size];
-            // Release GIL during blocking read
-            // TODO: Restore allow_threads when pyo3 version compatibility is resolved
             let n = reader.read(&mut buf)?;
 
             if n == 0 {
-                *guard = None; // Close/Drop reader
+                *guard = None;
                 Ok(None)
             } else {
                 buf.truncate(n);
@@ -311,7 +309,6 @@ impl IteratorByteStream {
     }
 
     fn __next__(&self, py: Python<'_>) -> PyResult<Option<Py<PyAny>>> {
-        // Call __next__ on iterator
         match self.iterator.call_method0(py, "__next__") {
             Ok(val) => Ok(Some(val)),
             Err(e) => {
@@ -418,7 +415,6 @@ impl ResponseAsyncIteratorStream {
 #[pymethods]
 impl ResponseAsyncIteratorStream {
     fn __aiter__(slf: PyRef<'_, Self>, py: Python<'_>) -> PyResult<Py<Self>> {
-        // If __aiter__ was already called (stream was started), raise StreamConsumed
         if slf.started.load(std::sync::atomic::Ordering::Relaxed) {
             return Err(crate::exceptions::StreamConsumed::new_err(
                 "Attempted to read or stream content, but the stream has already been consumed.",
@@ -426,15 +422,13 @@ impl ResponseAsyncIteratorStream {
         }
         slf.started
             .store(true, std::sync::atomic::Ordering::Relaxed);
-        // Call __aiter__ on the original to get the actual async iterator
         {
             let mut guard = slf.actual_iterator.lock().unwrap();
             if guard.is_none() {
                 let iter = slf.original.call_method0(py, "__aiter__")?;
                 *guard = Some(iter);
             }
-        } // drop guard before converting slf
-          // Return self as the object to iterate (we implement __anext__)
+        }
         Ok(slf.into())
     }
 

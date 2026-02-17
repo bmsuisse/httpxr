@@ -75,7 +75,6 @@ pub fn merge_base_url(base: &URL, url: &str) -> PyResult<URL> {
         let bp = base_path.trim_end_matches('/');
         format!("{}{}", bp, url)
     } else if url.starts_with("..") {
-        // Treat base path as a directory by ensuring trailing slash
         let mut dir_base = base.clone();
         if !dir_base.parsed.path.ends_with('/') {
             dir_base.parsed.path = format!("{}/", dir_base.parsed.path);
@@ -145,7 +144,6 @@ pub fn build_request_body<'py>(
         } else if let Ok(s) = c.extract::<String>() {
             return Ok(Some(s.into_bytes()));
         }
-        // Check for async iterators — sync client cannot handle them
         let has_aiter = c.hasattr("__aiter__").unwrap_or(false);
         if has_aiter {
             return Err(pyo3::exceptions::PyRuntimeError::new_err(
@@ -194,8 +192,6 @@ pub fn build_request_body<'py>(
 
 /// Arrange headers in httpx canonical order: Host, Accept, Accept-Encoding, Connection, User-Agent, Content-*, then remaining.
 pub fn arrange_headers_httpx_order(merged_headers: &Headers, target_url: &URL) -> Headers {
-    // Fast path: check if headers are already in canonical order.
-    // For simple requests with default headers, this avoids rebuilding the entire header map.
     let canonical_prefix = ["host", "accept", "accept-encoding", "connection", "user-agent"];
     let items = merged_headers.iter_all();
     if items.len() >= canonical_prefix.len() {
@@ -203,7 +199,6 @@ pub fn arrange_headers_httpx_order(merged_headers: &Headers, target_url: &URL) -
             items.get(i).map_or(false, |(name, _value)| name.to_lowercase() == *expected)
         });
         if already_ordered {
-            // Verify host value matches target URL host
             let current_host = items[0].1.clone();
             let expected_host = if merged_headers.contains_header("host") {
                 merged_headers.get_first_value("host").unwrap_or_default()
@@ -218,7 +213,6 @@ pub fn arrange_headers_httpx_order(merged_headers: &Headers, target_url: &URL) -
 
     let mut final_headers = Headers::new_empty();
 
-    // 1. Host (always add, it's URL-dependent)
     if merged_headers.contains_header("host") {
         if let Some(v) = merged_headers.get_first_value("host") {
             final_headers.set_header("Host", &v);
@@ -227,27 +221,22 @@ pub fn arrange_headers_httpx_order(merged_headers: &Headers, target_url: &URL) -
         final_headers.set_header("Host", &build_host_header(target_url));
     }
 
-    // 2. Accept (only if present in merged headers)
     if let Some(v) = merged_headers.get_first_value("accept") {
         final_headers.set_header("Accept", &v);
     }
 
-    // 3. Accept-Encoding (only if present)
     if let Some(v) = merged_headers.get_first_value("accept-encoding") {
         final_headers.set_header("Accept-Encoding", &v);
     }
 
-    // 4. Connection (only if present)
     if let Some(v) = merged_headers.get_first_value("connection") {
         final_headers.set_header("Connection", &v);
     }
 
-    // 5. User-Agent (only if present)
     if let Some(v) = merged_headers.get_first_value("user-agent") {
         final_headers.set_header("User-Agent", &v);
     }
 
-    // 6. Content-Type and Content-Length (if present)
     if let Some(v) = merged_headers.get_first_value("content-type") {
         final_headers.set_header("Content-Type", &v);
     }
@@ -255,7 +244,6 @@ pub fn arrange_headers_httpx_order(merged_headers: &Headers, target_url: &URL) -
         final_headers.set_header("Content-Length", &v);
     }
 
-    // 7. Remaining user headers
     for (name, value) in merged_headers.iter_all() {
         let name_lower = name.to_lowercase();
         if ![
@@ -310,18 +298,15 @@ pub fn validate_auth_type(_py: Python<'_>, auth: &Bound<'_, PyAny>) -> PyResult<
     if auth.is_none() {
         return Ok(());
     }
-    // tuple is fine
     if auth.cast::<pyo3::types::PyTuple>().is_ok() {
         return Ok(());
     }
-    // Auth instance (has auth_flow or sync_auth_flow)
     if auth.hasattr("auth_flow")? {
         return Ok(());
     }
     if auth.hasattr("sync_auth_flow")? {
         return Ok(());
     }
-    // callable is fine
     if auth.is_callable() {
         return Ok(());
     }
@@ -342,7 +327,6 @@ pub fn coerce_auth(py: Python<'_>, auth: &Bound<'_, PyAny>) -> PyResult<Py<PyAny
     if auth.is_none() {
         return Ok(py.None());
     }
-    // Convert tuples to BasicAuth
     if let Ok(tuple) = auth.cast::<pyo3::types::PyTuple>() {
         if tuple.len() == 2 {
             let user: String = tuple.get_item(0)?.extract()?;
@@ -365,7 +349,6 @@ pub fn apply_auth<'py>(
     request: &mut Request,
     auth_explicitly_none: bool,
 ) -> PyResult<AuthResult> {
-    // If auth=None was explicitly passed, disable auth
     if auth_explicitly_none {
         return Ok(AuthResult::None);
     }
@@ -376,7 +359,6 @@ pub fn apply_auth<'py>(
         client_auth.map(|a| a.bind(py))
     };
     if let Some(a) = effective_auth {
-        // Check for tuple (Basic auth)
         if let Ok(tuple) = a.cast::<pyo3::types::PyTuple>() {
             if tuple.len() == 2 {
                 let user: String = tuple.get_item(0)?.extract()?;
@@ -395,22 +377,18 @@ pub fn apply_auth<'py>(
             return Ok(AuthResult::Applied);
         }
 
-        // Check for Auth instance: prefer auth_flow (Python-level generator) over sync_auth_flow
         if a.hasattr("auth_flow")? {
             let req_py = Py::new(py, request.clone())?;
             let flow = a.call_method1("auth_flow", (req_py,))?;
             return Ok(AuthResult::Flow(flow.unbind()));
         }
 
-        // Check for Auth instance (has sync_auth_flow method)
         if a.hasattr("sync_auth_flow")? {
-            // Get the auth flow generator
             let req_py = Py::new(py, request.clone())?;
             let flow = a.call_method1("sync_auth_flow", (req_py,))?;
             return Ok(AuthResult::Flow(flow.unbind()));
         }
 
-        // Simple callable
         if a.is_callable() {
             let req_py = Py::new(py, request.clone())?;
             let flow = a.call1((req_py.bind(py),))?;
@@ -431,7 +409,6 @@ pub fn apply_auth_async<'py>(
     request: &mut Request,
     auth_explicitly_none: bool,
 ) -> PyResult<AuthResult> {
-    // If auth=None was explicitly passed, disable auth
     if auth_explicitly_none {
         return Ok(AuthResult::None);
     }
@@ -442,7 +419,6 @@ pub fn apply_auth_async<'py>(
         client_auth.map(|a| a.bind(py))
     };
     if let Some(a) = effective_auth {
-        // Check for tuple (Basic auth)
         if let Ok(tuple) = a.cast::<pyo3::types::PyTuple>() {
             if tuple.len() == 2 {
                 let user: String = tuple.get_item(0)?.extract()?;
@@ -461,28 +437,24 @@ pub fn apply_auth_async<'py>(
             return Ok(AuthResult::Applied);
         }
 
-        // For async: prefer async_auth_flow
         if a.hasattr("async_auth_flow")? {
             let req_py = Py::new(py, request.clone())?;
             let flow = a.call_method1("async_auth_flow", (req_py,))?;
             return Ok(AuthResult::Flow(flow.unbind()));
         }
 
-        // Check for Python-level auth_flow (generator)
         if a.hasattr("auth_flow")? {
             let req_py = Py::new(py, request.clone())?;
             let flow = a.call_method1("auth_flow", (req_py,))?;
             return Ok(AuthResult::Flow(flow.unbind()));
         }
 
-        // Fall back to sync_auth_flow
         if a.hasattr("sync_auth_flow")? {
             let req_py = Py::new(py, request.clone())?;
             let flow = a.call_method1("sync_auth_flow", (req_py,))?;
             return Ok(AuthResult::Flow(flow.unbind()));
         }
 
-        // Simple callable
         if a.is_callable() {
             let req_py = Py::new(py, request.clone())?;
             let flow = a.call1((req_py.bind(py),))?;
@@ -521,7 +493,6 @@ pub fn apply_cookies<'py>(
     }
     if let Some(c) = request_cookies {
         if !c.is_none() {
-            // Emit DeprecationWarning for per-request cookies
             let warnings = py.import("warnings")?;
             warnings.call_method1("warn", (
                 "Setting per-request cookies=<...> is being deprecated, because the expected behaviour on cookie persistence is ambiguous. Set cookies directly on a client instance instead.",
@@ -624,36 +595,30 @@ pub fn extract_cookies_to_jar(
 
 /// Check if a URL matches a mount pattern (httpx-compatible).
 pub fn url_matches_pattern(url_str: &str, pattern: &str) -> bool {
-    // "all://" matches everything
     if pattern == "all://" {
         return true;
     }
 
-    // Parse scheme from pattern
     let (pattern_scheme, pattern_rest) = if let Some(idx) = pattern.find("://") {
         (&pattern[..idx], &pattern[idx + 3..])
     } else {
         return false;
     };
 
-    // Parse scheme from URL
     let (url_scheme, url_rest) = if let Some(idx) = url_str.find("://") {
         (&url_str[..idx], &url_str[idx + 3..])
     } else {
         return false;
     };
 
-    // Check if pattern has "all" scheme or matches URL scheme
     if pattern_scheme != "all" && pattern_scheme != url_scheme {
         return false;
     }
 
-    // Scheme-only pattern (e.g., "http://")
     if pattern_rest.is_empty() {
         return true;
     }
 
-    // Extract host:port from URL
     let url_host_port = if let Some(slash) = url_rest.find('/') {
         &url_rest[..slash]
     } else {
@@ -665,7 +630,6 @@ pub fn url_matches_pattern(url_str: &str, pattern: &str) -> bool {
         (url_host_port, None)
     };
 
-    // Extract host:port from pattern
     let pattern_host_port = if let Some(slash) = pattern_rest.find('/') {
         &pattern_rest[..slash]
     } else {
@@ -680,24 +644,20 @@ pub fn url_matches_pattern(url_str: &str, pattern: &str) -> bool {
         (pattern_host_port, None)
     };
 
-    // Wildcard patterns
     if pattern_host == "*" {
         return true;
     }
 
     if pattern_host.starts_with("*.") {
-        // "*.example.com" matches "www.example.com" but NOT "example.com"
-        let suffix = &pattern_host[1..]; // ".example.com"
+        let suffix = &pattern_host[1..];
         return url_host.ends_with(suffix);
     }
 
     if pattern_host.starts_with('*') {
-        // "*example.com" matches "example.com" and "www.example.com" but NOT "wwwexample.com"
-        let suffix = &pattern_host[1..]; // "example.com"
+        let suffix = &pattern_host[1..];
         return url_host == suffix || url_host.ends_with(&format!(".{}", suffix));
     }
 
-    // Exact host match
     url_host == pattern_host
 }
 
@@ -709,8 +669,6 @@ pub fn select_transport(
 ) -> PyResult<Py<PyAny>> {
     let url_str = url.to_string();
 
-    // Priority order: most specific match wins
-    // httpx priority: scheme://domain > scheme:// > all://domain > all://
     let mut best_transport: Option<Py<PyAny>> = None;
     let mut best_priority = 0;
 
@@ -846,7 +804,6 @@ pub fn parse_sync_mounts(mounts: Option<&Bound<'_, PyAny>>) -> PyResult<Vec<(Str
         if let Ok(d) = m.cast::<PyDict>() {
             for (k, v) in d.iter() {
                 let pattern: String = k.extract()?;
-                // Validate deprecated patterns
                 if pattern == "http" || pattern == "https" || pattern == "all" {
                     return Err(pyo3::exceptions::PyValueError::new_err(
                         format!("Proxy keys should use proper URL-like patterns (e.g., 'http://', 'https://', 'all://'), not '{}'", pattern)
@@ -869,7 +826,6 @@ pub fn is_no_proxy(url_str: &str, no_proxy: &str) -> bool {
         return true;
     }
 
-    // Parse the URL to get host
     let (url_scheme, url_rest) = if let Some(idx) = url_str.find("://") {
         (&url_str[..idx], &url_str[idx + 3..])
     } else {
@@ -892,7 +848,6 @@ pub fn is_no_proxy(url_str: &str, no_proxy: &str) -> bool {
             continue;
         }
 
-        // Check if entry has a scheme
         if let Some(idx) = entry.find("://") {
             let entry_scheme = &entry[..idx];
             let entry_host = &entry[idx + 3..];
@@ -907,12 +862,10 @@ pub fn is_no_proxy(url_str: &str, no_proxy: &str) -> bool {
 
         let entry_clean = entry.trim_start_matches('.');
 
-        // Exact match
         if url_host == entry_clean {
             return true;
         }
 
-        // Domain suffix match (with dot separator)
         if url_host.ends_with(&format!(".{}", entry_clean)) {
             return true;
         }
@@ -928,7 +881,6 @@ pub fn get_env_proxy_url(url_str: &str) -> Option<String> {
         return None;
     };
 
-    // Look up scheme-specific proxy first, then ALL_PROXY
     let proxy_url = match scheme {
         "http" => std::env::var("HTTP_PROXY")
             .ok()
@@ -949,7 +901,6 @@ pub fn get_env_proxy_url(url_str: &str) -> Option<String> {
         return None;
     }
 
-    // Check NO_PROXY
     let no_proxy = std::env::var("NO_PROXY")
         .or_else(|_| std::env::var("no_proxy"))
         .unwrap_or_default();
@@ -957,7 +908,6 @@ pub fn get_env_proxy_url(url_str: &str) -> Option<String> {
         return None;
     }
 
-    // Auto-prepend http:// if missing
     if proxy_url.contains("://") {
         Some(proxy_url)
     } else {

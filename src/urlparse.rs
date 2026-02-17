@@ -3,7 +3,6 @@ use pyo3::types::PyDict;
 
 /// RFC3986 URL parsing implemented in Rust.
 
-// Character sets for percent-encoding
 fn frag_safe() -> String {
     (0x20u8..0x7Fu8)
         .filter(|&i| !matches!(i, 0x20 | 0x22 | 0x3C | 0x3E | 0x60))
@@ -19,8 +18,6 @@ fn query_safe() -> String {
 }
 
 pub fn encode_query_smart(query: &str) -> String {
-    // quote function already checks for input being safe (including ' and valid %XX)
-    // We just need to ensure correct safe set.
     quote(query, &query_safe())
 }
 
@@ -367,7 +364,6 @@ fn normalize_ipv6_host(host: &str) -> String {
         host
     };
 
-    // Check for IPv4-mapped IPv6 address (::ffff:x:x or ::ffff:1.2.3.4)
     if host_clean.starts_with("::ffff:") {
         if let Ok(ip) = host_clean.parse::<std::net::Ipv6Addr>() {
             if let Some(ipv4) = ip.to_ipv4() {
@@ -384,7 +380,6 @@ fn extract_host_from_invalid_url(url: &str) -> &str {
     } else {
         url
     };
-    // Stop at /, ?, #
     let end = after_scheme
         .find(|c| c == '/' || c == '?' || c == '#')
         .unwrap_or(after_scheme.len());
@@ -394,7 +389,6 @@ fn extract_host_from_invalid_url(url: &str) -> &str {
 fn extract_port_from_invalid_url(url: &str) -> &str {
     let host_port = extract_host_from_invalid_url(url);
     if let Some(pos) = host_port.rfind(':') {
-        // Check if colon is part of IPv6 (inside brackets)
         if let Some(close_bracket) = host_port.rfind(']') {
             if pos < close_bracket {
                 return "";
@@ -443,11 +437,9 @@ pub fn validate_host(host: &str) -> PyResult<()> {
     if host.is_empty() {
         return Ok(());
     }
-    // Skip encoded hosts (e.g. "exam%20le.com") as they fail IDNA ascii check
     if host.contains('%') {
         return Ok(());
     }
-    // If IDNA encoding fails, it's invalid. Use strict STD3 rules.
     let (unicode_host, _) = idna::domain_to_unicode(host);
     if idna::domain_to_ascii_strict(&unicode_host).is_err() {
         return Err(crate::exceptions::InvalidURL::new_err(format!(
@@ -455,8 +447,6 @@ pub fn validate_host(host: &str) -> PyResult<()> {
             host
         )));
     }
-    // Check for specific symbol/emoji ranges that httpx rejects but rust-url accepts (UTS 46 mapping)
-    // Blacklist: Misc Symbols (2600-26FF), Emoticons (1F600-1F64F), etc.
     if unicode_host.chars().any(
         |c| {
             (c >= '\u{2600}' && c <= '\u{26FF}') || // Misc Symbols (e.g. Snowman)
@@ -477,7 +467,6 @@ pub fn urlparse_impl(
 ) -> PyResult<ParseResult> {
     if let Some(kw) = kwargs {
         if !kw.is_empty() {
-            // ... handling kwargs ...
             let scheme = kw.get("scheme").and_then(|v| v.clone()).unwrap_or_default();
             let userinfo = kw
                 .get("userinfo")
@@ -490,9 +479,7 @@ pub fn urlparse_impl(
             let fragment = kw.get("fragment").and_then(|v| v.clone());
             let port = normalize_port_value(&port_str, &scheme)?;
 
-            // Validate host if present
             if !host.is_empty() {
-                // If IDNA encoding fails, it's invalid. Use strict STD3 rules.
                 let (unicode_host, _) = idna::domain_to_unicode(&host);
                 if idna::domain_to_ascii_strict(&unicode_host).is_err() {
                     return Err(crate::exceptions::InvalidURL::new_err(format!(
@@ -545,19 +532,15 @@ pub fn urlparse_impl(
         });
     }
 
-    // Use rust-url strict parsing first to catch invalid URLs
     let parsed_url = match url::Url::parse(url_str) {
         Ok(u) => u,
         Err(url::ParseError::RelativeUrlWithoutBase) if url_str.starts_with("://") => {
-            // Handle schemeless authority
             let dummy = format!("http{}", url_str);
             let u = url::Url::parse(&dummy)
                 .map_err(|e| crate::exceptions::InvalidURL::new_err(e.to_string()))?;
-            // We will clear scheme later
             u
         }
         Err(e) => {
-            // Retry with encoded spaces (lenient parsing for host/path)
             let mut repaired_url = None;
             if url_str.contains(' ') {
                 let repaired = url_str.replace(' ', "%20");
@@ -569,10 +552,7 @@ pub fn urlparse_impl(
             if let Some(u) = repaired_url {
                 u
             } else {
-                // Fallthrough to existing error handling
-                // Check if it's a relative URL (which rust-url rejects without base)
                 if e == url::ParseError::RelativeUrlWithoutBase {
-                    // ... existing relative handling ...
                     let (url_no_frag, fragment) = if let Some(pos) = url_str.find('#') {
                         (
                             &url_str[..pos],
@@ -608,16 +588,13 @@ pub fn urlparse_impl(
                     });
                 }
 
-                // Handle IdnaError or InvalidDomainCharacter for encoded hosts (e.g. spaces)
                 if matches!(
                     e,
                     url::ParseError::IdnaError | url::ParseError::InvalidDomainCharacter
                 ) && (url_str.contains('%') || url_str.contains(' '))
                 {
-                    // Manual fallback: split scheme://authority/path
                     if let Some((scheme_part, rest)) = url_str.split_once("://") {
                         let scheme = scheme_part.to_string();
-                        // Split authority from path
                         let (authority, path_query_frag) = if let Some(slash_pos) = rest.find('/') {
                             (&rest[..slash_pos], &rest[slash_pos..])
                         } else if let Some(q_pos) = rest.find('?') {
@@ -628,10 +605,6 @@ pub fn urlparse_impl(
                             (rest, "")
                         };
 
-                        // Parse authority manually? Simplified for now: assume no userinfo/port for this specific failure case
-                        // or try best effort.
-                        // But we just want to return Success with extracted components.
-                        // Extract userinfo, host, port from authority
                         let (userinfo, host_port) = if let Some(at_pos) = authority.find('@') {
                             (authority[..at_pos].to_string(), &authority[at_pos + 1..])
                         } else {
@@ -639,7 +612,6 @@ pub fn urlparse_impl(
                         };
 
                         let (host, port_opts) = if let Some(colon_pos) = host_port.rfind(':') {
-                            // simplistic port check
                             if let Ok(p) = host_port[colon_pos + 1..].parse::<u16>() {
                                 (
                                     host_port[..colon_pos].to_string().replace(' ', "%20"),
@@ -652,7 +624,6 @@ pub fn urlparse_impl(
                             (host_port.to_string().replace(' ', "%20"), None)
                         };
 
-                        // Path/Query/Frag
                         let (path_str, frag_opts) = if let Some(h_pos) = path_query_frag.find('#') {
                             (
                                 &path_query_frag[..h_pos],
@@ -692,7 +663,6 @@ pub fn urlparse_impl(
                         format!("Invalid port: '{}'", extract_port_from_invalid_url(url_str))
                     }
                     url::ParseError::EmptyHost => {
-                        // httpx allows empty host
                         let scheme = url_str.split("://").next().unwrap_or("").to_string();
                         if !scheme.is_empty() {
                             return Ok(ParseResult {
@@ -714,7 +684,6 @@ pub fn urlparse_impl(
         }
     };
 
-    // Extract pieces from parsed_url
     let scheme_str = if url_str.starts_with("://") {
         String::new()
     } else {
@@ -730,10 +699,8 @@ pub fn urlparse_impl(
             .unwrap_or_default()
     );
 
-    // IDNA validation check (similar to before)
     if let Some(host_str) = parsed_url.host_str() {
         if host_str.contains("xn--") || !host_str.is_ascii() {
-            // If IDNA encoding fails, it's invalid. Use strict STD3 rules.
             let (unicode_host, _) = idna::domain_to_unicode(host_str);
             if idna::domain_to_ascii_strict(&unicode_host).is_err() {
                 return Err(crate::exceptions::InvalidURL::new_err(format!(
@@ -741,8 +708,6 @@ pub fn urlparse_impl(
                     host_str
                 )));
             }
-            // Check for specific symbol/emoji ranges that httpx rejects but rust-url accepts (UTS 46 mapping)
-            // Blacklist: Misc Symbols (2600-26FF), Emoticons (1F600-1F64F), etc.
             if unicode_host.chars().any(
                 |c| {
                     (c >= '\u{2600}' && c <= '\u{26FF}') || // Misc Symbols (e.g. Snowman)
@@ -765,21 +730,13 @@ pub fn urlparse_impl(
     let port = parsed_url.port();
     let path_str = parsed_url.path();
     let path = if path_str == "/" {
-        // rust-url always normalizes authority-bearing URLs to have path "/".
-        // We need to check if the original URL explicitly had a "/" path.
-        // If not, the path should be empty.
         let has_explicit_slash = if url_str.starts_with("://") {
-            // schemeless: "://host/..."
             let rest = &url_str[3..];
             rest.find('/').is_some()
         } else if let Some(scheme_end) = url_str.find("://") {
-            // scheme://authority/path
             let rest = &url_str[scheme_end + 3..];
-            // Find the first '/' after the authority part
-            // Check if there's a '/' in the rest (host[:port] part)
             rest.find('/').is_some()
         } else {
-            // No scheme, has path
             true
         };
         if has_explicit_slash {
@@ -791,26 +748,20 @@ pub fn urlparse_impl(
         path_str.replace("%27", "'")
     };
 
-    // Manual query extraction to preserve encoding (httpx standard compliance)
     let query = if let Some(q_start) = url.find('?') {
         let remainder = &url[q_start + 1..];
         let h_pos_in_remainder = remainder.find('#');
 
-        // Check if ? is actually part of fragment (i.e. if # appears BEFORE ?)
-        // url.find('?') gives absolute pos. url.find('#') gives absolute pos.
         let h_pos_abs = url.find('#');
         if let Some(h) = h_pos_abs {
             if h < q_start {
-                // ? is inside fragment. No query.
                 None
             } else {
-                // ? is before #. Extract query.
                 let q_end = h_pos_in_remainder.unwrap_or(remainder.len());
                 let raw_query = &remainder[..q_end];
                 Some(encode_query_smart(raw_query))
             }
         } else {
-            // No fragment. Extract query.
             let raw_query = remainder;
             Some(encode_query_smart(raw_query))
         }

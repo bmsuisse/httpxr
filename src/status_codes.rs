@@ -7,15 +7,12 @@ use std::collections::HashMap;
 #[derive(Clone)]
 pub struct StatusCodes;
 
-// Static map of status codes to reason phrases
 pub(crate) fn status_code_map() -> HashMap<u16, &'static str> {
     let mut m = HashMap::new();
-    // Informational
     m.insert(100, "Continue");
     m.insert(101, "Switching Protocols");
     m.insert(102, "Processing");
     m.insert(103, "Early Hints");
-    // Success
     m.insert(200, "OK");
     m.insert(201, "Created");
     m.insert(202, "Accepted");
@@ -26,7 +23,6 @@ pub(crate) fn status_code_map() -> HashMap<u16, &'static str> {
     m.insert(207, "Multi-Status");
     m.insert(208, "Already Reported");
     m.insert(226, "IM Used");
-    // Redirection
     m.insert(300, "Multiple Choices");
     m.insert(301, "Moved Permanently");
     m.insert(302, "Found");
@@ -35,7 +31,6 @@ pub(crate) fn status_code_map() -> HashMap<u16, &'static str> {
     m.insert(305, "Use Proxy");
     m.insert(307, "Temporary Redirect");
     m.insert(308, "Permanent Redirect");
-    // Client Error
     m.insert(400, "Bad Request");
     m.insert(401, "Unauthorized");
     m.insert(402, "Payment Required");
@@ -65,7 +60,6 @@ pub(crate) fn status_code_map() -> HashMap<u16, &'static str> {
     m.insert(429, "Too Many Requests");
     m.insert(431, "Request Header Fields Too Large");
     m.insert(451, "Unavailable For Legal Reasons");
-    // Server Error
     m.insert(500, "Internal Server Error");
     m.insert(501, "Not Implemented");
     m.insert(502, "Bad Gateway");
@@ -86,7 +80,6 @@ pub(crate) fn status_code_map() -> HashMap<u16, &'static str> {
 pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     let py = m.py();
 
-    // Build the codes IntEnum class in Python to match the original API exactly
     let code = r#"
 from enum import IntEnum
 

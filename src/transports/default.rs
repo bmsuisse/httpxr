@@ -48,7 +48,6 @@ impl HTTPTransport {
         let mut builder = reqwest::Client::builder()
             .danger_accept_invalid_certs(!verify)
             .redirect(reqwest::redirect::Policy::none())
-            // ── Aggressive connection pool tuning ──
             .pool_max_idle_per_host(64)
             .pool_idle_timeout(None)
             .tcp_nodelay(true)
@@ -85,7 +84,6 @@ impl HTTPTransport {
 
         let use_hyper_fast_path = proxy.is_none() && root_cert_path.is_none() && !has_custom_ssl_context;
 
-        // Create a persistent multi-thread tokio runtime (1 worker) for this transport.
         let rt = tokio::runtime::Builder::new_multi_thread()
             .worker_threads(1)
             .enable_all()
@@ -97,11 +95,7 @@ impl HTTPTransport {
                 ))
             })?;
 
-        // Only create the hyper client when the fast path is enabled.
-        // Creating the hyper-rustls connector installs a global rustls crypto
-        // provider that interferes with reqwest's TLS when custom CA certs are used.
         let hyper_client = if use_hyper_fast_path {
-            // Build HTTPS connector for hyper-rustls
             let make_http_connector = || {
                 let mut c = hyper_util::client::legacy::connect::HttpConnector::new();
                 c.enforce_http(false);
@@ -176,13 +170,11 @@ impl HTTPTransport {
     }
 
     pub fn send_request(&self, py: Python<'_>, request: &Request) -> PyResult<Response> {
-        // Use URL's inner string directly — skip to_string() + Url::parse() round-trip
         let url_str = request.url.to_string();
         let parsed_url = reqwest::Url::parse(&url_str).map_err(|e| {
             crate::exceptions::InvalidURL::new_err(format!("Invalid URL: {}", e))
         })?;
 
-        // Extract timeout configuration
         let mut connect_timeout_val = None;
         let mut read_timeout_val = None;
         let mut write_timeout_val = None;
@@ -196,7 +188,6 @@ impl HTTPTransport {
             }
         }
 
-        // Use minimum of all specified timeouts as overall request timeout
         let timeout_val: Option<std::time::Duration> =
             [connect_timeout_val, read_timeout_val, write_timeout_val]
                 .iter()
@@ -221,8 +212,6 @@ impl HTTPTransport {
                 .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("Invalid method: {}", e)))?,
         };
 
-        // Build the reqwest Request under the GIL — borrows headers, avoids clone.
-        // Pass pre-parsed URL to skip reqwest's internal URL re-parsing.
         let hdrs = request.headers.bind(py).borrow();
         let mut req_builder = self.client.request(method, parsed_url);
         for (key, value) in &hdrs.raw {
@@ -242,8 +231,6 @@ impl HTTPTransport {
             pyo3::exceptions::PyRuntimeError::new_err(format!("Failed to build request: {}", e))
         })?;
 
-        // Release GIL for blocking I/O only — request already built.
-        // handle.block_on() is faster than spawn+oneshot (tested: 6236 vs 5720 req/s).
         let client = self.client.clone();
         let (status_code, resp_headers, body_bytes_result) = py
             .detach(move || {
@@ -252,7 +239,6 @@ impl HTTPTransport {
 
                     let status = response.status().as_u16();
                     let headers = response.headers();
-                    // Pre-allocate with exact capacity, single pass
                     let mut resp_headers: Vec<(Vec<u8>, Vec<u8>)> =
                         Vec::with_capacity(headers.len());
                     for (k, v) in headers.iter() {
@@ -262,8 +248,6 @@ impl HTTPTransport {
                         ));
                     }
 
-                    // Use .bytes() which returns reference-counted Bytes,
-                    // then .to_vec() for owned data (unavoidable copy across GIL boundary)
                     let bytes = response.bytes().await?;
                     Ok((status, resp_headers, bytes.to_vec()))
                 })
@@ -302,12 +286,10 @@ impl HTTPTransport {
                 }
             })?;
 
-        // Build Response (requires GIL) — use from_raw_byte_pairs for zero-conversion
         let hdrs = Headers::from_raw_byte_pairs(resp_headers);
 
         let ext = PyDict::new(py);
 
-        // For streaming, wrap the bytes in a cursor-based iterator
         let (content_bytes, stream_obj) = if stream_response {
             let cursor = std::io::Cursor::new(body_bytes_result);
             let blocking_iter =
@@ -363,7 +345,6 @@ impl HTTPTransport {
 
         let mut req_builder = self.client.request(method, parsed_url);
 
-        // Pass headers directly from Python dict → reqwest without intermediate Vec
         if let Some(h) = headers {
             for (k, v) in h.iter() {
                 let key: &str = k.extract()?;
@@ -384,7 +365,6 @@ impl HTTPTransport {
             pyo3::exceptions::PyRuntimeError::new_err(format!("Failed to build request: {}", e))
         })?;
 
-        // Execute request with GIL released
         let handle = self.handle.clone();
         let client = self.client.clone();
         let result = py
@@ -392,13 +372,11 @@ impl HTTPTransport {
                 handle.block_on(async {
                     let response = client.execute(built_request).await?;
                     let status = response.status().as_u16();
-                    // Collect headers as raw bytes to avoid String allocation
                     let hdrs: Vec<(&str, &[u8])> = response
                         .headers()
                         .iter()
                         .map(|(k, v)| (k.as_str(), v.as_bytes()))
                         .collect();
-                    // Convert to owned for Send
                     let owned_hdrs: Vec<(String, Vec<u8>)> = hdrs
                         .into_iter()
                         .map(|(k, v)| (k.to_owned(), v.to_vec()))
@@ -426,10 +404,8 @@ impl HTTPTransport {
 
         let (status, resp_headers, body_bytes) = result;
 
-        // Build Python objects — we're back under GIL here
         let dict = PyDict::new(py);
         for (k, v) in &resp_headers {
-            // Use unsafe bytes → str since HTTP header values are ASCII
             let val_str = std::str::from_utf8(v).unwrap_or("");
             dict.set_item(k.as_str(), val_str)?;
         }
@@ -453,7 +429,6 @@ impl HTTPTransport {
         requests: &[Request],
         max_concurrency: usize,
     ) -> PyResult<Vec<Result<Response, PyErr>>> {
-        // Phase 1: Build all reqwest requests under the GIL
         let mut built_requests = Vec::with_capacity(requests.len());
         for request in requests {
             let url_str = request.url.to_string();
@@ -461,7 +436,6 @@ impl HTTPTransport {
                 crate::exceptions::InvalidURL::new_err(format!("Invalid URL: {}", e))
             })?;
 
-            // Extract timeout
             let mut timeout_val: Option<std::time::Duration> = None;
             if let Ok(ext) = request.extensions.bind(py).cast::<PyDict>() {
                 if let Some(timeout_obj) = ext.get_item("timeout").ok().flatten() {
@@ -508,7 +482,6 @@ impl HTTPTransport {
             built_requests.push(built);
         }
 
-        // Phase 2: Release GIL, dispatch all concurrently
         let client = self.client.clone();
         let results: Vec<Result<(u16, Vec<(Vec<u8>, Vec<u8>)>, Vec<u8>), String>> = py
             .detach(move || {
@@ -550,7 +523,6 @@ impl HTTPTransport {
                 })
             });
 
-        // Phase 3: Re-acquire GIL, build Response objects
         let mut responses = Vec::with_capacity(results.len());
         for result in results {
             match result {
@@ -663,6 +635,8 @@ impl HTTPTransport {
 #[pyclass]
 pub struct AsyncHTTPTransport {
     client: reqwest::Client,
+    #[allow(dead_code)]  // Used from async_client.rs
+    hyper_client: Option<HyperClient>,
     proxy_url: Option<String>,
     pool_semaphore: Option<std::sync::Arc<tokio::sync::Semaphore>>,
 }
@@ -679,7 +653,6 @@ impl AsyncHTTPTransport {
         let mut builder = reqwest::Client::builder()
             .danger_accept_invalid_certs(!verify)
             .redirect(reqwest::redirect::Policy::none())
-            // ── Aggressive connection pool tuning ──
             .pool_max_idle_per_host(64)      // default=1, keep many warm connections
             .pool_idle_timeout(None)          // never expire idle connections
             .tcp_nodelay(true)                // disable Nagle: send immediately
@@ -687,7 +660,6 @@ impl AsyncHTTPTransport {
             .http1_only()                     // skip HTTP/2 negotiation overhead
             .no_proxy();                      // skip proxy env var checks
 
-        // Apply pool size limits
         let pool_semaphore = if let Some(l) = limits {
             if let Some(max_conn) = l.max_connections {
                 builder = builder.pool_max_idle_per_host(max_conn as usize);
@@ -727,9 +699,69 @@ impl AsyncHTTPTransport {
         let client = builder.build().map_err(|e| {
             pyo3::exceptions::PyRuntimeError::new_err(format!("Failed to create client: {}", e))
         })?;
+
+        let hyper_client = if proxy.is_none() && root_cert_path.is_none() {
+            let make_http_connector = || {
+                let mut c = hyper_util::client::legacy::connect::HttpConnector::new();
+                c.enforce_http(false);
+                c.set_nodelay(true);
+                c.set_keepalive(Some(std::time::Duration::from_secs(60)));
+                c
+            };
+
+            let provider = std::sync::Arc::new(rustls::crypto::ring::default_provider());
+
+            let https_connector = if verify {
+                let root_store = rustls::RootCertStore::from_iter(
+                    webpki_roots::TLS_SERVER_ROOTS.iter().cloned(),
+                );
+                let tls_config = rustls::ClientConfig::builder_with_provider(provider)
+                    .with_safe_default_protocol_versions()
+                    .map_err(|e| {
+                        pyo3::exceptions::PyRuntimeError::new_err(format!(
+                            "Failed to configure TLS: {}", e
+                        ))
+                    })?
+                    .with_root_certificates(root_store)
+                    .with_no_client_auth();
+                hyper_rustls::HttpsConnectorBuilder::new()
+                    .with_tls_config(tls_config)
+                    .https_or_http()
+                    .enable_http1()
+                    .wrap_connector(make_http_connector())
+            } else {
+                let tls_config = rustls::ClientConfig::builder_with_provider(provider)
+                    .with_safe_default_protocol_versions()
+                    .map_err(|e| {
+                        pyo3::exceptions::PyRuntimeError::new_err(format!(
+                            "Failed to configure TLS: {}", e
+                        ))
+                    })?
+                    .dangerous()
+                    .with_custom_certificate_verifier(std::sync::Arc::new(NoVerifier))
+                    .with_no_client_auth();
+                hyper_rustls::HttpsConnectorBuilder::new()
+                    .with_tls_config(tls_config)
+                    .https_or_http()
+                    .enable_http1()
+                    .wrap_connector(make_http_connector())
+            };
+
+            let hc = hyper_util::client::legacy::Client::builder(
+                hyper_util::rt::TokioExecutor::new()
+            )
+                .pool_idle_timeout(None)
+                .pool_max_idle_per_host(64)
+                .build(https_connector);
+            Some(hc)
+        } else {
+            None
+        };
+
         let proxy_url_str = proxy.map(|p| p.url.clone());
         Ok(AsyncHTTPTransport {
             client,
+            hyper_client,
             proxy_url: proxy_url_str,
             pool_semaphore,
         })
@@ -739,6 +771,14 @@ impl AsyncHTTPTransport {
     pub fn get_client(&self) -> reqwest::Client {
         self.client.clone()
     }
+
+    /// Get a reference to the hyper client for ultra-fast-path usage.
+    #[allow(dead_code)]  // Used from async_client.rs
+    pub fn get_hyper_client(&self) -> Option<&HyperClient> {
+        self.hyper_client.as_ref()
+    }
+
+
 
     /// Get a clone of the pool semaphore for fast-path usage.
     pub fn get_pool_semaphore(&self) -> Option<std::sync::Arc<tokio::sync::Semaphore>> {
@@ -799,7 +839,6 @@ impl AsyncHTTPTransport {
             }
         }
 
-        // Use the minimum of all specified timeouts as the overall request timeout
         let timeout_val: Option<std::time::Duration> =
             [connect_timeout_val, read_timeout_val, write_timeout_val]
                 .iter()
@@ -812,7 +851,6 @@ impl AsyncHTTPTransport {
         let stream_response_flag = request.stream_response;
 
         pyo3_async_runtimes::tokio::future_into_py(py, async move {
-            // Acquire pool semaphore permit if we have one
             let pool_permit = if let Some(ref sem) = pool_sem {
                 let pool_dur = pool_timeout_val
                     .map(std::time::Duration::from_secs_f64)
@@ -861,8 +899,6 @@ impl AsyncHTTPTransport {
 
             let response = req_builder.send().await.map_err(|e| {
                 if e.is_timeout() {
-                    // Determine which type of timeout based on what was configured
-                    // and whether it's a connection-phase error
                     if e.is_connect()
                         || (connect_timeout_val.is_some()
                             && read_timeout_val.is_none()
@@ -983,7 +1019,6 @@ impl AsyncHTTPTransport {
     ) -> PyResult<Bound<'py, PyAny>> {
         let client = self.client.clone();
 
-        // Phase 1: Extract all request data under the GIL (one hold)
         struct PreparedRequest {
             url_str: String,
             method_str: String,
@@ -1029,7 +1064,6 @@ impl AsyncHTTPTransport {
             });
         }
 
-        // Phase 2 + 3: Dispatch all concurrently in Rust, then build Responses
         pyo3_async_runtimes::tokio::future_into_py(py, async move {
             let semaphore = std::sync::Arc::new(tokio::sync::Semaphore::new(max_concurrency));
             let mut handles = Vec::with_capacity(prepared.len());
@@ -1079,7 +1113,6 @@ impl AsyncHTTPTransport {
                 }));
             }
 
-            // Collect all results
             let mut raw_results = Vec::with_capacity(handles.len());
             for handle in handles {
                 match handle.await {
@@ -1088,7 +1121,6 @@ impl AsyncHTTPTransport {
                 }
             }
 
-            // Phase 3: Re-acquire GIL once to build all Response objects
             Python::attach(|py| {
                 let py_list = pyo3::types::PyList::empty(py);
                 for (i, result) in raw_results.into_iter().enumerate() {
