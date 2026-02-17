@@ -9,17 +9,17 @@ import io
 import tempfile
 from pathlib import Path
 
-import httpr
+import httpxr
 
 
 def main() -> None:
     # ── JSON body ────────────────────────────────────────────────────────
-    response = httpr.post(
+    response = httpxr.post(
         "https://httpbin.org/post",
         json={
-            "name": "httpr",
+            "name": "httpxr",
             "language": "Rust + Python",
-            "version": httpr.__version__,
+            "version": httpxr.__version__,
         },
     )
     print("JSON POST:")
@@ -28,7 +28,7 @@ def main() -> None:
     print()
 
     # ── URL-encoded form data ────────────────────────────────────────────
-    response = httpr.post(
+    response = httpxr.post(
         "https://httpbin.org/post",
         data={"username": "admin", "password": "s3cret"},
     )
@@ -38,9 +38,9 @@ def main() -> None:
     print()
 
     # ── Multipart file upload (in-memory) ────────────────────────────────
-    response = httpr.post(
+    response = httpxr.post(
         "https://httpbin.org/post",
-        files={"upload": ("hello.txt", io.BytesIO(b"Hello from httpr!"), "text/plain")},
+        files={"upload": ("hello.txt", io.BytesIO(b"Hello from httpxr!"), "text/plain")},
     )
     print("Multipart upload (in-memory):")
     print(f"  Files echoed: {response.json()['files']}")
@@ -52,7 +52,7 @@ def main() -> None:
         tmp_path = Path(tmp.name)
 
     with open(tmp_path, "rb") as f:
-        response = httpr.post(
+        response = httpxr.post(
             "https://httpbin.org/post",
             data={"description": "A test upload"},
             files={"document": (tmp_path.name, f, "text/plain")},

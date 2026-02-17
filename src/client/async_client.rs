@@ -87,7 +87,7 @@ impl AsyncClient {
         if !hdrs.contains_header("user-agent") {
             hdrs.set_header(
                 "user-agent",
-                &format!("python-httpr/{}", env!("CARGO_PKG_VERSION")),
+                &format!("python-httpxr/{}", env!("CARGO_PKG_VERSION")),
             );
         }
         if !hdrs.contains_header("accept") {
@@ -1057,7 +1057,7 @@ impl AsyncClient {
                 };
                 let status = resp.status_code;
                 let reason = resp.reason_phrase();
-                log::info!(target: "httpr", "HTTP Request: {} {} \"{} {} {}\"", method, url, http_version, status, reason);
+                log::info!(target: "httpxr", "HTTP Request: {} {} \"{} {} {}\"", method, url, http_version, status, reason);
             }
 
             Py::new(py, resp)
@@ -1595,8 +1595,8 @@ impl AsyncClient {
                                     stream: None,
                                     stream_response: false,
                                 };
-                                if log::log_enabled!(target: "httpr", log::Level::Info) {
-                                    log::info!(target: "httpr", "HTTP Request: GET {} \"HTTP/1.1 {} {}\"", hist_url, hist_status, reason_for(*hist_status));
+                                if log::log_enabled!(target: "httpxr", log::Level::Info) {
+                                    log::info!(target: "httpxr", "HTTP Request: GET {} \"HTTP/1.1 {} {}\"", hist_url, hist_status, reason_for(*hist_status));
                                 }
                                 history_responses.push(crate::models::Response {
                                     status_code: *hist_status,
@@ -1631,8 +1631,8 @@ impl AsyncClient {
                                 stream_response: false,
                             };
 
-                            if log::log_enabled!(target: "httpr", log::Level::Info) {
-                                log::info!(target: "httpr", "HTTP Request: GET {} \"HTTP/1.1 {} {}\"", final_url, final_status, reason_for(final_status));
+                            if log::log_enabled!(target: "httpxr", log::Level::Info) {
+                                log::info!(target: "httpxr", "HTTP Request: GET {} \"HTTP/1.1 {} {}\"", final_url, final_status, reason_for(final_status));
                             }
 
                             let ext = PyDict::new(py);
@@ -2088,7 +2088,7 @@ impl AsyncClient {
 
     /// Dispatch multiple requests concurrently using the batch transport.
     /// Returns a list of Response objects (or exceptions if return_exceptions=True).
-    /// This is an httpr extension — not available in httpx.
+    /// This is an httpxr extension — not available in httpx.
     #[pyo3(signature = (requests, *, max_concurrency=10, return_exceptions=false))]
     fn gather<'py>(
         &self,
@@ -2224,7 +2224,7 @@ _gather_coro = asyncio.gather(
     /// Auto-follow pagination links, returning an async iterator.
     /// Each iteration fetches the next page — memory-efficient for large result sets.
     /// Supports JSON key extraction, Link header parsing, and custom callables.
-    /// This is an httpr extension — not available in httpx.
+    /// This is an httpxr extension — not available in httpx.
     ///
     /// Usage:
     ///   async for page in client.paginate("GET", url, next_header="link"):

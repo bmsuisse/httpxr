@@ -489,7 +489,7 @@ pub fn fetch_all(
                     if !merged_headers.contains_header("user-agent") {
                         merged_headers.set_header(
                             "user-agent",
-                            &format!("python-httpr/{}", env!("CARGO_PKG_VERSION")),
+                            &format!("python-httpxr/{}", env!("CARGO_PKG_VERSION")),
                         );
                     }
 

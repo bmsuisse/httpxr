@@ -8,7 +8,7 @@ everything into memory at once.
 
 import asyncio
 
-import httpr
+import httpxr
 
 
 def sync_streaming() -> None:
@@ -17,7 +17,7 @@ def sync_streaming() -> None:
 
     # stream() returns a context manager; the response body isn't fetched
     # until you explicitly iterate or call .read()
-    with httpr.Client() as client:
+    with httpxr.Client() as client:
         with client.stream("GET", "https://httpbin.org/stream-bytes/1024") as response:
             print(f"  Status: {response.status_code}")
 
@@ -26,7 +26,7 @@ def sync_streaming() -> None:
             print(f"  Read {len(body)} bytes at once")
 
     # Option 2: Iterate over chunks
-    with httpr.Client() as client:
+    with httpxr.Client() as client:
         with client.stream("GET", "https://httpbin.org/stream-bytes/4096") as response:
             total = 0
             for chunk in response.iter_bytes():
@@ -34,7 +34,7 @@ def sync_streaming() -> None:
             print(f"  Streamed {total} bytes in chunks")
 
     # Option 3: Raw bytes (no content decoding)
-    with httpr.Client() as client:
+    with httpxr.Client() as client:
         with client.stream("GET", "https://httpbin.org/get") as response:
             raw_total = 0
             for chunk in response.iter_raw():
@@ -47,7 +47,7 @@ async def async_streaming() -> None:
     """Stream with the async client."""
     print("── Async streaming ────────────────────────────────────────────")
 
-    async with httpr.AsyncClient() as client:
+    async with httpxr.AsyncClient() as client:
         async with client.stream(
             "GET", "https://httpbin.org/stream-bytes/2048"
         ) as response:
@@ -55,7 +55,7 @@ async def async_streaming() -> None:
             print(f"  Async read {len(body)} bytes")
 
     # Top-level stream() convenience function (sync only)
-    with httpr.stream("GET", "https://httpbin.org/get") as response:
+    with httpxr.stream("GET", "https://httpbin.org/get") as response:
         response.read()
         print(
             f"  Top-level stream: {response.status_code}, {len(response.content)} bytes"

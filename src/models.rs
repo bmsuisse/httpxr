@@ -637,7 +637,7 @@ fn encode_form_data(py: Python<'_>, d: &Bound<'_, PyAny>) -> PyResult<Option<Vec
 }
 
 /// HTTP Request object.
-#[pyclass(from_py_object, module = "httpr._httpr")]
+#[pyclass(from_py_object, module = "httpxr._httpxr")]
 pub struct Request {
     #[pyo3(get, set)]
     pub method: String,
@@ -1092,7 +1092,7 @@ impl Request {
     }
 
     fn __reduce__(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
-        let cls = py.import("httpr")?.getattr("Request")?;
+        let cls = py.import("httpxr")?.getattr("Request")?;
         // Build args: (method, url_string)
         let args = pyo3::types::PyTuple::new(
             py,
@@ -1147,7 +1147,7 @@ impl Request {
             if had_stream.extract::<bool>().unwrap_or(false) && self.content_body.is_none() {
                 // Create a ClosedStream marker that raises StreamClosed on iteration
                 let ns = pyo3::types::PyDict::new(py);
-                py.run(c"class _ClosedStream:\n    def __iter__(self): raise __import__('httpr').StreamClosed(self)\n    def __aiter__(self): return self\n    async def __anext__(self): raise __import__('httpr').StreamClosed(self)\n_result = _ClosedStream()\n", None, Some(&ns))?;
+                py.run(c"class _ClosedStream:\n    def __iter__(self): raise __import__('httpxr').StreamClosed(self)\n    def __aiter__(self): return self\n    async def __anext__(self): raise __import__('httpxr').StreamClosed(self)\n_result = _ClosedStream()\n", None, Some(&ns))?;
                 let closed_stream = ns.get_item("_result")?.unwrap();
                 self.stream = Some(closed_stream.unbind());
             }
@@ -1157,7 +1157,7 @@ impl Request {
 }
 
 /// HTTP Response object.
-#[pyclass(from_py_object, module = "httpr._httpr")]
+#[pyclass(from_py_object, module = "httpxr._httpxr")]
 pub struct Response {
     #[pyo3(get, set)]
     pub status_code: u16,
@@ -2812,7 +2812,7 @@ _result = _AsyncChunkIter(_aiter_bytes_impl(), _chunk_size, _response)
     }
 
     fn __reduce__(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
-        let cls = py.import("httpr")?.getattr("Response")?;
+        let cls = py.import("httpxr")?.getattr("Response")?;
         let args =
             pyo3::types::PyTuple::new(py, &[self.status_code.into_pyobject(py)?.into_any()])?;
         let state = pyo3::types::PyDict::new(py);

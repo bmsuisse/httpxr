@@ -8,12 +8,12 @@ from urllib.request import parse_keqv_list
 
 import pytest
 
-import httpr
+import httpxr
 
 
 def test_basic_auth():
-    auth = httpr.BasicAuth(username="user", password="pass")
-    request = httpr.Request("GET", "https://www.example.com")
+    auth = httpxr.BasicAuth(username="user", password="pass")
+    request = httpxr.Request("GET", "https://www.example.com")
 
     # The initial request should include a basic auth header.
     flow = auth.sync_auth_flow(request)
@@ -21,14 +21,14 @@ def test_basic_auth():
     assert request.headers["Authorization"].startswith("Basic")
 
     # No other requests are made.
-    response = httpr.Response(content=b"Hello, world!", status_code=200)
+    response = httpxr.Response(content=b"Hello, world!", status_code=200)
     with pytest.raises(StopIteration):
         flow.send(response)
 
 
 def test_digest_auth_with_200():
-    auth = httpr.DigestAuth(username="user", password="pass")
-    request = httpr.Request("GET", "https://www.example.com")
+    auth = httpxr.DigestAuth(username="user", password="pass")
+    request = httpxr.Request("GET", "https://www.example.com")
 
     # The initial request should not include an auth header.
     flow = auth.sync_auth_flow(request)
@@ -36,14 +36,14 @@ def test_digest_auth_with_200():
     assert "Authorization" not in request.headers
 
     # If a 200 response is returned, then no other requests are made.
-    response = httpr.Response(content=b"Hello, world!", status_code=200)
+    response = httpxr.Response(content=b"Hello, world!", status_code=200)
     with pytest.raises(StopIteration):
         flow.send(response)
 
 
 def test_digest_auth_with_401():
-    auth = httpr.DigestAuth(username="user", password="pass")
-    request = httpr.Request("GET", "https://www.example.com")
+    auth = httpxr.DigestAuth(username="user", password="pass")
+    request = httpxr.Request("GET", "https://www.example.com")
 
     # The initial request should not include an auth header.
     flow = auth.sync_auth_flow(request)
@@ -54,21 +54,21 @@ def test_digest_auth_with_401():
     headers = {
         "WWW-Authenticate": 'Digest realm="...", qop="auth", nonce="...", opaque="..."'
     }
-    response = httpr.Response(
+    response = httpxr.Response(
         content=b"Auth required", status_code=401, headers=headers, request=request
     )
     request = flow.send(response)
     assert request.headers["Authorization"].startswith("Digest")
 
     # No other requests are made.
-    response = httpr.Response(content=b"Hello, world!", status_code=200)
+    response = httpxr.Response(content=b"Hello, world!", status_code=200)
     with pytest.raises(StopIteration):
         flow.send(response)
 
 
 def test_digest_auth_with_401_nonce_counting():
-    auth = httpr.DigestAuth(username="user", password="pass")
-    request = httpr.Request("GET", "https://www.example.com")
+    auth = httpxr.DigestAuth(username="user", password="pass")
+    request = httpxr.Request("GET", "https://www.example.com")
 
     # The initial request should not include an auth header.
     flow = auth.sync_auth_flow(request)
@@ -79,14 +79,14 @@ def test_digest_auth_with_401_nonce_counting():
     headers = {
         "WWW-Authenticate": 'Digest realm="...", qop="auth", nonce="...", opaque="..."'
     }
-    response = httpr.Response(
+    response = httpxr.Response(
         content=b"Auth required", status_code=401, headers=headers, request=request
     )
     first_request = flow.send(response)
     assert first_request.headers["Authorization"].startswith("Digest")
 
     # Each subsequent request contains the digest header by default...
-    request = httpr.Request("GET", "https://www.example.com")
+    request = httpxr.Request("GET", "https://www.example.com")
     flow = auth.sync_auth_flow(request)
     second_request = next(flow)
     assert second_request.headers["Authorization"].startswith("Digest")
@@ -99,18 +99,18 @@ def test_digest_auth_with_401_nonce_counting():
     assert int(first_nc, 16) + 1 == int(second_nc, 16)
 
     # No other requests are made.
-    response = httpr.Response(content=b"Hello, world!", status_code=200)
+    response = httpxr.Response(content=b"Hello, world!", status_code=200)
     with pytest.raises(StopIteration):
         flow.send(response)
 
 
-def set_cookies(request: httpr.Request) -> httpr.Response:
+def set_cookies(request: httpxr.Request) -> httpxr.Response:
     headers = {
         "Set-Cookie": "session=.session_value...",
         "WWW-Authenticate": 'Digest realm="...", qop="auth", nonce="...", opaque="..."',
     }
     if request.url.path == "/auth":
-        return httpr.Response(
+        return httpxr.Response(
             content=b"Auth required", status_code=401, headers=headers
         )
     else:
@@ -119,10 +119,10 @@ def set_cookies(request: httpr.Request) -> httpr.Response:
 
 def test_digest_auth_setting_cookie_in_request():
     url = "https://www.example.com/auth"
-    client = httpr.Client(transport=httpr.MockTransport(set_cookies))
+    client = httpxr.Client(transport=httpxr.MockTransport(set_cookies))
     request = client.build_request("GET", url)
 
-    auth = httpr.DigestAuth(username="user", password="pass")
+    auth = httpxr.DigestAuth(username="user", password="pass")
     flow = auth.sync_auth_flow(request)
     request = next(flow)
     assert "Authorization" not in request.headers
@@ -136,7 +136,7 @@ def test_digest_auth_setting_cookie_in_request():
     assert request.headers["Cookie"] == "session=.session_value..."
 
     # No other requests are made.
-    response = httpr.Response(
+    response = httpxr.Response(
         content=b"Hello, world!", status_code=200, request=request
     )
     with pytest.raises(StopIteration):
@@ -147,8 +147,8 @@ def test_digest_auth_rfc_2069():
     # Example from https://datatracker.ietf.org/doc/html/rfc2069#section-2.4
     # with corrected response from https://www.rfc-editor.org/errata/eid749
 
-    auth = httpr.DigestAuth(username="Mufasa", password="CircleOfLife")
-    request = httpr.Request("GET", "https://www.example.com/dir/index.html")
+    auth = httpxr.DigestAuth(username="Mufasa", password="CircleOfLife")
+    request = httpxr.Request("GET", "https://www.example.com/dir/index.html")
 
     # The initial request should not include an auth header.
     flow = auth.sync_auth_flow(request)
@@ -163,7 +163,7 @@ def test_digest_auth_rfc_2069():
             'opaque="5ccc069c403ebaf9f0171e9517f40e41"'
         )
     }
-    response = httpr.Response(
+    response = httpxr.Response(
         content=b"Auth required", status_code=401, headers=headers, request=request
     )
     request = flow.send(response)
@@ -183,7 +183,7 @@ def test_digest_auth_rfc_2069():
     )
 
     # No other requests are made.
-    response = httpr.Response(content=b"Hello, world!", status_code=200)
+    response = httpxr.Response(content=b"Hello, world!", status_code=200)
     with pytest.raises(StopIteration):
         flow.send(response)
 
@@ -194,10 +194,10 @@ def test_digest_auth_rfc_7616_md5(monkeypatch):
     def mock_get_client_nonce(nonce_count: int, nonce: bytes) -> bytes:
         return "f2/wE4q74E6zIJEtWaHKaf5wv/H5QzzpXusqGemxURZJ".encode()
 
-    auth = httpr.DigestAuth(username="Mufasa", password="Circle of Life")
+    auth = httpxr.DigestAuth(username="Mufasa", password="Circle of Life")
     monkeypatch.setattr(auth, "_get_client_nonce", mock_get_client_nonce)
 
-    request = httpr.Request("GET", "https://www.example.com/dir/index.html")
+    request = httpxr.Request("GET", "https://www.example.com/dir/index.html")
 
     # The initial request should not include an auth header.
     flow = auth.sync_auth_flow(request)
@@ -214,7 +214,7 @@ def test_digest_auth_rfc_7616_md5(monkeypatch):
             'opaque="FQhe/qaU925kfnzjCev0ciny7QMkPqMAFRtzCUYo5tdS"'
         )
     }
-    response = httpr.Response(
+    response = httpxr.Response(
         content=b"Auth required", status_code=401, headers=headers, request=request
     )
     request = flow.send(response)
@@ -243,7 +243,7 @@ def test_digest_auth_rfc_7616_md5(monkeypatch):
     )
 
     # No other requests are made.
-    response = httpr.Response(content=b"Hello, world!", status_code=200)
+    response = httpxr.Response(content=b"Hello, world!", status_code=200)
     with pytest.raises(StopIteration):
         flow.send(response)
 
@@ -254,10 +254,10 @@ def test_digest_auth_rfc_7616_sha_256(monkeypatch):
     def mock_get_client_nonce(nonce_count: int, nonce: bytes) -> bytes:
         return "f2/wE4q74E6zIJEtWaHKaf5wv/H5QzzpXusqGemxURZJ".encode()
 
-    auth = httpr.DigestAuth(username="Mufasa", password="Circle of Life")
+    auth = httpxr.DigestAuth(username="Mufasa", password="Circle of Life")
     monkeypatch.setattr(auth, "_get_client_nonce", mock_get_client_nonce)
 
-    request = httpr.Request("GET", "https://www.example.com/dir/index.html")
+    request = httpxr.Request("GET", "https://www.example.com/dir/index.html")
 
     # The initial request should not include an auth header.
     flow = auth.sync_auth_flow(request)
@@ -274,7 +274,7 @@ def test_digest_auth_rfc_7616_sha_256(monkeypatch):
             'opaque="FQhe/qaU925kfnzjCev0ciny7QMkPqMAFRtzCUYo5tdS"'
         )
     }
-    response = httpr.Response(
+    response = httpxr.Response(
         content=b"Auth required", status_code=401, headers=headers, request=request
     )
     request = flow.send(response)
@@ -303,6 +303,6 @@ def test_digest_auth_rfc_7616_sha_256(monkeypatch):
     )
 
     # No other requests are made.
-    response = httpr.Response(content=b"Hello, world!", status_code=200)
+    response = httpxr.Response(content=b"Hello, world!", status_code=200)
     with pytest.raises(StopIteration):
         flow.send(response)

@@ -10,7 +10,7 @@ fn generate_boundary() -> String {
     let boundary: String = (0..16)
         .map(|_| chars[rng.random_range(0..chars.len())])
         .collect();
-    format!("----httpr-boundary-{}", boundary)
+    format!("----httpxr-boundary-{}", boundary)
 }
 
 /// DataField: a single form data field.

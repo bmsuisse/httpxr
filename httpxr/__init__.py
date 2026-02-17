@@ -1,5 +1,5 @@
 from . import _exceptions  # noqa: F401
-from ._httpr import *
+from ._httpxr import *
 from ._transports import ASGITransport, WSGITransport
 
 try:
@@ -10,8 +10,8 @@ except ImportError:
         import sys
 
         print(
-            'The "httpr" command requires the CLI extra. '
-            'Install it with: pip install "httpr[cli]"',
+            'The "httpxr" command requires the CLI extra. '
+            'Install it with: pip install "httpxr[cli]"',
             file=sys.stderr,
         )
         sys.exit(1)

@@ -121,7 +121,7 @@ pub fn encode_request(
     // Multipart (files + optional data)
     if let Some(_f) = files {
         // Delegate to multipart module
-        let multipart = py.import("httpr._multipart")?;
+        let multipart = py.import("httpxr._multipart")?;
         let data_arg = data.map(|d| d.clone().unbind()).unwrap_or(py.None());
         let stream = multipart.call_method1("MultipartStream", (data_arg, _f))?;
         let mp_headers = stream.call_method0("get_headers")?;

@@ -5,7 +5,7 @@ import typing
 import chardet
 import pytest
 
-import httpr
+import httpxr
 
 
 class StreamingBody:
@@ -29,10 +29,10 @@ def autodetect(content):
 
 
 def test_response():
-    response = httpr.Response(
+    response = httpxr.Response(
         200,
         content=b"Hello, world!",
-        request=httpr.Request("GET", "https://example.org"),
+        request=httpxr.Request("GET", "https://example.org"),
     )
 
     assert response.status_code == 200
@@ -44,7 +44,7 @@ def test_response():
 
 
 def test_response_content():
-    response = httpr.Response(200, content="Hello, world!")
+    response = httpxr.Response(200, content="Hello, world!")
 
     assert response.status_code == 200
     assert response.reason_phrase == "OK"
@@ -53,7 +53,7 @@ def test_response_content():
 
 
 def test_response_text():
-    response = httpr.Response(200, text="Hello, world!")
+    response = httpxr.Response(200, text="Hello, world!")
 
     assert response.status_code == 200
     assert response.reason_phrase == "OK"
@@ -65,7 +65,7 @@ def test_response_text():
 
 
 def test_response_html():
-    response = httpr.Response(200, html="<html><body>Hello, world!</html></body>")
+    response = httpxr.Response(200, html="<html><body>Hello, world!</html></body>")
 
     assert response.status_code == 200
     assert response.reason_phrase == "OK"
@@ -77,7 +77,7 @@ def test_response_html():
 
 
 def test_response_json():
-    response = httpr.Response(200, json={"hello": "world"})
+    response = httpxr.Response(200, json={"hello": "world"})
 
     assert response.status_code == 200
     assert response.reason_phrase == "OK"
@@ -89,16 +89,16 @@ def test_response_json():
 
 
 def test_raise_for_status():
-    request = httpr.Request("GET", "https://example.org")
+    request = httpxr.Request("GET", "https://example.org")
 
     # 2xx status codes are not an error.
-    response = httpr.Response(200, request=request)
+    response = httpxr.Response(200, request=request)
     response.raise_for_status()
 
     # 1xx status codes are informational responses.
-    response = httpr.Response(101, request=request)
+    response = httpxr.Response(101, request=request)
     assert response.is_informational
-    with pytest.raises(httpr.HTTPStatusError) as exc_info:
+    with pytest.raises(httpxr.HTTPStatusError) as exc_info:
         response.raise_for_status()
     assert str(exc_info.value) == (
         "Informational response '101 Switching Protocols' for url 'https://example.org'\n"
@@ -107,9 +107,9 @@ def test_raise_for_status():
 
     # 3xx status codes are redirections.
     headers = {"location": "https://other.org"}
-    response = httpr.Response(303, headers=headers, request=request)
+    response = httpxr.Response(303, headers=headers, request=request)
     assert response.is_redirect
-    with pytest.raises(httpr.HTTPStatusError) as exc_info:
+    with pytest.raises(httpxr.HTTPStatusError) as exc_info:
         response.raise_for_status()
     assert str(exc_info.value) == (
         "Redirect response '303 See Other' for url 'https://example.org'\n"
@@ -118,10 +118,10 @@ def test_raise_for_status():
     )
 
     # 4xx status codes are a client error.
-    response = httpr.Response(403, request=request)
+    response = httpxr.Response(403, request=request)
     assert response.is_client_error
     assert response.is_error
-    with pytest.raises(httpr.HTTPStatusError) as exc_info:
+    with pytest.raises(httpxr.HTTPStatusError) as exc_info:
         response.raise_for_status()
     assert str(exc_info.value) == (
         "Client error '403 Forbidden' for url 'https://example.org'\n"
@@ -129,10 +129,10 @@ def test_raise_for_status():
     )
 
     # 5xx status codes are a server error.
-    response = httpr.Response(500, request=request)
+    response = httpxr.Response(500, request=request)
     assert response.is_server_error
     assert response.is_error
-    with pytest.raises(httpr.HTTPStatusError) as exc_info:
+    with pytest.raises(httpxr.HTTPStatusError) as exc_info:
         response.raise_for_status()
     assert str(exc_info.value) == (
         "Server error '500 Internal Server Error' for url 'https://example.org'\n"
@@ -141,13 +141,13 @@ def test_raise_for_status():
 
     # Calling .raise_for_status without setting a request instance is
     # not valid. Should raise a runtime error.
-    response = httpr.Response(200)
+    response = httpxr.Response(200)
     with pytest.raises(RuntimeError):
         response.raise_for_status()
 
 
 def test_response_repr():
-    response = httpr.Response(
+    response = httpxr.Response(
         200,
         content=b"Hello, world!",
     )
@@ -160,7 +160,7 @@ def test_response_content_type_encoding():
     """
     headers = {"Content-Type": "text-plain; charset=latin-1"}
     content = "Latin 1: ÿ".encode("latin-1")
-    response = httpr.Response(
+    response = httpxr.Response(
         200,
         content=content,
         headers=headers,
@@ -174,7 +174,7 @@ def test_response_default_to_utf8_encoding():
     Default to utf-8 encoding if there is no Content-Type header.
     """
     content = "おはようございます。".encode("utf-8")
-    response = httpr.Response(
+    response = httpxr.Response(
         200,
         content=content,
     )
@@ -188,7 +188,7 @@ def test_response_fallback_to_utf8_encoding():
     """
     headers = {"Content-Type": "text-plain; charset=invalid-codec-name"}
     content = "おはようございます。".encode("utf-8")
-    response = httpr.Response(
+    response = httpxr.Response(
         200,
         content=content,
         headers=headers,
@@ -204,7 +204,7 @@ def test_response_no_charset_with_ascii_content():
     """
     content = b"Hello, world!"
     headers = {"Content-Type": "text/plain"}
-    response = httpr.Response(
+    response = httpxr.Response(
         200,
         content=content,
         headers=headers,
@@ -221,7 +221,7 @@ def test_response_no_charset_with_utf8_content():
     """
     content = "Unicode Snowman: ☃".encode("utf-8")
     headers = {"Content-Type": "text/plain"}
-    response = httpr.Response(
+    response = httpxr.Response(
         200,
         content=content,
         headers=headers,
@@ -237,7 +237,7 @@ def test_response_no_charset_with_iso_8859_1_content():
     """
     content = "Accented: Österreich abcdefghijklmnopqrstuzwxyz".encode("iso-8859-1")
     headers = {"Content-Type": "text/plain"}
-    response = httpr.Response(
+    response = httpxr.Response(
         200, content=content, headers=headers, default_encoding=autodetect
     )
     assert response.text == "Accented: Österreich abcdefghijklmnopqrstuzwxyz"
@@ -251,7 +251,7 @@ def test_response_no_charset_with_cp_1252_content():
     """
     content = "Euro Currency: € abcdefghijklmnopqrstuzwxyz".encode("cp1252")
     headers = {"Content-Type": "text/plain"}
-    response = httpr.Response(
+    response = httpxr.Response(
         200, content=content, headers=headers, default_encoding=autodetect
     )
     assert response.text == "Euro Currency: € abcdefghijklmnopqrstuzwxyz"
@@ -263,7 +263,7 @@ def test_response_non_text_encoding():
     Default to attempting utf-8 encoding for non-text content-type headers.
     """
     headers = {"Content-Type": "image/png"}
-    response = httpr.Response(
+    response = httpxr.Response(
         200,
         content=b"xyz",
         headers=headers,
@@ -276,7 +276,7 @@ def test_response_set_explicit_encoding():
     headers = {
         "Content-Type": "text-plain; charset=utf-8"
     }  # Deliberately incorrect charset
-    response = httpr.Response(
+    response = httpxr.Response(
         200,
         content="Latin 1: ÿ".encode("latin-1"),
         headers=headers,
@@ -287,7 +287,7 @@ def test_response_set_explicit_encoding():
 
 
 def test_response_force_encoding():
-    response = httpr.Response(
+    response = httpxr.Response(
         200,
         content="Snowman: ☃".encode("utf-8"),
     )
@@ -299,7 +299,7 @@ def test_response_force_encoding():
 
 
 def test_response_force_encoding_after_text_accessed():
-    response = httpr.Response(
+    response = httpxr.Response(
         200,
         content=b"Hello, world!",
     )
@@ -316,7 +316,7 @@ def test_response_force_encoding_after_text_accessed():
 
 
 def test_read():
-    response = httpr.Response(
+    response = httpxr.Response(
         200,
         content=b"Hello, world!",
     )
@@ -334,7 +334,7 @@ def test_read():
 
 
 def test_empty_read():
-    response = httpr.Response(200)
+    response = httpxr.Response(200)
 
     assert response.status_code == 200
     assert response.text == ""
@@ -350,7 +350,7 @@ def test_empty_read():
 
 @pytest.mark.anyio
 async def test_aread():
-    response = httpr.Response(
+    response = httpxr.Response(
         200,
         content=b"Hello, world!",
     )
@@ -369,7 +369,7 @@ async def test_aread():
 
 @pytest.mark.anyio
 async def test_empty_aread():
-    response = httpr.Response(200)
+    response = httpxr.Response(200)
 
     assert response.status_code == 200
     assert response.text == ""
@@ -384,7 +384,7 @@ async def test_empty_aread():
 
 
 def test_iter_raw():
-    response = httpr.Response(
+    response = httpxr.Response(
         200,
         content=streaming_body(),
     )
@@ -396,19 +396,19 @@ def test_iter_raw():
 
 
 def test_iter_raw_with_chunksize():
-    response = httpr.Response(200, content=streaming_body())
+    response = httpxr.Response(200, content=streaming_body())
     parts = list(response.iter_raw(chunk_size=5))
     assert parts == [b"Hello", b", wor", b"ld!"]
 
-    response = httpr.Response(200, content=streaming_body())
+    response = httpxr.Response(200, content=streaming_body())
     parts = list(response.iter_raw(chunk_size=7))
     assert parts == [b"Hello, ", b"world!"]
 
-    response = httpr.Response(200, content=streaming_body())
+    response = httpxr.Response(200, content=streaming_body())
     parts = list(response.iter_raw(chunk_size=13))
     assert parts == [b"Hello, world!"]
 
-    response = httpr.Response(200, content=streaming_body())
+    response = httpxr.Response(200, content=streaming_body())
     parts = list(response.iter_raw(chunk_size=20))
     assert parts == [b"Hello, world!"]
 
@@ -420,14 +420,14 @@ def test_iter_raw_doesnt_return_empty_chunks():
         yield b"world!"
         yield b""
 
-    response = httpr.Response(200, content=streaming_body_with_empty_chunks())
+    response = httpxr.Response(200, content=streaming_body_with_empty_chunks())
 
     parts = list(response.iter_raw())
     assert parts == [b"Hello, ", b"world!"]
 
 
 def test_iter_raw_on_iterable():
-    response = httpr.Response(
+    response = httpxr.Response(
         200,
         content=StreamingBody(),
     )
@@ -439,7 +439,7 @@ def test_iter_raw_on_iterable():
 
 
 def test_iter_raw_on_async():
-    response = httpr.Response(
+    response = httpxr.Response(
         200,
         content=async_streaming_body(),
     )
@@ -449,7 +449,7 @@ def test_iter_raw_on_async():
 
 
 def test_close_on_async():
-    response = httpr.Response(
+    response = httpxr.Response(
         200,
         content=async_streaming_body(),
     )
@@ -459,7 +459,7 @@ def test_close_on_async():
 
 
 def test_iter_raw_increments_updates_counter():
-    response = httpr.Response(200, content=streaming_body())
+    response = httpxr.Response(200, content=streaming_body())
 
     num_downloaded = response.num_bytes_downloaded
     for part in response.iter_raw():
@@ -469,7 +469,7 @@ def test_iter_raw_increments_updates_counter():
 
 @pytest.mark.anyio
 async def test_aiter_raw():
-    response = httpr.Response(200, content=async_streaming_body())
+    response = httpxr.Response(200, content=async_streaming_body())
 
     raw = b""
     async for part in response.aiter_raw():
@@ -479,17 +479,17 @@ async def test_aiter_raw():
 
 @pytest.mark.anyio
 async def test_aiter_raw_with_chunksize():
-    response = httpr.Response(200, content=async_streaming_body())
+    response = httpxr.Response(200, content=async_streaming_body())
 
     parts = [part async for part in response.aiter_raw(chunk_size=5)]
     assert parts == [b"Hello", b", wor", b"ld!"]
 
-    response = httpr.Response(200, content=async_streaming_body())
+    response = httpxr.Response(200, content=async_streaming_body())
 
     parts = [part async for part in response.aiter_raw(chunk_size=13)]
     assert parts == [b"Hello, world!"]
 
-    response = httpr.Response(200, content=async_streaming_body())
+    response = httpxr.Response(200, content=async_streaming_body())
 
     parts = [part async for part in response.aiter_raw(chunk_size=20)]
     assert parts == [b"Hello, world!"]
@@ -497,7 +497,7 @@ async def test_aiter_raw_with_chunksize():
 
 @pytest.mark.anyio
 async def test_aiter_raw_on_sync():
-    response = httpr.Response(
+    response = httpxr.Response(
         200,
         content=streaming_body(),
     )
@@ -508,7 +508,7 @@ async def test_aiter_raw_on_sync():
 
 @pytest.mark.anyio
 async def test_aclose_on_sync():
-    response = httpr.Response(
+    response = httpxr.Response(
         200,
         content=streaming_body(),
     )
@@ -519,7 +519,7 @@ async def test_aclose_on_sync():
 
 @pytest.mark.anyio
 async def test_aiter_raw_increments_updates_counter():
-    response = httpr.Response(200, content=async_streaming_body())
+    response = httpxr.Response(200, content=async_streaming_body())
 
     num_downloaded = response.num_bytes_downloaded
     async for part in response.aiter_raw():
@@ -528,7 +528,7 @@ async def test_aiter_raw_increments_updates_counter():
 
 
 def test_iter_bytes():
-    response = httpr.Response(200, content=b"Hello, world!")
+    response = httpxr.Response(200, content=b"Hello, world!")
 
     content = b""
     for part in response.iter_bytes():
@@ -537,21 +537,21 @@ def test_iter_bytes():
 
 
 def test_iter_bytes_with_chunk_size():
-    response = httpr.Response(200, content=streaming_body())
+    response = httpxr.Response(200, content=streaming_body())
     parts = list(response.iter_bytes(chunk_size=5))
     assert parts == [b"Hello", b", wor", b"ld!"]
 
-    response = httpr.Response(200, content=streaming_body())
+    response = httpxr.Response(200, content=streaming_body())
     parts = list(response.iter_bytes(chunk_size=13))
     assert parts == [b"Hello, world!"]
 
-    response = httpr.Response(200, content=streaming_body())
+    response = httpxr.Response(200, content=streaming_body())
     parts = list(response.iter_bytes(chunk_size=20))
     assert parts == [b"Hello, world!"]
 
 
 def test_iter_bytes_with_empty_response():
-    response = httpr.Response(200, content=b"")
+    response = httpxr.Response(200, content=b"")
     parts = list(response.iter_bytes())
     assert parts == []
 
@@ -563,7 +563,7 @@ def test_iter_bytes_doesnt_return_empty_chunks():
         yield b"world!"
         yield b""
 
-    response = httpr.Response(200, content=streaming_body_with_empty_chunks())
+    response = httpxr.Response(200, content=streaming_body_with_empty_chunks())
 
     parts = list(response.iter_bytes())
     assert parts == [b"Hello, ", b"world!"]
@@ -571,7 +571,7 @@ def test_iter_bytes_doesnt_return_empty_chunks():
 
 @pytest.mark.anyio
 async def test_aiter_bytes():
-    response = httpr.Response(
+    response = httpxr.Response(
         200,
         content=b"Hello, world!",
     )
@@ -584,21 +584,21 @@ async def test_aiter_bytes():
 
 @pytest.mark.anyio
 async def test_aiter_bytes_with_chunk_size():
-    response = httpr.Response(200, content=async_streaming_body())
+    response = httpxr.Response(200, content=async_streaming_body())
     parts = [part async for part in response.aiter_bytes(chunk_size=5)]
     assert parts == [b"Hello", b", wor", b"ld!"]
 
-    response = httpr.Response(200, content=async_streaming_body())
+    response = httpxr.Response(200, content=async_streaming_body())
     parts = [part async for part in response.aiter_bytes(chunk_size=13)]
     assert parts == [b"Hello, world!"]
 
-    response = httpr.Response(200, content=async_streaming_body())
+    response = httpxr.Response(200, content=async_streaming_body())
     parts = [part async for part in response.aiter_bytes(chunk_size=20)]
     assert parts == [b"Hello, world!"]
 
 
 def test_iter_text():
-    response = httpr.Response(
+    response = httpxr.Response(
         200,
         content=b"Hello, world!",
     )
@@ -610,30 +610,30 @@ def test_iter_text():
 
 
 def test_iter_text_with_chunk_size():
-    response = httpr.Response(200, content=b"Hello, world!")
+    response = httpxr.Response(200, content=b"Hello, world!")
     parts = list(response.iter_text(chunk_size=5))
     assert parts == ["Hello", ", wor", "ld!"]
 
-    response = httpr.Response(200, content=b"Hello, world!!")
+    response = httpxr.Response(200, content=b"Hello, world!!")
     parts = list(response.iter_text(chunk_size=7))
     assert parts == ["Hello, ", "world!!"]
 
-    response = httpr.Response(200, content=b"Hello, world!")
+    response = httpxr.Response(200, content=b"Hello, world!")
     parts = list(response.iter_text(chunk_size=7))
     assert parts == ["Hello, ", "world!"]
 
-    response = httpr.Response(200, content=b"Hello, world!")
+    response = httpxr.Response(200, content=b"Hello, world!")
     parts = list(response.iter_text(chunk_size=13))
     assert parts == ["Hello, world!"]
 
-    response = httpr.Response(200, content=b"Hello, world!")
+    response = httpxr.Response(200, content=b"Hello, world!")
     parts = list(response.iter_text(chunk_size=20))
     assert parts == ["Hello, world!"]
 
 
 @pytest.mark.anyio
 async def test_aiter_text():
-    response = httpr.Response(
+    response = httpxr.Response(
         200,
         content=b"Hello, world!",
     )
@@ -646,21 +646,21 @@ async def test_aiter_text():
 
 @pytest.mark.anyio
 async def test_aiter_text_with_chunk_size():
-    response = httpr.Response(200, content=b"Hello, world!")
+    response = httpxr.Response(200, content=b"Hello, world!")
     parts = [part async for part in response.aiter_text(chunk_size=5)]
     assert parts == ["Hello", ", wor", "ld!"]
 
-    response = httpr.Response(200, content=b"Hello, world!")
+    response = httpxr.Response(200, content=b"Hello, world!")
     parts = [part async for part in response.aiter_text(chunk_size=13)]
     assert parts == ["Hello, world!"]
 
-    response = httpr.Response(200, content=b"Hello, world!")
+    response = httpxr.Response(200, content=b"Hello, world!")
     parts = [part async for part in response.aiter_text(chunk_size=20)]
     assert parts == ["Hello, world!"]
 
 
 def test_iter_lines():
-    response = httpr.Response(
+    response = httpxr.Response(
         200,
         content=b"Hello,\nworld!",
     )
@@ -670,7 +670,7 @@ def test_iter_lines():
 
 @pytest.mark.anyio
 async def test_aiter_lines():
-    response = httpr.Response(
+    response = httpxr.Response(
         200,
         content=b"Hello,\nworld!",
     )
@@ -682,7 +682,7 @@ async def test_aiter_lines():
 
 
 def test_sync_streaming_response():
-    response = httpr.Response(
+    response = httpxr.Response(
         200,
         content=streaming_body(),
     )
@@ -699,7 +699,7 @@ def test_sync_streaming_response():
 
 @pytest.mark.anyio
 async def test_async_streaming_response():
-    response = httpr.Response(
+    response = httpxr.Response(
         200,
         content=async_streaming_body(),
     )
@@ -715,7 +715,7 @@ async def test_async_streaming_response():
 
 
 def test_cannot_read_after_stream_consumed():
-    response = httpr.Response(
+    response = httpxr.Response(
         200,
         content=streaming_body(),
     )
@@ -724,13 +724,13 @@ def test_cannot_read_after_stream_consumed():
     for part in response.iter_bytes():
         content += part
 
-    with pytest.raises(httpr.StreamConsumed):
+    with pytest.raises(httpxr.StreamConsumed):
         response.read()
 
 
 @pytest.mark.anyio
 async def test_cannot_aread_after_stream_consumed():
-    response = httpr.Response(
+    response = httpxr.Response(
         200,
         content=async_streaming_body(),
     )
@@ -739,36 +739,36 @@ async def test_cannot_aread_after_stream_consumed():
     async for part in response.aiter_bytes():
         content += part
 
-    with pytest.raises(httpr.StreamConsumed):
+    with pytest.raises(httpxr.StreamConsumed):
         await response.aread()
 
 
 def test_cannot_read_after_response_closed():
-    response = httpr.Response(
+    response = httpxr.Response(
         200,
         content=streaming_body(),
     )
 
     response.close()
-    with pytest.raises(httpr.StreamClosed):
+    with pytest.raises(httpxr.StreamClosed):
         response.read()
 
 
 @pytest.mark.anyio
 async def test_cannot_aread_after_response_closed():
-    response = httpr.Response(
+    response = httpxr.Response(
         200,
         content=async_streaming_body(),
     )
 
     await response.aclose()
-    with pytest.raises(httpr.StreamClosed):
+    with pytest.raises(httpxr.StreamClosed):
         await response.aread()
 
 
 @pytest.mark.anyio
 async def test_elapsed_not_available_until_closed():
-    response = httpr.Response(
+    response = httpxr.Response(
         200,
         content=async_streaming_body(),
     )
@@ -778,7 +778,7 @@ async def test_elapsed_not_available_until_closed():
 
 
 def test_unknown_status_code():
-    response = httpr.Response(
+    response = httpxr.Response(
         600,
     )
     assert response.status_code == 600
@@ -790,7 +790,7 @@ def test_json_with_specified_encoding():
     data = {"greeting": "hello", "recipient": "world"}
     content = json.dumps(data).encode("utf-16")
     headers = {"Content-Type": "application/json, charset=utf-16"}
-    response = httpr.Response(
+    response = httpxr.Response(
         200,
         content=content,
         headers=headers,
@@ -802,7 +802,7 @@ def test_json_with_options():
     data = {"greeting": "hello", "recipient": "world", "amount": 1}
     content = json.dumps(data).encode("utf-16")
     headers = {"Content-Type": "application/json, charset=utf-16"}
-    response = httpr.Response(
+    response = httpxr.Response(
         200,
         content=content,
         headers=headers,
@@ -827,7 +827,7 @@ def test_json_without_specified_charset(encoding):
     data = {"greeting": "hello", "recipient": "world"}
     content = json.dumps(data).encode(encoding)
     headers = {"Content-Type": "application/json"}
-    response = httpr.Response(
+    response = httpxr.Response(
         200,
         content=content,
         headers=headers,
@@ -852,7 +852,7 @@ def test_json_with_specified_charset(encoding):
     data = {"greeting": "hello", "recipient": "world"}
     content = json.dumps(data).encode(encoding)
     headers = {"Content-Type": f"application/json; charset={encoding}"}
-    response = httpr.Response(
+    response = httpxr.Response(
         200,
         content=content,
         headers=headers,
@@ -877,7 +877,7 @@ def test_json_with_specified_charset(encoding):
     ],
 )
 def test_link_headers(headers, expected):
-    response = httpr.Response(
+    response = httpxr.Response(
         200,
         content=None,
         headers=headers,
@@ -889,19 +889,19 @@ def test_link_headers(headers, expected):
 def test_decode_error_with_request(header_value):
     headers = [(b"Content-Encoding", header_value)]
     broken_compressed_body = b"xxxxxxxxxxxxxx"
-    with pytest.raises(httpr.DecodingError):
-        httpr.Response(
+    with pytest.raises(httpxr.DecodingError):
+        httpxr.Response(
             200,
             headers=headers,
             content=broken_compressed_body,
         )
 
-    with pytest.raises(httpr.DecodingError):
-        httpr.Response(
+    with pytest.raises(httpxr.DecodingError):
+        httpxr.Response(
             200,
             headers=headers,
             content=broken_compressed_body,
-            request=httpr.Request("GET", "https://www.example.org/"),
+            request=httpxr.Request("GET", "https://www.example.org/"),
         )
 
 
@@ -909,12 +909,12 @@ def test_decode_error_with_request(header_value):
 def test_value_error_without_request(header_value):
     headers = [(b"Content-Encoding", header_value)]
     broken_compressed_body = b"xxxxxxxxxxxxxx"
-    with pytest.raises(httpr.DecodingError):
-        httpr.Response(200, headers=headers, content=broken_compressed_body)
+    with pytest.raises(httpxr.DecodingError):
+        httpxr.Response(200, headers=headers, content=broken_compressed_body)
 
 
 def test_response_with_unset_request():
-    response = httpr.Response(200, content=b"Hello, world!")
+    response = httpxr.Response(200, content=b"Hello, world!")
 
     assert response.status_code == 200
     assert response.reason_phrase == "OK"
@@ -923,16 +923,16 @@ def test_response_with_unset_request():
 
 
 def test_set_request_after_init():
-    response = httpr.Response(200, content=b"Hello, world!")
+    response = httpxr.Response(200, content=b"Hello, world!")
 
-    response.request = httpr.Request("GET", "https://www.example.org")
+    response.request = httpxr.Request("GET", "https://www.example.org")
 
     assert response.request.method == "GET"
     assert response.request.url == "https://www.example.org"
 
 
 def test_cannot_access_unset_request():
-    response = httpr.Response(200, content=b"Hello, world!")
+    response = httpxr.Response(200, content=b"Hello, world!")
 
     with pytest.raises(RuntimeError):
         response.request  # noqa: B018
@@ -942,7 +942,7 @@ def test_generator_with_transfer_encoding_header():
     def content() -> typing.Iterator[bytes]:
         yield b"test 123"  # pragma: no cover
 
-    response = httpr.Response(200, content=content())
+    response = httpxr.Response(200, content=content())
     assert response.headers == {"Transfer-Encoding": "chunked"}
 
 
@@ -951,15 +951,15 @@ def test_generator_with_content_length_header():
         yield b"test 123"  # pragma: no cover
 
     headers = {"Content-Length": "8"}
-    response = httpr.Response(200, content=content(), headers=headers)
+    response = httpxr.Response(200, content=content(), headers=headers)
     assert response.headers == {"Content-Length": "8"}
 
 
 def test_response_picklable():
-    response = httpr.Response(
+    response = httpxr.Response(
         200,
         content=b"Hello, world!",
-        request=httpr.Request("GET", "https://example.org"),
+        request=httpxr.Request("GET", "https://example.org"),
     )
     pickle_response = pickle.loads(pickle.dumps(response))
     assert pickle_response.is_closed is True
@@ -975,17 +975,17 @@ def test_response_picklable():
 
 @pytest.mark.anyio
 async def test_response_async_streaming_picklable():
-    response = httpr.Response(200, content=async_streaming_body())
+    response = httpxr.Response(200, content=async_streaming_body())
     pickle_response = pickle.loads(pickle.dumps(response))
-    with pytest.raises(httpr.ResponseNotRead):
+    with pytest.raises(httpxr.ResponseNotRead):
         pickle_response.content  # noqa: B018
-    with pytest.raises(httpr.StreamClosed):
+    with pytest.raises(httpxr.StreamClosed):
         await pickle_response.aread()
     assert pickle_response.is_stream_consumed is False
     assert pickle_response.num_bytes_downloaded == 0
     assert pickle_response.headers == {"Transfer-Encoding": "chunked"}
 
-    response = httpr.Response(200, content=async_streaming_body())
+    response = httpxr.Response(200, content=async_streaming_body())
     await response.aread()
     pickle_response = pickle.loads(pickle.dumps(response))
     assert pickle_response.is_stream_consumed is True
@@ -1007,7 +1007,7 @@ def test_response_decode_text_using_autodetect():
         "plus complète le fond du génie français."
     )
     content = text.encode("ISO-8859-1")
-    response = httpr.Response(200, content=content, default_encoding=autodetect)
+    response = httpxr.Response(200, content=content, default_encoding=autodetect)
 
     assert response.status_code == 200
     assert response.reason_phrase == "OK"
@@ -1029,7 +1029,7 @@ def test_response_decode_text_using_explicit_encoding():
         "plus complète le fond du génie français."
     )
     content = text.encode("cp1252")
-    response = httpr.Response(200, content=content, default_encoding="cp1252")
+    response = httpxr.Response(200, content=content, default_encoding="cp1252")
 
     assert response.status_code == 200
     assert response.reason_phrase == "OK"

@@ -1,24 +1,24 @@
-import httpr
+import httpxr
 
 
-def hello_world(request: httpr.Request) -> httpr.Response:
-    return httpr.Response(200, text="Hello, world")
+def hello_world(request: httpxr.Request) -> httpxr.Response:
+    return httpxr.Response(200, text="Hello, world")
 
 
 def test_client_queryparams():
-    client = httpr.Client(params={"a": "b"})
-    assert isinstance(client.params, httpr.QueryParams)
+    client = httpxr.Client(params={"a": "b"})
+    assert isinstance(client.params, httpxr.QueryParams)
     assert client.params["a"] == "b"
 
 
 def test_client_queryparams_string():
-    client = httpr.Client(params="a=b")
-    assert isinstance(client.params, httpr.QueryParams)
+    client = httpxr.Client(params="a=b")
+    assert isinstance(client.params, httpxr.QueryParams)
     assert client.params["a"] == "b"
 
-    client = httpr.Client()
+    client = httpxr.Client()
     client.params = "a=b"
-    assert isinstance(client.params, httpr.QueryParams)
+    assert isinstance(client.params, httpxr.QueryParams)
     assert client.params["a"] == "b"
 
 
@@ -26,8 +26,8 @@ def test_client_queryparams_echo():
     url = "http://example.org/echo_queryparams"
     client_queryparams = "first=str"
     request_queryparams = {"second": "dict"}
-    client = httpr.Client(
-        transport=httpr.MockTransport(hello_world), params=client_queryparams
+    client = httpxr.Client(
+        transport=httpxr.MockTransport(hello_world), params=client_queryparams
     )
     response = client.get(url, params=request_queryparams)
 

@@ -1,12 +1,12 @@
-# httpr Examples
+# httpxr Examples
 
-A collection of examples demonstrating the `httpr` HTTP client — a Rust-backed,
+A collection of examples demonstrating the `httpxr` HTTP client — a Rust-backed,
 drop-in replacement for `httpx`.
 
 ## Quick Start
 
 ```bash
-# Install httpr (from the project root)
+# Install httpxr (from the project root)
 uv pip install -e .
 
 # Run any example
@@ -27,7 +27,7 @@ uv run python examples/basic_requests.py
 | [`timeouts_and_limits.py`](timeouts_and_limits.py) | Configuring `Timeout` and `Limits` |
 | [`mock_transport.py`](mock_transport.py) | Response/Request/URL objects for testing — no network needed |
 | [`authentication.py`](authentication.py) | `BasicAuth`, `DigestAuth`, and custom `FunctionAuth` |
-| [`gather.py`](gather.py) | **httpr extension** — concurrent batch requests with `gather()` |
-| [`paginate.py`](paginate.py) | **httpr extension** — auto-follow pagination links with `paginate()` |
-| [`async_gather.py`](async_gather.py) | **httpr extension** — async `gather()` and `paginate()` |
+| [`gather.py`](gather.py) | **httpxr extension** — concurrent batch requests with `gather()` |
+| [`paginate.py`](paginate.py) | **httpxr extension** — auto-follow pagination links with `paginate()` |
+| [`async_gather.py`](async_gather.py) | **httpxr extension** — async `gather()` and `paginate()` |
 

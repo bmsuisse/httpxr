@@ -6,12 +6,12 @@ Demonstrates the top-level convenience functions: get, post, put, patch, delete.
 These create a one-off Client per call — great for scripts and quick tasks.
 """
 
-import httpr
+import httpxr
 
 
 def main() -> None:
     # ── GET ──────────────────────────────────────────────────────────────
-    response = httpr.get("https://httpbin.org/get")
+    response = httpxr.get("https://httpbin.org/get")
     print(f"GET  → {response.status_code} {response.reason_phrase}")
     print(f"  URL:          {response.url}")
     print(f"  HTTP version: {response.http_version}")
@@ -19,7 +19,7 @@ def main() -> None:
     print()
 
     # ── POST with raw bytes ──────────────────────────────────────────────
-    response = httpr.post(
+    response = httpxr.post(
         "https://httpbin.org/post",
         content=b"Hello, world!",
     )
@@ -28,7 +28,7 @@ def main() -> None:
     print()
 
     # ── PUT ──────────────────────────────────────────────────────────────
-    response = httpr.put(
+    response = httpxr.put(
         "https://httpbin.org/put",
         content=b"updated payload",
     )
@@ -36,7 +36,7 @@ def main() -> None:
     print()
 
     # ── PATCH ────────────────────────────────────────────────────────────
-    response = httpr.patch(
+    response = httpxr.patch(
         "https://httpbin.org/patch",
         content=b"partial update",
     )
@@ -44,7 +44,7 @@ def main() -> None:
     print()
 
     # ── DELETE ───────────────────────────────────────────────────────────
-    response = httpr.delete("https://httpbin.org/delete")
+    response = httpxr.delete("https://httpbin.org/delete")
     print(f"DELETE → {response.status_code}")
 
 

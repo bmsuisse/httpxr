@@ -37,8 +37,8 @@ impl log::Log for PyLogger {
                 };
 
                 let logger_name = record.target();
-                let logger_name = if logger_name.starts_with("httpr") {
-                    "httpr"
+                let logger_name = if logger_name.starts_with("httpxr") {
+                    "httpxr"
                 } else {
                     logger_name
                 };

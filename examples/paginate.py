@@ -1,5 +1,5 @@
 """
-Example: httpr.Client.paginate() — automatic pagination
+Example: httpxr.Client.paginate() — automatic pagination
 
 paginate() returns a lazy **iterator** that auto-follows pagination links.
 Each call to ``next()`` fetches exactly one page, keeping memory usage low
@@ -11,15 +11,15 @@ Three strategies for discovering the next page URL:
   2. next_header: Parse a Link header (e.g. GitHub-style pagination)
   3. next_func:   Use a custom callable to extract the next URL
 
-This is an httpr extension — not available in httpx.
+This is an httpxr extension — not available in httpx.
 """
 
-import httpr
+import httpxr
 
 
 def paginate_json_key() -> None:
     """Follow @odata.nextLink in JSON body (common in Microsoft Graph APIs)."""
-    with httpr.Client() as client:
+    with httpxr.Client() as client:
         # Returns an iterator — pages are fetched lazily
         for page in client.paginate(
             "GET",
@@ -39,7 +39,7 @@ def paginate_link_header() -> None:
         Link: <https://api.github.com/repos/org/repo/issues?page=2>; rel="next",
               <https://api.github.com/repos/org/repo/issues?page=5>; rel="last"
     """
-    with httpr.Client() as client:
+    with httpxr.Client() as client:
         total_issues = 0
         for page in client.paginate(
             "GET",
@@ -61,14 +61,14 @@ def paginate_custom_function() -> None:
     Useful for APIs with non-standard pagination schemes.
     """
 
-    def get_next_url(response: httpr.Response) -> str | None:
+    def get_next_url(response: httpxr.Response) -> str | None:
         """Extract next page from a custom response format."""
         data = response.json()
         # Example: API returns { "pagination": { "next": "https://..." } }
         pagination = data.get("pagination", {})
         return pagination.get("next")
 
-    with httpr.Client() as client:
+    with httpxr.Client() as client:
         for page in client.paginate(
             "GET",
             "https://api.example.com/items",
@@ -80,7 +80,7 @@ def paginate_custom_function() -> None:
 
 def paginate_collect() -> None:
     """Use collect() to gather all pages into a list at once."""
-    with httpr.Client() as client:
+    with httpxr.Client() as client:
         pages = client.paginate(
             "GET",
             "https://api.github.com/repos/python/cpython/issues",
@@ -93,7 +93,7 @@ def paginate_collect() -> None:
 
 def paginate_with_progress() -> None:
     """Track pagination progress with pages_fetched."""
-    with httpr.Client() as client:
+    with httpxr.Client() as client:
         paginator = client.paginate(
             "GET",
             "https://api.github.com/repos/python/cpython/commits",

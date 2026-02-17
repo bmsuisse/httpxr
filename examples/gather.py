@@ -1,21 +1,21 @@
 """
-Example: httpr.Client.gather() — concurrent batch requests
+Example: httpxr.Client.gather() — concurrent batch requests
 
 gather() dispatches multiple HTTP requests concurrently using Rust's tokio
 runtime. Requests are built in Python, then sent in parallel with a single
 GIL release. This is significantly faster than sending requests sequentially.
 
-This is an httpr extension — not available in httpx.
+This is an httpxr extension — not available in httpx.
 """
 
 import time
 
-import httpr
+import httpxr
 
 
 def basic_gather() -> None:
     """Send 10 requests concurrently."""
-    with httpr.Client() as client:
+    with httpxr.Client() as client:
         # Build a batch of requests
         requests = [
             client.build_request("GET", "https://httpbin.org/delay/1")
@@ -33,7 +33,7 @@ def basic_gather() -> None:
 
 def gather_with_concurrency_limit() -> None:
     """Limit concurrency to 3 simultaneous requests."""
-    with httpr.Client() as client:
+    with httpxr.Client() as client:
         requests = [
             client.build_request("GET", f"https://httpbin.org/get?id={i}")
             for i in range(20)
@@ -46,7 +46,7 @@ def gather_with_concurrency_limit() -> None:
 
 def gather_with_error_handling() -> None:
     """Handle partial failures gracefully."""
-    with httpr.Client() as client:
+    with httpxr.Client() as client:
         requests = [
             client.build_request("GET", "https://httpbin.org/status/200"),
             client.build_request("GET", "https://httpbin.org/status/404"),
@@ -69,7 +69,7 @@ def gather_vs_sequential() -> None:
     url = "https://httpbin.org/delay/0.5"
     n = 6
 
-    with httpr.Client() as client:
+    with httpxr.Client() as client:
         requests = [client.build_request("GET", url) for _ in range(n)]
 
         # Sequential
@@ -91,7 +91,7 @@ def gather_vs_sequential() -> None:
 
 def gather_mixed_methods() -> None:
     """Mix different HTTP methods in a single gather call."""
-    with httpr.Client() as client:
+    with httpxr.Client() as client:
         requests = [
             client.build_request("GET", "https://httpbin.org/get"),
             client.build_request(

@@ -6,16 +6,16 @@ import typing
 
 import pytest
 
-import httpr
+import httpxr
 
 
-def echo_request_content(request: httpr.Request) -> httpr.Response:
-    return httpr.Response(200, content=request.content)
+def echo_request_content(request: httpxr.Request) -> httpxr.Response:
+    return httpxr.Response(200, content=request.content)
 
 
 @pytest.mark.parametrize(("value,output"), (("abc", b"abc"), (b"abc", b"abc")))
 def test_multipart(value, output):
-    client = httpr.Client(transport=httpr.MockTransport(echo_request_content))
+    client = httpxr.Client(transport=httpxr.MockTransport(echo_request_content))
 
     # Test with a single-value 'data' argument, and a plain file 'files' argument.
     data = {"text": value}
@@ -55,7 +55,7 @@ def test_multipart(value, output):
     ],
 )
 def test_multipart_explicit_boundary(header: str) -> None:
-    client = httpr.Client(transport=httpr.MockTransport(echo_request_content))
+    client = httpxr.Client(transport=httpxr.MockTransport(echo_request_content))
 
     files = {"file": io.BytesIO(b"<file content>")}
     headers = {"content-type": header}
@@ -84,7 +84,7 @@ def test_multipart_explicit_boundary(header: str) -> None:
     ],
 )
 def test_multipart_header_without_boundary(header: str) -> None:
-    client = httpr.Client(transport=httpr.MockTransport(echo_request_content))
+    client = httpxr.Client(transport=httpxr.MockTransport(echo_request_content))
 
     files = {"file": io.BytesIO(b"<file content>")}
     headers = {"content-type": header}
@@ -96,7 +96,7 @@ def test_multipart_header_without_boundary(header: str) -> None:
 
 @pytest.mark.parametrize(("key"), (b"abc", 1, 2.3, None))
 def test_multipart_invalid_key(key):
-    client = httpr.Client(transport=httpr.MockTransport(echo_request_content))
+    client = httpxr.Client(transport=httpxr.MockTransport(echo_request_content))
 
     data = {key: "abc"}
     files = {"file": io.BytesIO(b"<file content>")}
@@ -112,7 +112,7 @@ def test_multipart_invalid_key(key):
 
 @pytest.mark.parametrize(("value"), (object(), {"key": "value"}))
 def test_multipart_invalid_value(value):
-    client = httpr.Client(transport=httpr.MockTransport(echo_request_content))
+    client = httpxr.Client(transport=httpxr.MockTransport(echo_request_content))
 
     data = {"text": value}
     files = {"file": io.BytesIO(b"<file content>")}
@@ -122,7 +122,7 @@ def test_multipart_invalid_value(value):
 
 
 def test_multipart_file_tuple():
-    client = httpr.Client(transport=httpr.MockTransport(echo_request_content))
+    client = httpxr.Client(transport=httpxr.MockTransport(echo_request_content))
 
     # Test with a list of values 'data' argument,
     #     and a tuple style 'files' argument.
@@ -159,7 +159,7 @@ def test_multipart_file_tuple_headers(file_content_type: str | None) -> None:
     headers = {"Content-Type": "multipart/form-data; boundary=BOUNDARY"}
     files = {"file": (file_name, file_content, file_content_type, file_headers)}
 
-    request = httpr.Request("POST", url, headers=headers, files=files)
+    request = httpxr.Request("POST", url, headers=headers, files=files)
     request.read()
 
     assert request.headers == {
@@ -189,7 +189,7 @@ def test_multipart_headers_include_content_type() -> None:
     headers = {"Content-Type": "multipart/form-data; boundary=BOUNDARY"}
     files = {"file": (file_name, file_content, file_content_type, file_headers)}
 
-    request = httpr.Request("POST", url, headers=headers, files=files)
+    request = httpxr.Request("POST", url, headers=headers, files=files)
     request.read()
 
     assert request.headers == {
@@ -223,7 +223,7 @@ def test_multipart_encode(tmp_path: typing.Any) -> None:
     with open(path, "rb") as input_file:
         files = {"file": ("name.txt", input_file)}
 
-        request = httpr.Request("POST", url, headers=headers, data=data, files=files)
+        request = httpxr.Request("POST", url, headers=headers, data=data, files=files)
         request.read()
 
         assert request.headers == {
@@ -253,7 +253,7 @@ def test_multipart_encode_unicode_file_contents() -> None:
     headers = {"Content-Type": "multipart/form-data; boundary=BOUNDARY"}
     files = {"file": ("name.txt", b"<bytes content>")}
 
-    request = httpr.Request("POST", url, headers=headers, files=files)
+    request = httpxr.Request("POST", url, headers=headers, files=files)
     request.read()
 
     assert request.headers == {
@@ -274,7 +274,7 @@ def test_multipart_encode_files_allows_filenames_as_none() -> None:
     headers = {"Content-Type": "multipart/form-data; boundary=BOUNDARY"}
     files = {"file": (None, io.BytesIO(b"<file content>"))}
 
-    request = httpr.Request("POST", url, headers=headers, data={}, files=files)
+    request = httpxr.Request("POST", url, headers=headers, data={}, files=files)
     request.read()
 
     assert request.headers == {
@@ -304,7 +304,7 @@ def test_multipart_encode_files_guesses_correct_content_type(
     headers = {"Content-Type": "multipart/form-data; boundary=BOUNDARY"}
     files = {"file": (file_name, io.BytesIO(b"<file content>"))}
 
-    request = httpr.Request("POST", url, headers=headers, data={}, files=files)
+    request = httpxr.Request("POST", url, headers=headers, data={}, files=files)
     request.read()
 
     assert request.headers == {
@@ -325,7 +325,7 @@ def test_multipart_encode_files_allows_bytes_content() -> None:
     headers = {"Content-Type": "multipart/form-data; boundary=BOUNDARY"}
     files = {"file": ("test.txt", b"<bytes content>", "text/plain")}
 
-    request = httpr.Request("POST", url, headers=headers, data={}, files=files)
+    request = httpxr.Request("POST", url, headers=headers, data={}, files=files)
     request.read()
 
     assert request.headers == {
@@ -347,7 +347,7 @@ def test_multipart_encode_files_allows_str_content() -> None:
     headers = {"Content-Type": "multipart/form-data; boundary=BOUNDARY"}
     files = {"file": ("test.txt", "<str content>", "text/plain")}
 
-    request = httpr.Request("POST", url, headers=headers, data={}, files=files)
+    request = httpxr.Request("POST", url, headers=headers, data={}, files=files)
     request.read()
 
     assert request.headers == {
@@ -368,7 +368,7 @@ def test_multipart_encode_files_raises_exception_with_StringIO_content() -> None
     url = "https://www.example.com"
     files = {"file": ("test.txt", io.StringIO("content"), "text/plain")}
     with pytest.raises(TypeError):
-        httpr.Request("POST", url, data={}, files=files)  # type: ignore
+        httpxr.Request("POST", url, data={}, files=files)  # type: ignore
 
 
 def test_multipart_encode_files_raises_exception_with_text_mode_file() -> None:
@@ -376,7 +376,7 @@ def test_multipart_encode_files_raises_exception_with_text_mode_file() -> None:
     with tempfile.TemporaryFile(mode="w") as upload:
         files = {"file": ("test.txt", upload, "text/plain")}
         with pytest.raises(TypeError):
-            httpr.Request("POST", url, data={}, files=files)  # type: ignore
+            httpxr.Request("POST", url, data={}, files=files)  # type: ignore
 
 
 def test_multipart_encode_non_seekable_filelike() -> None:
@@ -402,7 +402,7 @@ def test_multipart_encode_non_seekable_filelike() -> None:
     fileobj: typing.Any = IteratorIO(data())
     files = {"file": fileobj}
 
-    request = httpr.Request("POST", url, headers=headers, files=files)
+    request = httpxr.Request("POST", url, headers=headers, files=files)
     request.read()
 
     print("DEBUG: Running updated test_multipart_encode_non_seekable_filelike")
@@ -431,8 +431,8 @@ def test_multipart_rewinds_files():
     with tempfile.TemporaryFile() as upload:
         upload.write(b"Hello, world!")
 
-        transport = httpr.MockTransport(echo_request_content)
-        client = httpr.Client(transport=transport)
+        transport = httpxr.MockTransport(echo_request_content)
+        client = httpxr.Client(transport=transport)
 
         files = {"file": upload}
         response = client.post("http://127.0.0.1:8000/", files=files)
@@ -451,26 +451,26 @@ class TestHeaderParamHTML5Formatting:
         filename = "n\u00e4me"
         expected = b'filename="n\xc3\xa4me"'
         files = {"upload": (filename, b"<file content>")}
-        request = httpr.Request("GET", "https://www.example.com", files=files)
+        request = httpxr.Request("GET", "https://www.example.com", files=files)
         assert expected in request.read()
 
     def test_ascii(self):
         filename = "name"
         expected = b'filename="name"'
         files = {"upload": (filename, b"<file content>")}
-        request = httpr.Request("GET", "https://www.example.com", files=files)
+        request = httpxr.Request("GET", "https://www.example.com", files=files)
         assert expected in request.read()
 
     def test_unicode_escape(self):
         filename = "hello\\world\u0022"
         expected = b'filename="hello\\\\world%22"'
         files = {"upload": (filename, b"<file content>")}
-        request = httpr.Request("GET", "https://www.example.com", files=files)
+        request = httpxr.Request("GET", "https://www.example.com", files=files)
         assert expected in request.read()
 
     def test_unicode_with_control_character(self):
         filename = "hello\x1a\x1b\x1c"
         expected = b'filename="hello%1A\x1b%1C"'
         files = {"upload": (filename, b"<file content>")}
-        request = httpr.Request("GET", "https://www.example.com", files=files)
+        request = httpxr.Request("GET", "https://www.example.com", files=files)
         assert expected in request.read()

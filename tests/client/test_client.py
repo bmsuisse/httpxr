@@ -6,7 +6,7 @@ from datetime import timedelta
 import chardet
 import pytest
 
-import httpr
+import httpxr
 
 
 def autodetect(content):
@@ -15,7 +15,7 @@ def autodetect(content):
 
 def test_get(server):
     url = server.url
-    with httpr.Client(http2=True) as http:
+    with httpxr.Client(http2=True) as http:
         response = http.get(url)
     assert response.status_code == 200
     assert response.url == url
@@ -39,8 +39,8 @@ def test_get(server):
     ],
 )
 def test_get_invalid_url(server, url):
-    with httpr.Client() as client:
-        with pytest.raises((httpr.UnsupportedProtocol, httpr.LocalProtocolError)):
+    with httpxr.Client() as client:
+        with pytest.raises((httpxr.UnsupportedProtocol, httpxr.LocalProtocolError)):
             client.get(url)
 
 
@@ -48,7 +48,7 @@ def test_build_request(server):
     url = server.url.copy_with(path="/echo_headers")
     headers = {"Custom-header": "value"}
 
-    with httpr.Client() as client:
+    with httpxr.Client() as client:
         request = client.build_request("GET", url)
         request.headers.update(headers)
         response = client.send(request)
@@ -63,7 +63,7 @@ def test_build_post_request(server):
     url = server.url.copy_with(path="/echo_headers")
     headers = {"Custom-header": "value"}
 
-    with httpr.Client() as client:
+    with httpxr.Client() as client:
         request = client.build_request("POST", url)
         request.headers.update(headers)
         response = client.send(request)
@@ -76,21 +76,21 @@ def test_build_post_request(server):
 
 
 def test_post(server):
-    with httpr.Client() as client:
+    with httpxr.Client() as client:
         response = client.post(server.url, content=b"Hello, world!")
     assert response.status_code == 200
     assert response.reason_phrase == "OK"
 
 
 def test_post_json(server):
-    with httpr.Client() as client:
+    with httpxr.Client() as client:
         response = client.post(server.url, json={"text": "Hello, world!"})
     assert response.status_code == 200
     assert response.reason_phrase == "OK"
 
 
 def test_stream_response(server):
-    with httpr.Client() as client:
+    with httpxr.Client() as client:
         with client.stream("GET", server.url) as response:
             content = response.read()
     assert response.status_code == 200
@@ -100,7 +100,7 @@ def test_stream_response(server):
 def test_stream_iterator(server):
     body = b""
 
-    with httpr.Client() as client:
+    with httpxr.Client() as client:
         with client.stream("GET", server.url) as response:
             for chunk in response.iter_bytes():
                 body += chunk
@@ -112,7 +112,7 @@ def test_stream_iterator(server):
 def test_raw_iterator(server):
     body = b""
 
-    with httpr.Client() as client:
+    with httpxr.Client() as client:
         with client.stream("GET", server.url) as response:
             for chunk in response.iter_raw():
                 body += chunk
@@ -126,19 +126,19 @@ def test_cannot_stream_async_request(server):
         yield b"Hello, "
         yield b"world!"
 
-    with httpr.Client() as client:
+    with httpxr.Client() as client:
         with pytest.raises(RuntimeError):
             client.post(server.url, content=hello_world())
 
 
 def test_raise_for_status(server):
-    with httpr.Client() as client:
+    with httpxr.Client() as client:
         for status_code in (200, 400, 404, 500, 505):
             response = client.request(
                 "GET", server.url.copy_with(path=f"/status/{status_code}")
             )
             if 400 <= status_code < 600:
-                with pytest.raises(httpr.HTTPStatusError) as exc_info:
+                with pytest.raises(httpxr.HTTPStatusError) as exc_info:
                     response.raise_for_status()
                 assert exc_info.value.response == response
                 assert exc_info.value.request.url.path == f"/status/{status_code}"
@@ -147,35 +147,35 @@ def test_raise_for_status(server):
 
 
 def test_options(server):
-    with httpr.Client() as client:
+    with httpxr.Client() as client:
         response = client.options(server.url)
     assert response.status_code == 200
     assert response.reason_phrase == "OK"
 
 
 def test_head(server):
-    with httpr.Client() as client:
+    with httpxr.Client() as client:
         response = client.head(server.url)
     assert response.status_code == 200
     assert response.reason_phrase == "OK"
 
 
 def test_put(server):
-    with httpr.Client() as client:
+    with httpxr.Client() as client:
         response = client.put(server.url, content=b"Hello, world!")
     assert response.status_code == 200
     assert response.reason_phrase == "OK"
 
 
 def test_patch(server):
-    with httpr.Client() as client:
+    with httpxr.Client() as client:
         response = client.patch(server.url, content=b"Hello, world!")
     assert response.status_code == 200
     assert response.reason_phrase == "OK"
 
 
 def test_delete(server):
-    with httpr.Client() as client:
+    with httpxr.Client() as client:
         response = client.delete(server.url)
     assert response.status_code == 200
     assert response.reason_phrase == "OK"
@@ -183,59 +183,59 @@ def test_delete(server):
 
 def test_base_url(server):
     base_url = server.url
-    with httpr.Client(base_url=base_url) as client:
+    with httpxr.Client(base_url=base_url) as client:
         response = client.get("/")
     assert response.status_code == 200
     assert response.url == base_url
 
 
 def test_merge_absolute_url():
-    client = httpr.Client(base_url="https://www.example.com/")
+    client = httpxr.Client(base_url="https://www.example.com/")
     request = client.build_request("GET", "http://www.example.com/")
     assert request.url == "http://www.example.com/"
 
 
 def test_merge_relative_url():
-    client = httpr.Client(base_url="https://www.example.com/")
+    client = httpxr.Client(base_url="https://www.example.com/")
     request = client.build_request("GET", "/testing/123")
     assert request.url == "https://www.example.com/testing/123"
 
 
 def test_merge_relative_url_with_path():
-    client = httpr.Client(base_url="https://www.example.com/some/path")
+    client = httpxr.Client(base_url="https://www.example.com/some/path")
     request = client.build_request("GET", "/testing/123")
     assert request.url == "https://www.example.com/some/path/testing/123"
 
 
 def test_merge_relative_url_with_dotted_path():
-    client = httpr.Client(base_url="https://www.example.com/some/path")
+    client = httpxr.Client(base_url="https://www.example.com/some/path")
     request = client.build_request("GET", "../testing/123")
     assert request.url == "https://www.example.com/some/testing/123"
 
 
 def test_merge_relative_url_with_path_including_colon():
-    client = httpr.Client(base_url="https://www.example.com/some/path")
+    client = httpxr.Client(base_url="https://www.example.com/some/path")
     request = client.build_request("GET", "/testing:123")
     assert request.url == "https://www.example.com/some/path/testing:123"
 
 
 def test_merge_relative_url_with_encoded_slashes():
-    client = httpr.Client(base_url="https://www.example.com/")
+    client = httpxr.Client(base_url="https://www.example.com/")
     request = client.build_request("GET", "/testing%2F123")
     assert request.url == "https://www.example.com/testing%2F123"
 
-    client = httpr.Client(base_url="https://www.example.com/base%2Fpath")
+    client = httpxr.Client(base_url="https://www.example.com/base%2Fpath")
     request = client.build_request("GET", "/testing")
     assert request.url == "https://www.example.com/base%2Fpath/testing"
 
 
 def test_context_managed_transport():
-    class Transport(httpr.BaseTransport):
+    class Transport(httpxr.BaseTransport):
         def __init__(self) -> None:
             self.events: list[str] = []
 
         def close(self):
-            # The base implementation of httpr.BaseTransport just
+            # The base implementation of httpxr.BaseTransport just
             # calls into `.close`, so simple transport cases can just override
             # this method for any cleanup, where more complex cases
             # might want to additionally override `__enter__`/`__exit__`.
@@ -250,7 +250,7 @@ def test_context_managed_transport():
             self.events.append("transport.__exit__")
 
     transport = Transport()
-    with httpr.Client(transport=transport):
+    with httpxr.Client(transport=transport):
         pass
 
     assert transport.events == [
@@ -261,13 +261,13 @@ def test_context_managed_transport():
 
 
 def test_context_managed_transport_and_mount():
-    class Transport(httpr.BaseTransport):
+    class Transport(httpxr.BaseTransport):
         def __init__(self, name: str) -> None:
             self.name: str = name
             self.events: list[str] = []
 
         def close(self):
-            # The base implementation of httpr.BaseTransport just
+            # The base implementation of httpxr.BaseTransport just
             # calls into `.close`, so simple transport cases can just override
             # this method for any cleanup, where more complex cases
             # might want to additionally override `__enter__`/`__exit__`.
@@ -283,7 +283,7 @@ def test_context_managed_transport_and_mount():
 
     transport = Transport(name="transport")
     mounted = Transport(name="mounted")
-    with httpr.Client(transport=transport, mounts={"http://www.example.org": mounted}):
+    with httpxr.Client(transport=transport, mounts={"http://www.example.org": mounted}):
         pass
 
     assert transport.events == [
@@ -299,11 +299,11 @@ def test_context_managed_transport_and_mount():
 
 
 def hello_world(request):
-    return httpr.Response(200, text="Hello, world!")
+    return httpxr.Response(200, text="Hello, world!")
 
 
 def test_client_closed_state_using_implicit_open():
-    client = httpr.Client(transport=httpr.MockTransport(hello_world))
+    client = httpxr.Client(transport=httpxr.MockTransport(hello_world))
 
     assert not client.is_closed
     client.get("http://example.com")
@@ -324,7 +324,7 @@ def test_client_closed_state_using_implicit_open():
 
 
 def test_client_closed_state_using_with_block():
-    with httpr.Client(transport=httpr.MockTransport(hello_world)) as client:
+    with httpxr.Client(transport=httpxr.MockTransport(hello_world)) as client:
         assert not client.is_closed
         client.get("http://example.com")
 
@@ -333,12 +333,12 @@ def test_client_closed_state_using_with_block():
         client.get("http://example.com")
 
 
-def echo_raw_headers(request: httpr.Request) -> httpr.Response:
+def echo_raw_headers(request: httpxr.Request) -> httpxr.Response:
     data = [
         (name.decode("ascii"), value.decode("ascii"))
         for name, value in request.headers.raw
     ]
-    return httpr.Response(200, json=data)
+    return httpxr.Response(200, json=data)
 
 
 def test_raw_client_header():
@@ -348,8 +348,8 @@ def test_raw_client_header():
     url = "http://example.org/echo_headers"
     headers = {"Example-Header": "example-value"}
 
-    client = httpr.Client(
-        transport=httpr.MockTransport(echo_raw_headers), headers=headers
+    client = httpxr.Client(
+        transport=httpxr.MockTransport(echo_raw_headers), headers=headers
     )
     response = client.get(url)
 
@@ -359,26 +359,26 @@ def test_raw_client_header():
         ["Accept", "*/*"],
         ["Accept-Encoding", "gzip, deflate, br, zstd"],
         ["Connection", "keep-alive"],
-        ["User-Agent", f"python-httpr/{httpr.__version__}"],
+        ["User-Agent", f"python-httpxr/{httpxr.__version__}"],
         ["Example-Header", "example-value"],
     ]
 
 
-def unmounted(request: httpr.Request) -> httpr.Response:
+def unmounted(request: httpxr.Request) -> httpxr.Response:
     data = {"app": "unmounted"}
-    return httpr.Response(200, json=data)
+    return httpxr.Response(200, json=data)
 
 
-def mounted(request: httpr.Request) -> httpr.Response:
+def mounted(request: httpxr.Request) -> httpxr.Response:
     data = {"app": "mounted"}
-    return httpr.Response(200, json=data)
+    return httpxr.Response(200, json=data)
 
 
 def test_mounted_transport():
-    transport = httpr.MockTransport(unmounted)
-    mounts = {"custom://": httpr.MockTransport(mounted)}
+    transport = httpxr.MockTransport(unmounted)
+    mounts = {"custom://": httpxr.MockTransport(mounted)}
 
-    client = httpr.Client(transport=transport, mounts=mounts)
+    client = httpxr.Client(transport=transport, mounts=mounts)
 
     response = client.get("https://www.example.com")
     assert response.status_code == 200
@@ -390,9 +390,9 @@ def test_mounted_transport():
 
 
 def test_all_mounted_transport():
-    mounts = {"all://": httpr.MockTransport(mounted)}
+    mounts = {"all://": httpxr.MockTransport(mounted)}
 
-    client = httpr.Client(mounts=mounts)
+    client = httpxr.Client(mounts=mounts)
 
     response = client.get("https://www.example.com")
     assert response.status_code == 200
@@ -401,7 +401,7 @@ def test_all_mounted_transport():
 
 def test_server_extensions(server):
     url = server.url.copy_with(path="/http_version_2")
-    with httpr.Client(http2=True) as client:
+    with httpxr.Client(http2=True) as client:
         response = client.get(url)
     assert response.status_code == 200
     assert response.extensions["http_version"] == b"HTTP/1.1"
@@ -423,10 +423,10 @@ def test_client_decode_text_using_autodetect():
 
     def cp1252_but_no_content_type(request):
         content = text.encode("ISO-8859-1")
-        return httpr.Response(200, content=content)
+        return httpxr.Response(200, content=content)
 
-    transport = httpr.MockTransport(cp1252_but_no_content_type)
-    with httpr.Client(transport=transport, default_encoding=autodetect) as client:
+    transport = httpxr.MockTransport(cp1252_but_no_content_type)
+    with httpxr.Client(transport=transport, default_encoding=autodetect) as client:
         response = client.get("http://www.example.com")
 
         assert response.status_code == 200
@@ -450,10 +450,10 @@ def test_client_decode_text_using_explicit_encoding():
 
     def cp1252_but_no_content_type(request):
         content = text.encode("ISO-8859-1")
-        return httpr.Response(200, content=content)
+        return httpxr.Response(200, content=content)
 
-    transport = httpr.MockTransport(cp1252_but_no_content_type)
-    with httpr.Client(transport=transport, default_encoding=autodetect) as client:
+    transport = httpxr.MockTransport(cp1252_but_no_content_type)
+    with httpxr.Client(transport=transport, default_encoding=autodetect) as client:
         response = client.get("http://www.example.com")
 
         assert response.status_code == 200

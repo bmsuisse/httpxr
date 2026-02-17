@@ -8,7 +8,7 @@ pytest.importorskip("click")
 
 from click.testing import CliRunner
 
-import httpr
+import httpxr
 
 
 def splitlines(output: str) -> typing.Iterable[str]:
@@ -22,14 +22,14 @@ def remove_date_header(lines: typing.Iterable[str]) -> typing.Iterable[str]:
 def create_mock_response(status_code=200, content=b"", headers=None):
     if headers is None:
         headers = {}
-    response = MagicMock(spec=httpr.Response)
+    response = MagicMock(spec=httpxr.Response)
     response.status_code = status_code
     response.content = content
     response.text = content.decode("utf-8") if isinstance(content, bytes) else content
     response.headers = headers
     response.http_version = "HTTP/1.1"
     response.history = []
-    # httpr.Response.headers is a wrapper, but dict interface might be enough for CLI
+    # httpxr.Response.headers is a wrapper, but dict interface might be enough for CLI
     # The CLI does: for k, v in response.headers.items():
 
     # Mock .json() method
@@ -47,7 +47,7 @@ def create_mock_response(status_code=200, content=b"", headers=None):
 
 def test_help():
     runner = CliRunner()
-    result = runner.invoke(httpr.main, ["--help"])
+    result = runner.invoke(httpxr.main, ["--help"])
     assert result.exit_code == 0
     assert "A next generation HTTP client." in result.output
 
@@ -67,12 +67,12 @@ def test_get(server):
     )
     mock_resp.reason_phrase = "OK"
 
-    with patch("httpr.Client") as MockClient:
+    with patch("httpxr.Client") as MockClient:
         instance = MockClient.return_value
         instance.__enter__.return_value = instance
         instance.request.return_value = mock_resp
 
-        result = runner.invoke(httpr.main, [url])
+        result = runner.invoke(httpxr.main, [url])
 
         assert result.exit_code == 0
         assert remove_date_header(splitlines(result.output)) == [
@@ -104,12 +104,12 @@ def test_json(server):
     )
     mock_resp.reason_phrase = "OK"
 
-    with patch("httpr.Client") as MockClient:
+    with patch("httpxr.Client") as MockClient:
         instance = MockClient.return_value
         instance.__enter__.return_value = instance
         instance.request.return_value = mock_resp
 
-        result = runner.invoke(httpr.main, [url])
+        result = runner.invoke(httpxr.main, [url])
         assert result.exit_code == 0
         assert remove_date_header(splitlines(result.output)) == [
             "HTTP/1.1 200 OK",
@@ -153,7 +153,7 @@ def test_binary(server):
     # Server echoes it back.
     # If I use `b"Hello, world!"`, `is_binary` returns False.
     # Wait, `echo_binary` endpoint DOES NOT modify content.
-    # Is strict `httpr` CLI using headers to decide?
+    # Is strict `httpxr` CLI using headers to decide?
     # My `cli.py` uses `is_binary` check on content.
     # If `test_binary` passes in original code, then `httpx` CLI probably checks content-type too.
     # Or maybe it doesn't?
@@ -167,7 +167,7 @@ def test_binary(server):
     # If I add `\0`, len is 14.
     # So I must match length.
     # So `cli.py` MUST treat "Hello, world!" as binary?
-    # This implies `httpr` (httpx) checks Content-Type OR the original test relied on something else.
+    # This implies `httpxr` (httpx) checks Content-Type OR the original test relied on something else.
     # Investigating `httpx` CLI source (mental check): it uses `shutil.get_terminal_size` etc and checks for binary characters.
     # Maybe "Hello, world!" IS text.
     # Be careful: `test_binary` asserts `assert remove_date_header(...) == [ ..., f"<{len(content)} bytes of binary data>", ]`.
@@ -193,7 +193,7 @@ def test_binary(server):
     # Cheating in mock is hard if logic is in `cli.py`.
     # I'll update `cli.py` in a separate step.
 
-    result = runner.invoke(httpr.main, [url, "-c", content])
+    result = runner.invoke(httpxr.main, [url, "-c", content])
     # For now, I'll assert output assuming cli handles it.
 
     # NOTE: I need to update cli.py to handle this test case correctly!
@@ -214,12 +214,12 @@ def test_redirects(server):
     )
     mock_resp.reason_phrase = "Moved Permanently"
 
-    with patch("httpr.Client") as MockClient:
+    with patch("httpxr.Client") as MockClient:
         instance = MockClient.return_value
         instance.__enter__.return_value = instance
         instance.request.return_value = mock_resp
 
-        result = runner.invoke(httpr.main, [url])
+        result = runner.invoke(httpxr.main, [url])
         assert result.exit_code == 1  # 301 is error without follow
         assert remove_date_header(splitlines(result.output)) == [
             "HTTP/1.1 301 Moved Permanently",
@@ -234,23 +234,23 @@ def test_follow_redirects(server):
     url = str(server.url.copy_with(path="/redirect_301"))
     runner = CliRunner()
 
-    # This is tricky because `httpr.Client` handles redirects internally if `follow_redirects=True`.
+    # This is tricky because `httpxr.Client` handles redirects internally if `follow_redirects=True`.
     # `cli.py` sets `follow_redirects=True`.
-    # `httpr.Client.request` (mocked) returns ONE response.
+    # `httpxr.Client.request` (mocked) returns ONE response.
     # If it follows redirects, it should return the FINAL response.
-    # But `cli.py` assumes `httpr` handles it.
+    # But `cli.py` assumes `httpxr` handles it.
     # The TEST checks output of BOTH redirect AND final response?
     # Original test:
     # HTTP/1.1 301 ...
     # ...
     # HTTP/1.1 200 ...
     #
-    # Wait, `httpr` CLI (wrapped `httpx` CLI) prints the redirect chain if using `-v`?
+    # Wait, `httpxr` CLI (wrapped `httpx` CLI) prints the redirect chain if using `-v`?
     # No, `test_follow_redirects` DOES NOT use `-v`.
     # But the output shows BOTH responses?
     # `httpx` CLI prints each response in the chain if following redirects?
     # My `cli.py` calls `client.request`. It gets ONE response object (the final one).
-    # Does `httpr` response object contain history? Yes.
+    # Does `httpxr` response object contain history? Yes.
     # Does my `cli.py` print history?
     # Let's check `cli.py`.
     # I implemented: `print(f"{http_version} {response.status_code} ...")`.
@@ -277,13 +277,13 @@ def test_post(server):
     )
     mock_resp.reason_phrase = "OK"
 
-    with patch("httpr.Client") as MockClient:
+    with patch("httpxr.Client") as MockClient:
         instance = MockClient.return_value
         instance.__enter__.return_value = instance
         instance.request.return_value = mock_resp
 
         result = runner.invoke(
-            httpr.main, [url, "-m", "POST", "-j", '{"hello": "world"}']
+            httpxr.main, [url, "-m", "POST", "-j", '{"hello": "world"}']
         )
         assert result.exit_code == 0
         assert remove_date_header(splitlines(result.output)) == [
@@ -319,17 +319,17 @@ def test_verbose(server):
     )
     mock_resp.reason_phrase = "OK"
 
-    with patch("httpr.Client") as MockClient:
+    with patch("httpxr.Client") as MockClient:
         instance = MockClient.return_value
         instance.__enter__.return_value = instance
         instance.request.return_value = mock_resp
 
-        result = runner.invoke(httpr.main, [url, "-v"])
+        result = runner.invoke(httpxr.main, [url, "-v"])
         assert result.exit_code == 0
         # The output check is strict.
         # I need to ensure `cli.py` matches exactly.
         # My implementation in `cli.py` puts Host, Accept etc.
-        # It relies on `httpr.version`.
+        # It relies on `httpxr.version`.
         # I should check if it matches.
 
         # NOTE: `splitlines(result.output)` strips whitespace.
@@ -351,13 +351,13 @@ def test_auth(server):
     )
     mock_resp.reason_phrase = "OK"
 
-    with patch("httpr.Client") as MockClient:
+    with patch("httpxr.Client") as MockClient:
         instance = MockClient.return_value
         instance.__enter__.return_value = instance
         instance.request.return_value = mock_resp
 
         result = runner.invoke(
-            httpr.main, [url, "-v", "--auth", "username", "password"]
+            httpxr.main, [url, "-v", "--auth", "username", "password"]
         )
         assert result.exit_code == 0
         instance.request.assert_called_with(
@@ -374,13 +374,13 @@ def test_download(server):
     )
     mock_resp.reason_phrase = "OK"
 
-    with patch("httpr.Client") as MockClient:
+    with patch("httpxr.Client") as MockClient:
         instance = MockClient.return_value
         instance.__enter__.return_value = instance
         instance.request.return_value = mock_resp
 
         with runner.isolated_filesystem():
-            runner.invoke(httpr.main, [url, "--download", "index.txt"])
+            runner.invoke(httpxr.main, [url, "--download", "index.txt"])
             assert os.path.exists("index.txt")
             with open("index.txt", "r") as input_file:
                 assert input_file.read() == "Hello, world!"
@@ -389,14 +389,14 @@ def test_download(server):
 def test_errors():
     runner = CliRunner()
     # Mock Client to raise UnsupportedProtocol
-    with patch("httpr.Client") as MockClient:
+    with patch("httpxr.Client") as MockClient:
         instance = MockClient.return_value
         instance.__enter__.return_value = instance
-        instance.request.side_effect = httpr.UnsupportedProtocol(
+        instance.request.side_effect = httpxr.UnsupportedProtocol(
             "Request URL has an unsupported protocol 'invalid://'."
         )
 
-        result = runner.invoke(httpr.main, ["invalid://example.org"])
+        result = runner.invoke(httpxr.main, ["invalid://example.org"])
         assert result.exit_code == 1
         assert splitlines(result.output) == [
             "UnsupportedProtocol: Request URL has an unsupported protocol 'invalid://'.",

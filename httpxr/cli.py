@@ -83,10 +83,10 @@ def main(
     auth: tuple[str, str] | None,
     download: str | None,
 ) -> None:
-    import httpr as _httpr_mod
+    import httpxr as _httpxr_mod
 
     try:
-        with _httpr_mod.Client() as client:  # type: ignore[attr-defined]
+        with _httpxr_mod.Client() as client:  # type: ignore[attr-defined]
             kwargs: dict[str, typing.Any] = {
                 "method": method,
                 "url": url,
@@ -118,6 +118,6 @@ def main(
             if response.status_code >= 300:
                 sys.exit(1)
 
-    except _httpr_mod.HTTPError as exc:  # type: ignore[attr-defined]
+    except _httpxr_mod.HTTPError as exc:  # type: ignore[attr-defined]
         click.echo(f"{type(exc).__name__}: {exc}", err=False)
         sys.exit(1)

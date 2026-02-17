@@ -1,10 +1,10 @@
 [package]
-name = "httpr"
+name = "httpxr"
 version = "0.28.1"
 edition = "2021"
 
 [lib]
-name = "_httpr"
+name = "_httpxr"
 crate-type = ["cdylib"]
 
 [dependencies]

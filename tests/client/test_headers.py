@@ -2,22 +2,22 @@
 
 import pytest
 
-import httpr
+import httpxr
 
 
-def echo_headers(request: httpr.Request) -> httpr.Response:
+def echo_headers(request: httpxr.Request) -> httpxr.Response:
     data = {"headers": dict(request.headers)}
-    return httpr.Response(200, json=data)
+    return httpxr.Response(200, json=data)
 
 
-def echo_repeated_headers_multi_items(request: httpr.Request) -> httpr.Response:
+def echo_repeated_headers_multi_items(request: httpxr.Request) -> httpxr.Response:
     data = {"headers": list(request.headers.multi_items())}
-    return httpr.Response(200, json=data)
+    return httpxr.Response(200, json=data)
 
 
-def echo_repeated_headers_items(request: httpr.Request) -> httpr.Response:
+def echo_repeated_headers_items(request: httpxr.Request) -> httpxr.Response:
     data = {"headers": list(request.headers.items())}
-    return httpr.Response(200, json=data)
+    return httpxr.Response(200, json=data)
 
 
 def test_client_header():
@@ -27,7 +27,7 @@ def test_client_header():
     url = "http://example.org/echo_headers"
     headers = {"Example-Header": "example-value"}
 
-    client = httpr.Client(transport=httpr.MockTransport(echo_headers), headers=headers)
+    client = httpxr.Client(transport=httpxr.MockTransport(echo_headers), headers=headers)
     response = client.get(url)
 
     assert response.status_code == 200
@@ -38,7 +38,7 @@ def test_client_header():
             "connection": "keep-alive",
             "example-header": "example-value",
             "host": "example.org",
-            "user-agent": f"python-httpr/{httpr.__version__}",
+            "user-agent": f"python-httpxr/{httpxr.__version__}",
         }
     }
 
@@ -47,8 +47,8 @@ def test_header_merge():
     url = "http://example.org/echo_headers"
     client_headers = {"User-Agent": "python-myclient/0.2.1"}
     request_headers = {"X-Auth-Token": "FooBarBazToken"}
-    client = httpr.Client(
-        transport=httpr.MockTransport(echo_headers), headers=client_headers
+    client = httpxr.Client(
+        transport=httpxr.MockTransport(echo_headers), headers=client_headers
     )
     response = client.get(url, headers=request_headers)
 
@@ -69,8 +69,8 @@ def test_header_merge_conflicting_headers():
     url = "http://example.org/echo_headers"
     client_headers = {"X-Auth-Token": "FooBar"}
     request_headers = {"X-Auth-Token": "BazToken"}
-    client = httpr.Client(
-        transport=httpr.MockTransport(echo_headers), headers=client_headers
+    client = httpxr.Client(
+        transport=httpxr.MockTransport(echo_headers), headers=client_headers
     )
     response = client.get(url, headers=request_headers)
 
@@ -81,7 +81,7 @@ def test_header_merge_conflicting_headers():
             "accept-encoding": "gzip, deflate, br, zstd",
             "connection": "keep-alive",
             "host": "example.org",
-            "user-agent": f"python-httpr/{httpr.__version__}",
+            "user-agent": f"python-httpxr/{httpxr.__version__}",
             "x-auth-token": "BazToken",
         }
     }
@@ -89,7 +89,7 @@ def test_header_merge_conflicting_headers():
 
 def test_header_update():
     url = "http://example.org/echo_headers"
-    client = httpr.Client(transport=httpr.MockTransport(echo_headers))
+    client = httpxr.Client(transport=httpxr.MockTransport(echo_headers))
     first_response = client.get(url)
     client.headers.update(
         {"User-Agent": "python-myclient/0.2.1", "Another-Header": "AThing"}
@@ -103,7 +103,7 @@ def test_header_update():
             "accept-encoding": "gzip, deflate, br, zstd",
             "connection": "keep-alive",
             "host": "example.org",
-            "user-agent": f"python-httpr/{httpr.__version__}",
+            "user-agent": f"python-httpxr/{httpxr.__version__}",
         }
     }
 
@@ -122,7 +122,7 @@ def test_header_update():
 
 def test_header_repeated_items():
     url = "http://example.org/echo_headers"
-    client = httpr.Client(transport=httpr.MockTransport(echo_repeated_headers_items))
+    client = httpxr.Client(transport=httpxr.MockTransport(echo_repeated_headers_items))
     response = client.get(url, headers=[("x-header", "1"), ("x-header", "2,3")])
 
     assert response.status_code == 200
@@ -137,8 +137,8 @@ def test_header_repeated_items():
 
 def test_header_repeated_multi_items():
     url = "http://example.org/echo_headers"
-    client = httpr.Client(
-        transport=httpr.MockTransport(echo_repeated_headers_multi_items)
+    client = httpxr.Client(
+        transport=httpxr.MockTransport(echo_repeated_headers_multi_items)
     )
     response = client.get(url, headers=[("x-header", "1"), ("x-header", "2,3")])
 
@@ -155,7 +155,7 @@ def test_remove_default_header():
     """
     url = "http://example.org/echo_headers"
 
-    client = httpr.Client(transport=httpr.MockTransport(echo_headers))
+    client = httpxr.Client(transport=httpxr.MockTransport(echo_headers))
     del client.headers["User-Agent"]
 
     response = client.get(url)
@@ -172,7 +172,7 @@ def test_remove_default_header():
 
 
 def test_header_does_not_exist():
-    headers = httpr.Headers({"foo": "bar"})
+    headers = httpxr.Headers({"foo": "bar"})
     with pytest.raises(KeyError):
         del headers["baz"]
 
@@ -182,7 +182,7 @@ def test_header_with_incorrect_value():
         TypeError,
         match=f"Header value must be str or bytes, not {type(None)}",
     ):
-        httpr.Headers({"foo": None})  # type: ignore
+        httpxr.Headers({"foo": None})  # type: ignore
 
 
 def test_host_with_auth_and_port_in_url():
@@ -193,7 +193,7 @@ def test_host_with_auth_and_port_in_url():
     """
     url = "http://username:password@example.org:80/echo_headers"
 
-    client = httpr.Client(transport=httpr.MockTransport(echo_headers))
+    client = httpxr.Client(transport=httpxr.MockTransport(echo_headers))
     response = client.get(url)
 
     assert response.status_code == 200
@@ -203,7 +203,7 @@ def test_host_with_auth_and_port_in_url():
             "accept-encoding": "gzip, deflate, br, zstd",
             "connection": "keep-alive",
             "host": "example.org",
-            "user-agent": f"python-httpr/{httpr.__version__}",
+            "user-agent": f"python-httpxr/{httpxr.__version__}",
             "authorization": "Basic dXNlcm5hbWU6cGFzc3dvcmQ=",
         }
     }
@@ -216,7 +216,7 @@ def test_host_with_non_default_port_in_url():
     """
     url = "http://username:password@example.org:123/echo_headers"
 
-    client = httpr.Client(transport=httpr.MockTransport(echo_headers))
+    client = httpxr.Client(transport=httpxr.MockTransport(echo_headers))
     response = client.get(url)
 
     assert response.status_code == 200
@@ -226,68 +226,68 @@ def test_host_with_non_default_port_in_url():
             "accept-encoding": "gzip, deflate, br, zstd",
             "connection": "keep-alive",
             "host": "example.org:123",
-            "user-agent": f"python-httpr/{httpr.__version__}",
+            "user-agent": f"python-httpxr/{httpxr.__version__}",
             "authorization": "Basic dXNlcm5hbWU6cGFzc3dvcmQ=",
         }
     }
 
 
 def test_request_auto_headers():
-    request = httpr.Request("GET", "https://www.example.org/")
+    request = httpxr.Request("GET", "https://www.example.org/")
     assert "host" in request.headers
 
 
 def test_same_origin():
-    origin = httpr.URL("https://example.com")
-    request = httpr.Request("GET", "HTTPS://EXAMPLE.COM:443")
+    origin = httpxr.URL("https://example.com")
+    request = httpxr.Request("GET", "HTTPS://EXAMPLE.COM:443")
 
-    client = httpr.Client()
+    client = httpxr.Client()
     headers = client._redirect_headers(request, origin, "GET")
 
     assert headers["Host"] == request.url.netloc.decode("ascii")
 
 
 def test_not_same_origin():
-    origin = httpr.URL("https://example.com")
-    request = httpr.Request("GET", "HTTP://EXAMPLE.COM:80")
+    origin = httpxr.URL("https://example.com")
+    request = httpxr.Request("GET", "HTTP://EXAMPLE.COM:80")
 
-    client = httpr.Client()
+    client = httpxr.Client()
     headers = client._redirect_headers(request, origin, "GET")
 
     assert headers["Host"] == origin.netloc.decode("ascii")
 
 
 def test_is_https_redirect():
-    url = httpr.URL("https://example.com")
-    request = httpr.Request(
+    url = httpxr.URL("https://example.com")
+    request = httpxr.Request(
         "GET", "http://example.com", headers={"Authorization": "empty"}
     )
 
-    client = httpr.Client()
+    client = httpxr.Client()
     headers = client._redirect_headers(request, url, "GET")
 
     assert "Authorization" in headers
 
 
 def test_is_not_https_redirect():
-    url = httpr.URL("https://www.example.com")
-    request = httpr.Request(
+    url = httpxr.URL("https://www.example.com")
+    request = httpxr.Request(
         "GET", "http://example.com", headers={"Authorization": "empty"}
     )
 
-    client = httpr.Client()
+    client = httpxr.Client()
     headers = client._redirect_headers(request, url, "GET")
 
     assert "Authorization" not in headers
 
 
 def test_is_not_https_redirect_if_not_default_ports():
-    url = httpr.URL("https://example.com:1337")
-    request = httpr.Request(
+    url = httpxr.URL("https://example.com:1337")
+    request = httpxr.Request(
         "GET", "http://example.com:9999", headers={"Authorization": "empty"}
     )
 
-    client = httpr.Client()
+    client = httpxr.Client()
     headers = client._redirect_headers(request, url, "GET")
 
     assert "Authorization" not in headers

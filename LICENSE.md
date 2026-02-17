@@ -1,6 +1,6 @@
 # License
 
-`httpr` is dual-licensed under either of:
+`httpxr` is dual-licensed under either of:
 
 - **MIT License** — see [LICENSE-MIT](./LICENSE-MIT)
 - **Apache License, Version 2.0** — see [LICENSE-APACHE](./LICENSE-APACHE)

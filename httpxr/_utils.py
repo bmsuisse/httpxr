@@ -6,7 +6,7 @@ import typing
 from urllib.request import getproxies
 
 if typing.TYPE_CHECKING:
-    from ._httpr import URL
+    from ._httpxr import URL
 
 
 def get_environment_proxies() -> dict[str, str | None]:
@@ -52,7 +52,7 @@ def _is_ip_hostname(
 
 class URLPattern:
     def __init__(self, pattern: str) -> None:
-        from ._httpr import URL
+        from ._httpxr import URL
 
         if pattern and ":" not in pattern:
             raise ValueError(

@@ -4,7 +4,7 @@ from typing import Any
 
 import pytest
 
-import httpr
+import httpxr
 
 
 # ---------------------------------------------------------------------------
@@ -12,29 +12,29 @@ import httpr
 # ---------------------------------------------------------------------------
 
 
-def hello_world(request: httpr.Request) -> httpr.Response:
-    return httpr.Response(200, text="Hello, world!")
+def hello_world(request: httpxr.Request) -> httpxr.Response:
+    return httpxr.Response(200, text="Hello, world!")
 
 
-def echo_url(request: httpr.Request) -> httpr.Response:
+def echo_url(request: httpxr.Request) -> httpxr.Response:
     """Return the URL and method as JSON."""
-    return httpr.Response(
+    return httpxr.Response(
         200,
         json={"url": str(request.url), "method": request.method},
     )
 
 
-def failing_request(request: httpr.Request) -> httpr.Response:
+def failing_request(request: httpxr.Request) -> httpxr.Response:
     """Always returns 500."""
-    return httpr.Response(500, text="Internal Server Error")
+    return httpxr.Response(500, text="Internal Server Error")
 
 
-def mixed_responses(request: httpr.Request) -> httpr.Response:
+def mixed_responses(request: httpxr.Request) -> httpxr.Response:
     """Return 200 or 500 based on the URL path."""
     url_str = str(request.url)
     if "fail" in url_str:
-        return httpr.Response(500, text="fail")
-    return httpr.Response(200, text="ok")
+        return httpxr.Response(500, text="fail")
+    return httpxr.Response(200, text="ok")
 
 
 # --- Pagination handlers ---
@@ -42,7 +42,7 @@ def mixed_responses(request: httpr.Request) -> httpr.Response:
 _page_counter: dict[str, int] = {}
 
 
-def paginated_json_handler(request: httpr.Request) -> httpr.Response:
+def paginated_json_handler(request: httpxr.Request) -> httpxr.Response:
     """Simulate a paginated API with JSON next URL (3 pages total)."""
     url_str = str(request.url)
 
@@ -65,10 +65,10 @@ def paginated_json_handler(request: httpr.Request) -> httpr.Response:
     else:
         data["next_page"] = None
 
-    return httpr.Response(200, json=data)
+    return httpxr.Response(200, json=data)
 
 
-def paginated_link_header_handler(request: httpr.Request) -> httpr.Response:
+def paginated_link_header_handler(request: httpxr.Request) -> httpxr.Response:
     """Simulate pagination via Link header (2 pages total)."""
     url_str = str(request.url)
 
@@ -81,12 +81,12 @@ def paginated_link_header_handler(request: httpr.Request) -> httpr.Response:
         headers = {"link": f'<{base}?page=2>; rel="next"'}
 
     data = {"page": page, "items": [f"item_{page}"]}
-    return httpr.Response(200, json=data, headers=headers)
+    return httpxr.Response(200, json=data, headers=headers)
 
 
-def paginated_single_page_handler(request: httpr.Request) -> httpr.Response:
+def paginated_single_page_handler(request: httpxr.Request) -> httpxr.Response:
     """Return a single page with no next URL."""
-    return httpr.Response(200, json={"page": 1, "items": ["only_item"], "next": None})
+    return httpxr.Response(200, json={"page": 1, "items": ["only_item"], "next": None})
 
 
 # ===========================================================================
@@ -97,7 +97,7 @@ def paginated_single_page_handler(request: httpr.Request) -> httpr.Response:
 class TestSyncGather:
     def test_gather_basic(self) -> None:
         """Multiple requests dispatched concurrently."""
-        client = httpr.Client(transport=httpr.MockTransport(echo_url))
+        client = httpxr.Client(transport=httpxr.MockTransport(echo_url))
         requests = [
             client.build_request("GET", f"http://example.com/item/{i}")
             for i in range(5)
@@ -112,7 +112,7 @@ class TestSyncGather:
 
     def test_gather_empty(self) -> None:
         """Empty request list returns empty results."""
-        client = httpr.Client(transport=httpr.MockTransport(hello_world))
+        client = httpxr.Client(transport=httpxr.MockTransport(hello_world))
         results = client.gather([])
 
         assert len(results) == 0
@@ -120,7 +120,7 @@ class TestSyncGather:
 
     def test_gather_single_request(self) -> None:
         """Single request works fine."""
-        client = httpr.Client(transport=httpr.MockTransport(hello_world))
+        client = httpxr.Client(transport=httpxr.MockTransport(hello_world))
         requests = [client.build_request("GET", "http://example.com")]
         results = client.gather(requests)
 
@@ -130,7 +130,7 @@ class TestSyncGather:
 
     def test_gather_with_concurrency_limit(self) -> None:
         """Concurrency limit is respected (still returns all results)."""
-        client = httpr.Client(transport=httpr.MockTransport(echo_url))
+        client = httpxr.Client(transport=httpxr.MockTransport(echo_url))
         requests = [
             client.build_request("GET", f"http://example.com/{i}")
             for i in range(10)
@@ -142,7 +142,7 @@ class TestSyncGather:
 
     def test_gather_return_exceptions_false(self) -> None:
         """When return_exceptions=False, errors propagate."""
-        client = httpr.Client(transport=httpr.MockTransport(mixed_responses))
+        client = httpxr.Client(transport=httpxr.MockTransport(mixed_responses))
         requests = [
             client.build_request("GET", "http://example.com/ok"),
             client.build_request("GET", "http://example.com/ok"),
@@ -154,7 +154,7 @@ class TestSyncGather:
 
     def test_gather_with_different_methods(self) -> None:
         """Gather supports mixed HTTP methods."""
-        client = httpr.Client(transport=httpr.MockTransport(echo_url))
+        client = httpxr.Client(transport=httpxr.MockTransport(echo_url))
         requests = [
             client.build_request("GET", "http://example.com/a"),
             client.build_request("POST", "http://example.com/b"),
@@ -171,7 +171,7 @@ class TestSyncGather:
 
     def test_gather_closed_client_raises(self) -> None:
         """Gather on a closed client raises RuntimeError."""
-        client = httpr.Client(transport=httpr.MockTransport(hello_world))
+        client = httpxr.Client(transport=httpxr.MockTransport(hello_world))
         client.close()
 
         with pytest.raises(RuntimeError):
@@ -186,7 +186,7 @@ class TestSyncGather:
 class TestSyncPaginate:
     def test_paginate_json_key(self) -> None:
         """Pagination using JSON key to extract next URL."""
-        client = httpr.Client(transport=httpr.MockTransport(paginated_json_handler))
+        client = httpxr.Client(transport=httpxr.MockTransport(paginated_json_handler))
         pages = list(
             client.paginate(
                 "GET",
@@ -203,8 +203,8 @@ class TestSyncPaginate:
 
     def test_paginate_link_header(self) -> None:
         """Pagination using Link header."""
-        client = httpr.Client(
-            transport=httpr.MockTransport(paginated_link_header_handler)
+        client = httpxr.Client(
+            transport=httpxr.MockTransport(paginated_link_header_handler)
         )
         pages = list(
             client.paginate(
@@ -222,11 +222,11 @@ class TestSyncPaginate:
     def test_paginate_custom_func(self) -> None:
         """Pagination using a custom callable."""
 
-        def get_next(response: httpr.Response) -> str | None:
+        def get_next(response: httpxr.Response) -> str | None:
             data = response.json()
             return data.get("next_page")
 
-        client = httpr.Client(transport=httpr.MockTransport(paginated_json_handler))
+        client = httpxr.Client(transport=httpxr.MockTransport(paginated_json_handler))
         pages = list(
             client.paginate(
                 "GET",
@@ -240,7 +240,7 @@ class TestSyncPaginate:
 
     def test_paginate_max_pages(self) -> None:
         """max_pages limits the number of fetched pages."""
-        client = httpr.Client(transport=httpr.MockTransport(paginated_json_handler))
+        client = httpxr.Client(transport=httpxr.MockTransport(paginated_json_handler))
         pages = list(
             client.paginate(
                 "GET",
@@ -257,8 +257,8 @@ class TestSyncPaginate:
 
     def test_paginate_single_page(self) -> None:
         """Single page API returns one result."""
-        client = httpr.Client(
-            transport=httpr.MockTransport(paginated_single_page_handler)
+        client = httpxr.Client(
+            transport=httpxr.MockTransport(paginated_single_page_handler)
         )
         pages = list(
             client.paginate(
@@ -274,7 +274,7 @@ class TestSyncPaginate:
 
     def test_paginate_is_iterator(self) -> None:
         """paginate() returns an iterator, not a list."""
-        client = httpr.Client(transport=httpr.MockTransport(paginated_json_handler))
+        client = httpxr.Client(transport=httpxr.MockTransport(paginated_json_handler))
         result = client.paginate(
             "GET",
             "http://api.example.com/items",
@@ -303,7 +303,7 @@ class TestSyncPaginate:
 
     def test_paginate_collect(self) -> None:
         """Iterator's collect() method returns all pages as a list."""
-        client = httpr.Client(transport=httpr.MockTransport(paginated_json_handler))
+        client = httpxr.Client(transport=httpxr.MockTransport(paginated_json_handler))
         iterator = client.paginate(
             "GET",
             "http://api.example.com/items",
@@ -317,7 +317,7 @@ class TestSyncPaginate:
 
     def test_paginate_pages_fetched(self) -> None:
         """pages_fetched property tracks progress."""
-        client = httpr.Client(transport=httpr.MockTransport(paginated_json_handler))
+        client = httpxr.Client(transport=httpxr.MockTransport(paginated_json_handler))
         iterator = client.paginate(
             "GET",
             "http://api.example.com/items",
@@ -333,7 +333,7 @@ class TestSyncPaginate:
 
     def test_paginate_no_strategy_raises(self) -> None:
         """Must specify at least one of next_url, next_header, next_func."""
-        client = httpr.Client(transport=httpr.MockTransport(hello_world))
+        client = httpxr.Client(transport=httpxr.MockTransport(hello_world))
 
         with pytest.raises(ValueError, match="Must specify one of"):
             client.paginate("GET", "http://example.com")
@@ -342,7 +342,7 @@ class TestSyncPaginate:
 
     def test_paginate_closed_client_raises(self) -> None:
         """Paginate on a closed client raises RuntimeError."""
-        client = httpr.Client(transport=httpr.MockTransport(hello_world))
+        client = httpxr.Client(transport=httpxr.MockTransport(hello_world))
         client.close()
 
         with pytest.raises(RuntimeError):
@@ -360,8 +360,8 @@ class TestAsyncGather:
     @pytest.mark.anyio
     async def test_async_gather_basic(self) -> None:
         """Multiple async requests dispatched concurrently."""
-        async with httpr.AsyncClient(
-            transport=httpr.MockTransport(echo_url)
+        async with httpxr.AsyncClient(
+            transport=httpxr.MockTransport(echo_url)
         ) as client:
             requests = [
                 client.build_request("GET", f"http://example.com/item/{i}")
@@ -376,8 +376,8 @@ class TestAsyncGather:
     @pytest.mark.anyio
     async def test_async_gather_empty(self) -> None:
         """Empty request list returns empty results."""
-        async with httpr.AsyncClient(
-            transport=httpr.MockTransport(hello_world)
+        async with httpxr.AsyncClient(
+            transport=httpxr.MockTransport(hello_world)
         ) as client:
             results = await client.gather([])
 
@@ -386,8 +386,8 @@ class TestAsyncGather:
     @pytest.mark.anyio
     async def test_async_gather_with_concurrency(self) -> None:
         """Concurrency limit works for async gather."""
-        async with httpr.AsyncClient(
-            transport=httpr.MockTransport(echo_url)
+        async with httpxr.AsyncClient(
+            transport=httpxr.MockTransport(echo_url)
         ) as client:
             requests = [
                 client.build_request("GET", f"http://example.com/{i}")
@@ -400,7 +400,7 @@ class TestAsyncGather:
     @pytest.mark.anyio
     async def test_async_gather_closed_client_raises(self) -> None:
         """Gather on closed async client raises RuntimeError."""
-        client = httpr.AsyncClient(transport=httpr.MockTransport(hello_world))
+        client = httpxr.AsyncClient(transport=httpxr.MockTransport(hello_world))
         await client.aclose()
 
         with pytest.raises(RuntimeError):
@@ -416,10 +416,10 @@ class TestAsyncPaginate:
     @pytest.mark.anyio
     async def test_async_paginate_json_key(self) -> None:
         """Async pagination using JSON key."""
-        async with httpr.AsyncClient(
-            transport=httpr.MockTransport(paginated_json_handler)
+        async with httpxr.AsyncClient(
+            transport=httpxr.MockTransport(paginated_json_handler)
         ) as client:
-            pages: list[httpr.Response] = []
+            pages: list[httpxr.Response] = []
             async for page in client.paginate(
                 "GET",
                 "http://api.example.com/items",
@@ -435,10 +435,10 @@ class TestAsyncPaginate:
     @pytest.mark.anyio
     async def test_async_paginate_link_header(self) -> None:
         """Async pagination using Link header."""
-        async with httpr.AsyncClient(
-            transport=httpr.MockTransport(paginated_link_header_handler)
+        async with httpxr.AsyncClient(
+            transport=httpxr.MockTransport(paginated_link_header_handler)
         ) as client:
-            pages: list[httpr.Response] = []
+            pages: list[httpxr.Response] = []
             async for page in client.paginate(
                 "GET",
                 "http://api.example.com/items",
@@ -454,14 +454,14 @@ class TestAsyncPaginate:
     async def test_async_paginate_custom_func(self) -> None:
         """Async pagination using a custom callable."""
 
-        def get_next(response: httpr.Response) -> str | None:
+        def get_next(response: httpxr.Response) -> str | None:
             data = response.json()
             return data.get("next_page")
 
-        async with httpr.AsyncClient(
-            transport=httpr.MockTransport(paginated_json_handler)
+        async with httpxr.AsyncClient(
+            transport=httpxr.MockTransport(paginated_json_handler)
         ) as client:
-            pages: list[httpr.Response] = []
+            pages: list[httpxr.Response] = []
             async for page in client.paginate(
                 "GET",
                 "http://api.example.com/items",
@@ -474,10 +474,10 @@ class TestAsyncPaginate:
     @pytest.mark.anyio
     async def test_async_paginate_max_pages(self) -> None:
         """max_pages limits async pagination."""
-        async with httpr.AsyncClient(
-            transport=httpr.MockTransport(paginated_json_handler)
+        async with httpxr.AsyncClient(
+            transport=httpxr.MockTransport(paginated_json_handler)
         ) as client:
-            pages: list[httpr.Response] = []
+            pages: list[httpxr.Response] = []
             async for page in client.paginate(
                 "GET",
                 "http://api.example.com/items",
@@ -492,10 +492,10 @@ class TestAsyncPaginate:
     @pytest.mark.anyio
     async def test_async_paginate_single_page(self) -> None:
         """Single page async pagination."""
-        async with httpr.AsyncClient(
-            transport=httpr.MockTransport(paginated_single_page_handler)
+        async with httpxr.AsyncClient(
+            transport=httpxr.MockTransport(paginated_single_page_handler)
         ) as client:
-            pages: list[httpr.Response] = []
+            pages: list[httpxr.Response] = []
             async for page in client.paginate(
                 "GET",
                 "http://api.example.com/items",
@@ -508,8 +508,8 @@ class TestAsyncPaginate:
     @pytest.mark.anyio
     async def test_async_paginate_is_async_iterator(self) -> None:
         """paginate() returns an async iterator."""
-        async with httpr.AsyncClient(
-            transport=httpr.MockTransport(paginated_json_handler)
+        async with httpxr.AsyncClient(
+            transport=httpxr.MockTransport(paginated_json_handler)
         ) as client:
             result = client.paginate(
                 "GET",
@@ -522,8 +522,8 @@ class TestAsyncPaginate:
     @pytest.mark.anyio
     async def test_async_paginate_collect(self) -> None:
         """Async iterator's collect() method returns all pages."""
-        async with httpr.AsyncClient(
-            transport=httpr.MockTransport(paginated_json_handler)
+        async with httpxr.AsyncClient(
+            transport=httpxr.MockTransport(paginated_json_handler)
         ) as client:
             iterator = client.paginate(
                 "GET",
@@ -537,8 +537,8 @@ class TestAsyncPaginate:
     @pytest.mark.anyio
     async def test_async_paginate_pages_fetched(self) -> None:
         """pages_fetched property tracks async progress."""
-        async with httpr.AsyncClient(
-            transport=httpr.MockTransport(paginated_json_handler)
+        async with httpxr.AsyncClient(
+            transport=httpxr.MockTransport(paginated_json_handler)
         ) as client:
             iterator = client.paginate(
                 "GET",
@@ -547,7 +547,7 @@ class TestAsyncPaginate:
             )
             assert iterator.pages_fetched == 0
 
-            pages: list[httpr.Response] = []
+            pages: list[httpxr.Response] = []
             async for page in iterator:
                 pages.append(page)
 
@@ -556,8 +556,8 @@ class TestAsyncPaginate:
     @pytest.mark.anyio
     async def test_async_paginate_no_strategy_raises(self) -> None:
         """Must specify at least one pagination strategy."""
-        async with httpr.AsyncClient(
-            transport=httpr.MockTransport(hello_world)
+        async with httpxr.AsyncClient(
+            transport=httpxr.MockTransport(hello_world)
         ) as client:
             with pytest.raises(ValueError, match="Must specify one of"):
                 client.paginate("GET", "http://example.com")
@@ -565,7 +565,7 @@ class TestAsyncPaginate:
     @pytest.mark.anyio
     async def test_async_paginate_closed_client_raises(self) -> None:
         """Paginate on closed async client raises RuntimeError."""
-        client = httpr.AsyncClient(transport=httpr.MockTransport(hello_world))
+        client = httpxr.AsyncClient(transport=httpxr.MockTransport(hello_world))
         await client.aclose()
 
         with pytest.raises(RuntimeError):

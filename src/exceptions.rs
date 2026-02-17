@@ -4,7 +4,7 @@ use pyo3::prelude::*;
 
 // Base exception
 create_exception!(
-    _httpr,
+    _httpxr,
     HTTPError,
     PyException,
     "Base class for RequestError and HTTPStatusError."
@@ -12,13 +12,13 @@ create_exception!(
 
 // Request errors
 create_exception!(
-    _httpr,
+    _httpxr,
     RequestError,
     HTTPError,
     "Base class for all exceptions that may occur when issuing a .request()."
 );
 create_exception!(
-    _httpr,
+    _httpxr,
     TransportError,
     RequestError,
     "Base class for all exceptions that occur at the level of the Transport API."
@@ -26,31 +26,31 @@ create_exception!(
 
 // Timeout exceptions
 create_exception!(
-    _httpr,
+    _httpxr,
     TimeoutException,
     TransportError,
     "The base class for timeout errors."
 );
 create_exception!(
-    _httpr,
+    _httpxr,
     ConnectTimeout,
     TimeoutException,
     "Timed out while connecting to the host."
 );
 create_exception!(
-    _httpr,
+    _httpxr,
     ReadTimeout,
     TimeoutException,
     "Timed out while receiving data from the host."
 );
 create_exception!(
-    _httpr,
+    _httpxr,
     WriteTimeout,
     TimeoutException,
     "Timed out while sending data to the host."
 );
 create_exception!(
-    _httpr,
+    _httpxr,
     PoolTimeout,
     TimeoutException,
     "Timed out waiting to acquire a connection from the pool."
@@ -58,31 +58,31 @@ create_exception!(
 
 // Network errors
 create_exception!(
-    _httpr,
+    _httpxr,
     NetworkError,
     TransportError,
     "The base class for network-related errors."
 );
 create_exception!(
-    _httpr,
+    _httpxr,
     ReadError,
     NetworkError,
     "Failed to receive data from the network."
 );
 create_exception!(
-    _httpr,
+    _httpxr,
     WriteError,
     NetworkError,
     "Failed to send data through the network."
 );
 create_exception!(
-    _httpr,
+    _httpxr,
     ConnectError,
     NetworkError,
     "Failed to establish a connection."
 );
 create_exception!(
-    _httpr,
+    _httpxr,
     CloseError,
     NetworkError,
     "Failed to close a connection."
@@ -90,31 +90,31 @@ create_exception!(
 
 // Other transport exceptions
 create_exception!(
-    _httpr,
+    _httpxr,
     ProxyError,
     TransportError,
     "An error occurred while establishing a proxy connection."
 );
 create_exception!(
-    _httpr,
+    _httpxr,
     UnsupportedProtocol,
     TransportError,
     "Attempted to make a request to an unsupported protocol."
 );
 create_exception!(
-    _httpr,
+    _httpxr,
     ProtocolError,
     TransportError,
     "The protocol was violated."
 );
 create_exception!(
-    _httpr,
+    _httpxr,
     LocalProtocolError,
     ProtocolError,
     "A protocol was violated by the client."
 );
 create_exception!(
-    _httpr,
+    _httpxr,
     RemoteProtocolError,
     ProtocolError,
     "The protocol was violated by the server."
@@ -122,13 +122,13 @@ create_exception!(
 
 // Other request exceptions
 create_exception!(
-    _httpr,
+    _httpxr,
     DecodingError,
     RequestError,
     "Decoding of the response failed, due to a malformed encoding."
 );
 create_exception!(
-    _httpr,
+    _httpxr,
     TooManyRedirects,
     RequestError,
     "Too many redirects."
@@ -136,7 +136,7 @@ create_exception!(
 
 // HTTP status error
 create_exception!(
-    _httpr,
+    _httpxr,
     HTTPStatusError,
     HTTPError,
     "Response sent an error status code."
@@ -144,31 +144,31 @@ create_exception!(
 
 // Stream errors
 create_exception!(
-    _httpr,
+    _httpxr,
     StreamError,
     PyException,
     "The base class for stream errors."
 );
 create_exception!(
-    _httpr,
+    _httpxr,
     StreamConsumed,
     StreamError,
     "Attempted to read or stream content, but the content has already been streamed."
 );
 create_exception!(
-    _httpr,
+    _httpxr,
     StreamClosed,
     StreamError,
     "Attempted to read or stream response content, but the request has been closed."
 );
 create_exception!(
-    _httpr,
+    _httpxr,
     ResponseNotRead,
     StreamError,
     "Attempted to access streaming response content, without having called `read()`."
 );
 create_exception!(
-    _httpr,
+    _httpxr,
     RequestNotRead,
     StreamError,
     "Attempted to access streaming request content, without having called `read()`."
@@ -176,7 +176,7 @@ create_exception!(
 
 // Invalid URL
 create_exception!(
-    _httpr,
+    _httpxr,
     InvalidURL,
     PyException,
     "URL was missing a hostname, or included an unsupported scheme."
@@ -184,7 +184,7 @@ create_exception!(
 
 // Cookie conflict
 create_exception!(
-    _httpr,
+    _httpxr,
     CookieConflict,
     PyException,
     "Attempted to access a cookie by name, but multiple cookies existed."

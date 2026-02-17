@@ -1,16 +1,16 @@
 import pytest
 
-import httpr
+import httpxr
 
 
-def app(request: httpr.Request) -> httpr.Response:
+def app(request: httpxr.Request) -> httpxr.Response:
     if request.url.path == "/redirect":
-        return httpr.Response(303, headers={"server": "testserver", "location": "/"})
+        return httpxr.Response(303, headers={"server": "testserver", "location": "/"})
     elif request.url.path.startswith("/status/"):
         status_code = int(request.url.path[-3:])
-        return httpr.Response(status_code, headers={"server": "testserver"})
+        return httpxr.Response(status_code, headers={"server": "testserver"})
 
-    return httpr.Response(200, headers={"server": "testserver"})
+    return httpxr.Response(200, headers={"server": "testserver"})
 
 
 def test_event_hooks():
@@ -24,8 +24,8 @@ def test_event_hooks():
 
     event_hooks = {"request": [on_request], "response": [on_response]}
 
-    with httpr.Client(
-        event_hooks=event_hooks, transport=httpr.MockTransport(app)
+    with httpxr.Client(
+        event_hooks=event_hooks, transport=httpxr.MockTransport(app)
     ) as http:
         http.get("http://127.0.0.1:8000/", auth=("username", "password"))
 
@@ -34,7 +34,7 @@ def test_event_hooks():
             "event": "request",
             "headers": {
                 "host": "127.0.0.1:8000",
-                "user-agent": f"python-httpr/{httpr.__version__}",
+                "user-agent": f"python-httpxr/{httpxr.__version__}",
                 "accept": "*/*",
                 "accept-encoding": "gzip, deflate, br, zstd",
                 "connection": "keep-alive",
@@ -54,12 +54,12 @@ def test_event_hooks_raising_exception(server):
 
     event_hooks = {"response": [raise_on_4xx_5xx]}
 
-    with httpr.Client(
-        event_hooks=event_hooks, transport=httpr.MockTransport(app)
+    with httpxr.Client(
+        event_hooks=event_hooks, transport=httpxr.MockTransport(app)
     ) as http:
         try:
             http.get("http://127.0.0.1:8000/status/400")
-        except httpr.HTTPStatusError as exc:
+        except httpxr.HTTPStatusError as exc:
             assert exc.response.is_closed
 
 
@@ -75,8 +75,8 @@ async def test_async_event_hooks():
 
     event_hooks = {"request": [on_request], "response": [on_response]}
 
-    async with httpr.AsyncClient(
-        event_hooks=event_hooks, transport=httpr.MockTransport(app)
+    async with httpxr.AsyncClient(
+        event_hooks=event_hooks, transport=httpxr.MockTransport(app)
     ) as http:
         await http.get("http://127.0.0.1:8000/", auth=("username", "password"))
 
@@ -85,7 +85,7 @@ async def test_async_event_hooks():
             "event": "request",
             "headers": {
                 "host": "127.0.0.1:8000",
-                "user-agent": f"python-httpr/{httpr.__version__}",
+                "user-agent": f"python-httpxr/{httpxr.__version__}",
                 "accept": "*/*",
                 "accept-encoding": "gzip, deflate, br, zstd",
                 "connection": "keep-alive",
@@ -106,12 +106,12 @@ async def test_async_event_hooks_raising_exception():
 
     event_hooks = {"response": [raise_on_4xx_5xx]}
 
-    async with httpr.AsyncClient(
-        event_hooks=event_hooks, transport=httpr.MockTransport(app)
+    async with httpxr.AsyncClient(
+        event_hooks=event_hooks, transport=httpxr.MockTransport(app)
     ) as http:
         try:
             await http.get("http://127.0.0.1:8000/status/400")
-        except httpr.HTTPStatusError as exc:
+        except httpxr.HTTPStatusError as exc:
             assert exc.response.is_closed
 
 
@@ -130,9 +130,9 @@ def test_event_hooks_with_redirect():
 
     event_hooks = {"request": [on_request], "response": [on_response]}
 
-    with httpr.Client(
+    with httpxr.Client(
         event_hooks=event_hooks,
-        transport=httpr.MockTransport(app),
+        transport=httpxr.MockTransport(app),
         follow_redirects=True,
     ) as http:
         http.get("http://127.0.0.1:8000/redirect", auth=("username", "password"))
@@ -142,7 +142,7 @@ def test_event_hooks_with_redirect():
             "event": "request",
             "headers": {
                 "host": "127.0.0.1:8000",
-                "user-agent": f"python-httpr/{httpr.__version__}",
+                "user-agent": f"python-httpxr/{httpxr.__version__}",
                 "accept": "*/*",
                 "accept-encoding": "gzip, deflate, br, zstd",
                 "connection": "keep-alive",
@@ -157,7 +157,7 @@ def test_event_hooks_with_redirect():
             "event": "request",
             "headers": {
                 "host": "127.0.0.1:8000",
-                "user-agent": f"python-httpr/{httpr.__version__}",
+                "user-agent": f"python-httpxr/{httpxr.__version__}",
                 "accept": "*/*",
                 "accept-encoding": "gzip, deflate, br, zstd",
                 "connection": "keep-alive",
@@ -187,9 +187,9 @@ async def test_async_event_hooks_with_redirect():
 
     event_hooks = {"request": [on_request], "response": [on_response]}
 
-    async with httpr.AsyncClient(
+    async with httpxr.AsyncClient(
         event_hooks=event_hooks,
-        transport=httpr.MockTransport(app),
+        transport=httpxr.MockTransport(app),
         follow_redirects=True,
     ) as http:
         await http.get("http://127.0.0.1:8000/redirect", auth=("username", "password"))
@@ -199,7 +199,7 @@ async def test_async_event_hooks_with_redirect():
             "event": "request",
             "headers": {
                 "host": "127.0.0.1:8000",
-                "user-agent": f"python-httpr/{httpr.__version__}",
+                "user-agent": f"python-httpxr/{httpxr.__version__}",
                 "accept": "*/*",
                 "accept-encoding": "gzip, deflate, br, zstd",
                 "connection": "keep-alive",
@@ -214,7 +214,7 @@ async def test_async_event_hooks_with_redirect():
             "event": "request",
             "headers": {
                 "host": "127.0.0.1:8000",
-                "user-agent": f"python-httpr/{httpr.__version__}",
+                "user-agent": f"python-httpxr/{httpxr.__version__}",
                 "accept": "*/*",
                 "accept-encoding": "gzip, deflate, br, zstd",
                 "connection": "keep-alive",

@@ -1,21 +1,21 @@
 """
-Example: httpr.AsyncClient.gather() and paginate() — async versions
+Example: httpxr.AsyncClient.gather() and paginate() — async versions
 
 The async client provides the same gather() and paginate() extensions.
 paginate() returns an **async iterator** that you use with ``async for``.
 
-This is an httpr extension — not available in httpx.
+This is an httpxr extension — not available in httpx.
 """
 
 import asyncio
 import time
 
-import httpr
+import httpxr
 
 
 async def async_gather_basic() -> None:
     """Send 10 requests concurrently with AsyncClient."""
-    async with httpr.AsyncClient() as client:
+    async with httpxr.AsyncClient() as client:
         requests = [
             client.build_request("GET", f"https://httpbin.org/get?id={i}")
             for i in range(10)
@@ -32,7 +32,7 @@ async def async_gather_basic() -> None:
 
 async def async_gather_with_concurrency() -> None:
     """Limit concurrent requests with max_concurrency."""
-    async with httpr.AsyncClient() as client:
+    async with httpxr.AsyncClient() as client:
         requests = [
             client.build_request("GET", "https://httpbin.org/delay/0.5")
             for _ in range(20)
@@ -47,7 +47,7 @@ async def async_gather_with_concurrency() -> None:
 
 async def async_gather_error_handling() -> None:
     """Handle errors in async gather."""
-    async with httpr.AsyncClient() as client:
+    async with httpxr.AsyncClient() as client:
         requests = [
             client.build_request("GET", "https://httpbin.org/status/200"),
             client.build_request("GET", "https://httpbin.org/status/500"),
@@ -68,7 +68,7 @@ async def async_gather_error_handling() -> None:
 
 async def async_paginate_iterate() -> None:
     """Auto-follow pagination with async for."""
-    async with httpr.AsyncClient() as client:
+    async with httpxr.AsyncClient() as client:
         total = 0
         async for page in client.paginate(
             "GET",
@@ -85,7 +85,7 @@ async def async_paginate_iterate() -> None:
 
 async def async_paginate_collect() -> None:
     """Use collect() to gather all pages into a list."""
-    async with httpr.AsyncClient() as client:
+    async with httpxr.AsyncClient() as client:
         pages = await client.paginate(
             "GET",
             "https://api.github.com/repos/python/cpython/issues",
@@ -98,7 +98,7 @@ async def async_paginate_collect() -> None:
 
 async def async_paginate_with_progress() -> None:
     """Track pagination progress with pages_fetched."""
-    async with httpr.AsyncClient() as client:
+    async with httpxr.AsyncClient() as client:
         paginator = client.paginate(
             "GET",
             "https://api.github.com/repos/python/cpython/commits",

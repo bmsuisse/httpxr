@@ -2,7 +2,7 @@ import json
 
 import pytest
 
-import httpr
+import httpxr
 
 
 async def hello_world(scope, receive, send):
@@ -72,8 +72,8 @@ async def raise_exc_after_response(scope, receive, send):
 
 @pytest.mark.anyio
 async def test_asgi_transport():
-    async with httpr.ASGITransport(app=hello_world) as transport:
-        request = httpr.Request("GET", "http://www.example.com/")
+    async with httpxr.ASGITransport(app=hello_world) as transport:
+        request = httpxr.Request("GET", "http://www.example.com/")
         response = await transport.handle_async_request(request)
         await response.aread()
         assert response.status_code == 200
@@ -82,8 +82,8 @@ async def test_asgi_transport():
 
 @pytest.mark.anyio
 async def test_asgi_transport_no_body():
-    async with httpr.ASGITransport(app=echo_body) as transport:
-        request = httpr.Request("GET", "http://www.example.com/")
+    async with httpxr.ASGITransport(app=echo_body) as transport:
+        request = httpxr.Request("GET", "http://www.example.com/")
         response = await transport.handle_async_request(request)
         await response.aread()
         assert response.status_code == 200
@@ -92,8 +92,8 @@ async def test_asgi_transport_no_body():
 
 @pytest.mark.anyio
 async def test_asgi():
-    transport = httpr.ASGITransport(app=hello_world)
-    async with httpr.AsyncClient(transport=transport) as client:
+    transport = httpxr.ASGITransport(app=hello_world)
+    async with httpxr.AsyncClient(transport=transport) as client:
         response = await client.get("http://www.example.org/")
 
     assert response.status_code == 200
@@ -102,9 +102,9 @@ async def test_asgi():
 
 @pytest.mark.anyio
 async def test_asgi_urlencoded_path():
-    transport = httpr.ASGITransport(app=echo_path)
-    async with httpr.AsyncClient(transport=transport) as client:
-        url = httpr.URL("http://www.example.org/").copy_with(path="/user@example.org")
+    transport = httpxr.ASGITransport(app=echo_path)
+    async with httpxr.AsyncClient(transport=transport) as client:
+        url = httpxr.URL("http://www.example.org/").copy_with(path="/user@example.org")
         response = await client.get(url)
 
     assert response.status_code == 200
@@ -113,9 +113,9 @@ async def test_asgi_urlencoded_path():
 
 @pytest.mark.anyio
 async def test_asgi_raw_path():
-    transport = httpr.ASGITransport(app=echo_raw_path)
-    async with httpr.AsyncClient(transport=transport) as client:
-        url = httpr.URL("http://www.example.org/").copy_with(path="/user@example.org")
+    transport = httpxr.ASGITransport(app=echo_raw_path)
+    async with httpxr.AsyncClient(transport=transport) as client:
+        url = httpxr.URL("http://www.example.org/").copy_with(path="/user@example.org")
         response = await client.get(url)
 
     assert response.status_code == 200
@@ -127,9 +127,9 @@ async def test_asgi_raw_path_should_not_include_querystring_portion():
     """
     See https://github.com/encode/httpx/issues/2810
     """
-    transport = httpr.ASGITransport(app=echo_raw_path)
-    async with httpr.AsyncClient(transport=transport) as client:
-        url = httpr.URL("http://www.example.org/path?query")
+    transport = httpxr.ASGITransport(app=echo_raw_path)
+    async with httpxr.AsyncClient(transport=transport) as client:
+        url = httpxr.URL("http://www.example.org/path?query")
         response = await client.get(url)
 
     assert response.status_code == 200
@@ -138,8 +138,8 @@ async def test_asgi_raw_path_should_not_include_querystring_portion():
 
 @pytest.mark.anyio
 async def test_asgi_upload():
-    transport = httpr.ASGITransport(app=echo_body)
-    async with httpr.AsyncClient(transport=transport) as client:
+    transport = httpxr.ASGITransport(app=echo_body)
+    async with httpxr.AsyncClient(transport=transport) as client:
         response = await client.post("http://www.example.org/", content=b"example")
 
     assert response.status_code == 200
@@ -148,14 +148,14 @@ async def test_asgi_upload():
 
 @pytest.mark.anyio
 async def test_asgi_headers():
-    transport = httpr.ASGITransport(app=echo_headers)
-    async with httpr.AsyncClient(transport=transport) as client:
+    transport = httpxr.ASGITransport(app=echo_headers)
+    async with httpxr.AsyncClient(transport=transport) as client:
         response = await client.get("http://www.example.org/")
 
     assert response.status_code == 200
     assert response.json() == {
         "headers": [
-            ["user-agent", f"python-httpr/{httpr.__version__}"],
+            ["user-agent", f"python-httpxr/{httpxr.__version__}"],
             ["accept", "*/*"],
             ["accept-encoding", "gzip, deflate, br, zstd"],
             ["connection", "keep-alive"],
@@ -166,16 +166,16 @@ async def test_asgi_headers():
 
 @pytest.mark.anyio
 async def test_asgi_exc():
-    transport = httpr.ASGITransport(app=raise_exc)
-    async with httpr.AsyncClient(transport=transport) as client:
+    transport = httpxr.ASGITransport(app=raise_exc)
+    async with httpxr.AsyncClient(transport=transport) as client:
         with pytest.raises(RuntimeError):
             await client.get("http://www.example.org/")
 
 
 @pytest.mark.anyio
 async def test_asgi_exc_after_response():
-    transport = httpr.ASGITransport(app=raise_exc_after_response)
-    async with httpr.AsyncClient(transport=transport) as client:
+    transport = httpxr.ASGITransport(app=raise_exc_after_response)
+    async with httpxr.AsyncClient(transport=transport) as client:
         with pytest.raises(RuntimeError):
             await client.get("http://www.example.org/")
 
@@ -207,8 +207,8 @@ async def test_asgi_disconnect_after_response_complete():
         message = await receive()
         disconnect = message.get("type") == "http.disconnect"
 
-    transport = httpr.ASGITransport(app=read_body)
-    async with httpr.AsyncClient(transport=transport) as client:
+    transport = httpxr.ASGITransport(app=read_body)
+    async with httpxr.AsyncClient(transport=transport) as client:
         response = await client.post("http://www.example.org/", content=b"example")
 
     assert response.status_code == 200
@@ -217,8 +217,8 @@ async def test_asgi_disconnect_after_response_complete():
 
 @pytest.mark.anyio
 async def test_asgi_exc_no_raise():
-    transport = httpr.ASGITransport(app=raise_exc, raise_app_exceptions=False)
-    async with httpr.AsyncClient(transport=transport) as client:
+    transport = httpxr.ASGITransport(app=raise_exc, raise_app_exceptions=False)
+    async with httpxr.AsyncClient(transport=transport) as client:
         response = await client.get("http://www.example.org/")
 
         assert response.status_code == 500

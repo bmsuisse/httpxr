@@ -5,7 +5,7 @@ import itertools
 import sys
 import typing
 
-from httpr._httpr import BaseTransport, Request, Response
+from httpxr._httpxr import BaseTransport, Request, Response
 
 if typing.TYPE_CHECKING:
     from _typeshed import OptExcInfo  # pragma: no cover

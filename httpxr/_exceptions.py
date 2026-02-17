@@ -2,11 +2,11 @@ from __future__ import annotations
 
 import typing
 
-from ._httpr import HTTPError as _HTTPError
-from ._httpr import RequestError as _RequestError
+from ._httpxr import HTTPError as _HTTPError
+from ._httpxr import RequestError as _RequestError
 
 if typing.TYPE_CHECKING:
-    from ._httpr import Request
+    from ._httpxr import Request
 
 _original_httperror_init = _HTTPError.__init__
 _original_requesterror_init = _RequestError.__init__

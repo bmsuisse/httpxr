@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import typing
 
-from httpr._httpr import AsyncBaseTransport, AsyncByteStream, Request, Response
+from httpxr._httpxr import AsyncBaseTransport, AsyncByteStream, Request, Response
 
 if typing.TYPE_CHECKING:  # pragma: no cover
     import asyncio

@@ -1,4 +1,4 @@
-# httpr
+# httpxr
 
 A 1:1 Rust port of [httpx](https://github.com/encode/httpx) — same API, faster execution.
 
@@ -7,9 +7,9 @@ A 1:1 Rust port of [httpx](https://github.com/encode/httpx) — same API, faster
 
 ---
 
-## What is httpr?
+## What is httpxr?
 
-`httpr` is a **faithful port** of the [httpx](https://github.com/encode/httpx) HTTP client with one goal: **make it faster by replacing the Python internals with Rust**. The Python API stays identical — swap `import httpx` for `import httpr` and everything just works, but with the performance benefits of native Rust networking, TLS, and compression.
+`httpxr` is a **faithful port** of the [httpx](https://github.com/encode/httpx) HTTP client with one goal: **make it faster by replacing the Python internals with Rust**. The Python API stays identical — swap `import httpx` for `import httpxr` and everything just works, but with the performance benefits of native Rust networking, TLS, and compression.
 
 The networking layer is reimplemented in Rust:
 
@@ -23,7 +23,7 @@ The networking layer is reimplemented in Rust:
 
 ### Zero Python Dependencies
 
-Unlike httpx (which depends on `httpcore`, `certifi`, `anyio`, `idna`, and optional packages for compression), `httpr` has **zero runtime Python dependencies**. Everything — HTTP, TLS, compression, SOCKS proxy, IDNA encoding — is handled natively in Rust.
+Unlike httpx (which depends on `httpcore`, `certifi`, `anyio`, `idna`, and optional packages for compression), `httpxr` has **zero runtime Python dependencies**. Everything — HTTP, TLS, compression, SOCKS proxy, IDNA encoding — is handled natively in Rust.
 
 ---
 
@@ -38,14 +38,14 @@ Scenarios: **Single GET**, **50 Sequential GETs**, **50 Concurrent GETs**.
 
 ### Summary (median, ms — lower is better)
 
-| Scenario | httpr | pyreqwest | ry | aiohttp | curl_cffi | urllib3 | rnet | httpx | niquests |
+| Scenario | httpxr | pyreqwest | ry | aiohttp | curl_cffi | urllib3 | rnet | httpx | niquests |
 |:---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
 | Single GET | **0.20** | 0.11 | 0.16 | 0.22 | 0.22 | 0.26 | 0.30 | 0.37 | 0.38 |
 | 50 Sequential GETs | **8.18** | 6.22 | 8.87 | 10.79 | 12.83 | 15.14 | 17.34 | 18.96 | 19.25 |
 | 50 Concurrent GETs | **10.53** | 6.48 | 5.91 | 7.60 | 12.32 | 16.34 | 10.29 | 71.62 | 19.60 |
 
 > **Key takeaways:**
-> - **httpr** is the **fastest full-featured httpx-compatible client** — on par with raw Rust libraries
+> - **httpxr** is the **fastest full-featured httpx-compatible client** — on par with raw Rust libraries
 > - **~2× faster** than httpx for sequential workloads
 > - **~7× faster** than httpx under concurrency (GIL-free Rust)
 > - Competitive with bare-metal libraries (pyreqwest, ry) while offering the full httpx API
@@ -61,21 +61,21 @@ uv run python benchmarks/run_benchmark.py
 ## Quick Start
 
 ```bash
-pip install httpr
+pip install httpxr
 ```
 
 To also install the **optional CLI**:
 
 ```bash
-pip install "httpr[cli]"
+pip install "httpxr[cli]"
 ```
 
 **Sync:**
 
 ```python
-import httpr
+import httpxr
 
-with httpr.Client() as client:
+with httpxr.Client() as client:
     r = client.get("https://httpbin.org/get")
     print(r.status_code)
     print(r.json())
@@ -84,10 +84,10 @@ with httpr.Client() as client:
 **Async:**
 
 ```python
-import httpr, asyncio
+import httpxr, asyncio
 
 async def main():
-    async with httpr.AsyncClient() as client:
+    async with httpxr.AsyncClient() as client:
         r = await client.get("https://httpbin.org/get")
         print(r.json())
 
@@ -98,7 +98,7 @@ asyncio.run(main())
 
 ## API Compatibility
 
-`httpr` supports the full httpx API surface:
+`httpxr` supports the full httpx API surface:
 
 - `Client` / `AsyncClient` — sync and async HTTP clients
 - `Request` / `Response` — full request/response models
@@ -107,19 +107,19 @@ asyncio.run(main())
 - `MockTransport`, `ASGITransport`, `WSGITransport` — test transports
 - Authentication flows, redirects, streaming, event hooks
 - HTTP/1.1 & HTTP/2, SOCKS proxy support
-- CLI via `httpr` command (requires `pip install "httpr[cli]"`)
+- CLI via `httpxr` command (requires `pip install "httpxr[cli]"`)
 ---
 
-## httpr Extensions
+## httpxr Extensions
 
-Beyond the standard httpx API, `httpr` adds features that leverage the Rust runtime:
+Beyond the standard httpx API, `httpxr` adds features that leverage the Rust runtime:
 
 ### `gather()` — Concurrent Batch Requests
 
 Dispatch multiple requests concurrently with a single call. Requests are built in Python, then sent in parallel via Rust's tokio runtime with zero GIL contention.
 
 ```python
-with httpr.Client() as client:
+with httpxr.Client() as client:
     requests = [
         client.build_request("GET", f"https://api.example.com/items/{i}")
         for i in range(100)
@@ -161,7 +161,7 @@ Both methods are available on `Client` (sync) and `AsyncClient` (async). See [`e
 For latency-critical code, `get_raw()`, `post_raw()`, `put_raw()`, `patch_raw()`, `delete_raw()`, and `head_raw()` bypass all httpx `Request`/`Response` construction and call reqwest directly.
 
 ```python
-with httpr.Client() as client:
+with httpxr.Client() as client:
     status, headers, body = client.get_raw("https://api.example.com/data")
     # status:  int (e.g. 200)
     # headers: dict[str, str]
@@ -187,8 +187,8 @@ The port is validated against the **complete httpx test suite** — **1303 tests
 
 | Change | Original | New | Reason |
 | :--- | :--- | :--- | :--- |
-| User-Agent | `python-httpx/…` | `python-httpr/…` | Reflects actual client identity |
-| Logger name | `"httpx"` | `"httpr"` | Logs should identify the actual library |
+| User-Agent | `python-httpx/…` | `python-httpxr/…` | Reflects actual client identity |
+| Logger name | `"httpx"` | `"httpxr"` | Logs should identify the actual library |
 | Timeout validation | `Timeout(pool=60.0)` raises | Succeeds | PyO3 framework limitation |
 | Test URLs | Hardcoded port | Dynamic `server.url` | Random OS port in test server |
 | Write timeout | Catches `WriteTimeout` | Catches `TimeoutException` | Rust transport may buffer writes via OS kernel, surfacing timeout on read instead of write |
@@ -199,7 +199,7 @@ The port is validated against the **complete httpx test suite** — **1303 tests
 
 ```bash
 git clone <repo-url>
-cd httpr
+cd httpxr
 uv sync --group dev
 maturin develop
 uv run pytest tests/

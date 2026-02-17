@@ -7,13 +7,13 @@ useful for unit tests, mocking, and building test fixtures without
 hitting the network.
 """
 
-import httpr
+import httpxr
 
 
 def main() -> None:
     # ── Construct a Response manually ────────────────────────────────────
     print("── Manual Response construction ────────────────────────────────")
-    response = httpr.Response(200, text="Hello, world!")
+    response = httpxr.Response(200, text="Hello, world!")
     print(f"  Status: {response.status_code}")
     print(f"  Text: {response.text}")
     print(f"  repr: {repr(response)}")
@@ -21,14 +21,14 @@ def main() -> None:
 
     # ── Response with bytes content ──────────────────────────────────────
     print("── Response with bytes ─────────────────────────────────────────")
-    response = httpr.Response(200, content=b'{"key": "value"}')
+    response = httpxr.Response(200, content=b'{"key": "value"}')
     print(f"  Content: {response.content}")
     print(f"  Text: {response.text}")
     print()
 
     # ── Response with JSON ───────────────────────────────────────────────
     print("── Response with JSON ──────────────────────────────────────────")
-    response = httpr.Response(
+    response = httpxr.Response(
         200,
         json={"users": [{"id": 1, "name": "Alice"}, {"id": 2, "name": "Bob"}]},
     )
@@ -37,7 +37,7 @@ def main() -> None:
 
     # ── Response with custom headers ─────────────────────────────────────
     print("── Response with headers ───────────────────────────────────────")
-    response = httpr.Response(
+    response = httpxr.Response(
         201,
         content=b"Created",
         headers={
@@ -53,7 +53,7 @@ def main() -> None:
     # ── Status code checks ───────────────────────────────────────────────
     print("── Status code properties ─────────────────────────────────────")
     for code in (200, 301, 404, 500):
-        r = httpr.Response(code)
+        r = httpxr.Response(code)
         print(
             f"  {code}: is_success={r.is_success}, "
             f"is_redirect={r.is_redirect}, "
@@ -64,27 +64,27 @@ def main() -> None:
 
     # ── raise_for_status ─────────────────────────────────────────────────
     print("── raise_for_status ───────────────────────────────────────────")
-    ok = httpr.Response(200, text="OK")
+    ok = httpxr.Response(200, text="OK")
     result = ok.raise_for_status()
     print(f"  200: returns the response → {repr(result)}")
 
-    err = httpr.Response(404, text="Not Found")
+    err = httpxr.Response(404, text="Not Found")
     try:
         err.raise_for_status()
-    except httpr.HTTPStatusError as exc:
+    except httpxr.HTTPStatusError as exc:
         print(f"  404: Caught HTTPStatusError → {exc}")
     print()
 
     # ── Construct a Request manually ─────────────────────────────────────
     print("── Manual Request construction ─────────────────────────────────")
-    request = httpr.Request("GET", "https://example.com/api/users")
+    request = httpxr.Request("GET", "https://example.com/api/users")
     print(f"  Method: {request.method}")
     print(f"  URL: {request.url}")
     print(f"  Headers: {dict(request.headers)}")
     print()
 
     # ── Request with body and custom headers ─────────────────────────────
-    request = httpr.Request(
+    request = httpxr.Request(
         "POST",
         "https://example.com/api/data",
         content=b'{"hello": "world"}',
@@ -96,7 +96,7 @@ def main() -> None:
 
     # ── Working with Headers ─────────────────────────────────────────────
     print("── Headers object ─────────────────────────────────────────────")
-    headers = httpr.Headers(
+    headers = httpxr.Headers(
         {
             "Content-Type": "text/html",
             "X-Custom": "value",
@@ -109,7 +109,7 @@ def main() -> None:
 
     # ── Working with URL ─────────────────────────────────────────────────
     print("── URL object ─────────────────────────────────────────────────")
-    url = httpr.URL("https://www.example.com:8080/path/to/resource?q=test#section")
+    url = httpxr.URL("https://www.example.com:8080/path/to/resource?q=test#section")
     print(f"  Full: {url}")
     print(f"  Scheme: {url.scheme}")
     print(f"  Host: {url.host}")
@@ -121,7 +121,7 @@ def main() -> None:
 
     # ── QueryParams ──────────────────────────────────────────────────────
     print("── QueryParams object ─────────────────────────────────────────")
-    params = httpr.QueryParams({"search": "httpr", "page": "1"})
+    params = httpxr.QueryParams({"search": "httpxr", "page": "1"})
     print(f"  Params: {params}")
 
 

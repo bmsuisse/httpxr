@@ -20,12 +20,12 @@ mod urlparse;
 mod urls;
 mod utils;
 
-/// The native Rust extension module for httpr.
+/// The native Rust extension module for httpxr.
 pub mod logger;
 pub use logger::Python as PythonHelper;
 
 #[pymodule]
-fn _httpr(m: &Bound<'_, PyModule>) -> PyResult<()> {
+fn _httpxr(m: &Bound<'_, PyModule>) -> PyResult<()> {
     // Initialize logging
     let _ = logger::init();
 

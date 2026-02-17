@@ -87,7 +87,7 @@ impl Client {
         if !hdrs.contains_header("user-agent") {
             hdrs.set_header(
                 "user-agent",
-                &format!("python-httpr/{}", env!("CARGO_PKG_VERSION")),
+                &format!("python-httpxr/{}", env!("CARGO_PKG_VERSION")),
             );
         }
         if !hdrs.contains_header("accept") {
@@ -434,8 +434,8 @@ impl Client {
                         stream: None,
                         stream_response: false,
                     };
-                    if log::log_enabled!(target: "httpr", log::Level::Info) {
-                        log::info!(target: "httpr", "HTTP Request: {} {} \"HTTP/1.1 {} {}\"", method_upper, hist_url, hist_status, reason_for(*hist_status));
+                    if log::log_enabled!(target: "httpxr", log::Level::Info) {
+                        log::info!(target: "httpxr", "HTTP Request: {} {} \"HTTP/1.1 {} {}\"", method_upper, hist_url, hist_status, reason_for(*hist_status));
                     }
                     history_responses.push(Response {
                         status_code: *hist_status,
@@ -474,8 +474,8 @@ impl Client {
                     stream_response: false,
                 };
 
-                if log::log_enabled!(target: "httpr", log::Level::Info) {
-                    log::info!(target: "httpr", "HTTP Request: {} {} \"HTTP/1.1 {} {}\"", method_upper, final_url, status_code, reason_for(status_code));
+                if log::log_enabled!(target: "httpxr", log::Level::Info) {
+                    log::info!(target: "httpxr", "HTTP Request: {} {} \"HTTP/1.1 {} {}\"", method_upper, final_url, status_code, reason_for(status_code));
                 }
 
                 return Ok(Response {
@@ -784,7 +784,7 @@ impl Client {
             };
             let status = response.status_code;
             let reason = response.reason_phrase();
-            log::info!(target: "httpr", "HTTP Request: {} {} \"{} {} {}\"", method, url, http_version, status, reason);
+            log::info!(target: "httpxr", "HTTP Request: {} {} \"{} {} {}\"", method, url, http_version, status, reason);
         }
 
         // Persist response cookies to client cookie jar
@@ -1447,7 +1447,7 @@ impl Client {
 
     /// Dispatch multiple requests concurrently using Rust's tokio runtime.
     /// Returns a list of Response objects (or exceptions if return_exceptions=True).
-    /// This is an httpr extension — not available in httpx.
+    /// This is an httpxr extension — not available in httpx.
     #[pyo3(signature = (requests, *, max_concurrency=10, return_exceptions=false))]
     fn gather(
         &self,
@@ -1528,7 +1528,7 @@ impl Client {
     /// Auto-follow pagination links, returning a lazy iterator.
     /// Each iteration fetches the next page — memory-efficient for large result sets.
     /// Supports JSON key extraction, Link header parsing, and custom callables.
-    /// This is an httpr extension — not available in httpx.
+    /// This is an httpxr extension — not available in httpx.
     ///
     /// Usage:
     ///   for page in client.paginate("GET", url, next_header="link"):
@@ -2122,7 +2122,7 @@ impl Client {
                 };
                 let status = new_response.status_code;
                 let reason = new_response.reason_phrase();
-                log::info!(target: "httpr", "HTTP Request: {} {} \"{} {} {}\"", method, url, http_version, status, reason);
+                log::info!(target: "httpxr", "HTTP Request: {} {} \"{} {} {}\"", method, url, http_version, status, reason);
             }
 
             current_response = new_response;

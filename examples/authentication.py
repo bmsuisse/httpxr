@@ -2,19 +2,19 @@
 Authentication
 ==============
 
-Using httpr's built-in authentication classes: BasicAuth, DigestAuth,
+Using httpxr's built-in authentication classes: BasicAuth, DigestAuth,
 and custom auth via FunctionAuth.
 """
 
-import httpr
+import httpxr
 
 
 def main() -> None:
     # ── Basic Auth ───────────────────────────────────────────────────────
     print("── Basic Auth ─────────────────────────────────────────────────")
-    response = httpr.get(
+    response = httpxr.get(
         "https://httpbin.org/basic-auth/user/pass",
-        auth=httpr.BasicAuth("user", "pass"),
+        auth=httpxr.BasicAuth("user", "pass"),
     )
     print(f"  Status: {response.status_code}")
     print(f"  Authenticated: {response.json().get('authenticated')}")
@@ -22,7 +22,7 @@ def main() -> None:
 
     # ── Basic Auth with tuple shorthand ──────────────────────────────────
     print("── Basic Auth (tuple shorthand) ────────────────────────────────")
-    response = httpr.get(
+    response = httpxr.get(
         "https://httpbin.org/basic-auth/admin/secret",
         auth=("admin", "secret"),
     )
@@ -32,7 +32,7 @@ def main() -> None:
 
     # ── Auth on the client (applied to every request) ────────────────────
     print("── Client-level auth ──────────────────────────────────────────")
-    with httpr.Client(auth=httpr.BasicAuth("user", "pass")) as client:
+    with httpxr.Client(auth=httpxr.BasicAuth("user", "pass")) as client:
         response = client.get("https://httpbin.org/basic-auth/user/pass")
         print(f"  Status: {response.status_code}")
         print(f"  Authenticated: {response.json().get('authenticated')}")
@@ -41,13 +41,13 @@ def main() -> None:
     # ── Custom auth with FunctionAuth ────────────────────────────────────
     print("── FunctionAuth (custom) ──────────────────────────────────────")
 
-    def add_api_key(request: httpr.Request) -> httpr.Request:
+    def add_api_key(request: httpxr.Request) -> httpxr.Request:
         """Inject an API key header into every request."""
         request.headers["X-API-Key"] = "my-secret-api-key"
         return request
 
-    auth = httpr.FunctionAuth(add_api_key)
-    with httpr.Client(auth=auth) as client:
+    auth = httpxr.FunctionAuth(add_api_key)
+    with httpxr.Client(auth=auth) as client:
         response = client.get("https://httpbin.org/headers")
         headers = response.json()["headers"]
         print(f"  X-API-Key header: {headers.get('X-Api-Key')}")
@@ -56,7 +56,7 @@ def main() -> None:
     # ── Using auth programmatically ───────────────────────────────────────
     print("── Programmatic auth check ─────────────────────────────────────")
     # You can inspect auth-related headers on a Request object:
-    request = httpr.Request(
+    request = httpxr.Request(
         "GET",
         "https://example.com/protected",
         headers={"Authorization": "Bearer my-token-123"},

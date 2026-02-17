@@ -2,54 +2,54 @@ import typing
 
 import pytest
 
-import httpr
+import httpxr
 
 
-def redirects(request: httpr.Request) -> httpr.Response:
+def redirects(request: httpxr.Request) -> httpxr.Response:
     if request.url.scheme not in ("http", "https"):
-        raise httpr.UnsupportedProtocol(f"Scheme {request.url.scheme!r} not supported.")
+        raise httpxr.UnsupportedProtocol(f"Scheme {request.url.scheme!r} not supported.")
 
     if request.url.path == "/redirect_301":
-        status_code = httpr.codes.MOVED_PERMANENTLY
+        status_code = httpxr.codes.MOVED_PERMANENTLY
         content = b"<a href='https://example.org/'>here</a>"
         headers = {"location": "https://example.org/"}
-        return httpr.Response(status_code, headers=headers, content=content)
+        return httpxr.Response(status_code, headers=headers, content=content)
 
     elif request.url.path == "/redirect_302":
-        status_code = httpr.codes.FOUND
+        status_code = httpxr.codes.FOUND
         headers = {"location": "https://example.org/"}
-        return httpr.Response(status_code, headers=headers)
+        return httpxr.Response(status_code, headers=headers)
 
     elif request.url.path == "/redirect_303":
-        status_code = httpr.codes.SEE_OTHER
+        status_code = httpxr.codes.SEE_OTHER
         headers = {"location": "https://example.org/"}
-        return httpr.Response(status_code, headers=headers)
+        return httpxr.Response(status_code, headers=headers)
 
     elif request.url.path == "/relative_redirect":
-        status_code = httpr.codes.SEE_OTHER
+        status_code = httpxr.codes.SEE_OTHER
         headers = {"location": "/"}
-        return httpr.Response(status_code, headers=headers)
+        return httpxr.Response(status_code, headers=headers)
 
     elif request.url.path == "/malformed_redirect":
-        status_code = httpr.codes.SEE_OTHER
+        status_code = httpxr.codes.SEE_OTHER
         headers = {"location": "https://:443/"}
-        return httpr.Response(status_code, headers=headers)
+        return httpxr.Response(status_code, headers=headers)
 
     elif request.url.path == "/invalid_redirect":
-        status_code = httpr.codes.SEE_OTHER
+        status_code = httpxr.codes.SEE_OTHER
         raw_headers = [(b"location", "https://😇/".encode("utf-8"))]
-        return httpr.Response(status_code, headers=raw_headers)
+        return httpxr.Response(status_code, headers=raw_headers)
 
     elif request.url.path == "/no_scheme_redirect":
-        status_code = httpr.codes.SEE_OTHER
+        status_code = httpxr.codes.SEE_OTHER
         headers = {"location": "//example.org/"}
-        return httpr.Response(status_code, headers=headers)
+        return httpxr.Response(status_code, headers=headers)
 
     elif request.url.path == "/multiple_redirects":
-        params = httpr.QueryParams(request.url.query)
+        params = httpxr.QueryParams(request.url.query)
         count = int(params.get("count", "0"))
         redirect_count = count - 1
-        status_code = httpr.codes.SEE_OTHER if count else httpr.codes.OK
+        status_code = httpxr.codes.SEE_OTHER if count else httpxr.codes.OK
         if count:
             location = "/multiple_redirects"
             if redirect_count:
@@ -57,111 +57,111 @@ def redirects(request: httpr.Request) -> httpr.Response:
             headers = {"location": location}
         else:
             headers = {}
-        return httpr.Response(status_code, headers=headers)
+        return httpxr.Response(status_code, headers=headers)
 
     if request.url.path == "/redirect_loop":
-        status_code = httpr.codes.SEE_OTHER
+        status_code = httpxr.codes.SEE_OTHER
         headers = {"location": "/redirect_loop"}
-        return httpr.Response(status_code, headers=headers)
+        return httpxr.Response(status_code, headers=headers)
 
     elif request.url.path == "/cross_domain":
-        status_code = httpr.codes.SEE_OTHER
+        status_code = httpxr.codes.SEE_OTHER
         headers = {"location": "https://example.org/cross_domain_target"}
-        return httpr.Response(status_code, headers=headers)
+        return httpxr.Response(status_code, headers=headers)
 
     elif request.url.path == "/cross_domain_target":
-        status_code = httpr.codes.OK
+        status_code = httpxr.codes.OK
         data = {
             "body": request.content.decode("ascii"),
             "headers": dict(request.headers),
         }
-        return httpr.Response(status_code, json=data)
+        return httpxr.Response(status_code, json=data)
 
     elif request.url.path == "/redirect_body":
-        status_code = httpr.codes.PERMANENT_REDIRECT
+        status_code = httpxr.codes.PERMANENT_REDIRECT
         headers = {"location": "/redirect_body_target"}
-        return httpr.Response(status_code, headers=headers)
+        return httpxr.Response(status_code, headers=headers)
 
     elif request.url.path == "/redirect_no_body":
-        status_code = httpr.codes.SEE_OTHER
+        status_code = httpxr.codes.SEE_OTHER
         headers = {"location": "/redirect_body_target"}
-        return httpr.Response(status_code, headers=headers)
+        return httpxr.Response(status_code, headers=headers)
 
     elif request.url.path == "/redirect_body_target":
         data = {
             "body": request.content.decode("ascii"),
             "headers": dict(request.headers),
         }
-        return httpr.Response(200, json=data)
+        return httpxr.Response(200, json=data)
 
     elif request.url.path == "/cross_subdomain":
         if request.headers["Host"] != "www.example.org":
-            status_code = httpr.codes.PERMANENT_REDIRECT
+            status_code = httpxr.codes.PERMANENT_REDIRECT
             headers = {"location": "https://www.example.org/cross_subdomain"}
-            return httpr.Response(status_code, headers=headers)
+            return httpxr.Response(status_code, headers=headers)
         else:
-            return httpr.Response(200, text="Hello, world!")
+            return httpxr.Response(200, text="Hello, world!")
 
     elif request.url.path == "/redirect_custom_scheme":
-        status_code = httpr.codes.MOVED_PERMANENTLY
+        status_code = httpxr.codes.MOVED_PERMANENTLY
         headers = {"location": "market://details?id=42"}
-        return httpr.Response(status_code, headers=headers)
+        return httpxr.Response(status_code, headers=headers)
 
     if request.method == "HEAD":
-        return httpr.Response(200)
+        return httpxr.Response(200)
 
-    return httpr.Response(200, html="<html><body>Hello, world!</body></html>")
+    return httpxr.Response(200, html="<html><body>Hello, world!</body></html>")
 
 
 def test_redirect_301():
-    client = httpr.Client(transport=httpr.MockTransport(redirects))
+    client = httpxr.Client(transport=httpxr.MockTransport(redirects))
     response = client.post("https://example.org/redirect_301", follow_redirects=True)
-    assert response.status_code == httpr.codes.OK
+    assert response.status_code == httpxr.codes.OK
     assert response.url == "https://example.org/"
     assert len(response.history) == 1
 
 
 def test_redirect_302():
-    client = httpr.Client(transport=httpr.MockTransport(redirects))
+    client = httpxr.Client(transport=httpxr.MockTransport(redirects))
     response = client.post("https://example.org/redirect_302", follow_redirects=True)
-    assert response.status_code == httpr.codes.OK
+    assert response.status_code == httpxr.codes.OK
     assert response.url == "https://example.org/"
     assert len(response.history) == 1
 
 
 def test_redirect_303():
-    client = httpr.Client(transport=httpr.MockTransport(redirects))
+    client = httpxr.Client(transport=httpxr.MockTransport(redirects))
     response = client.get("https://example.org/redirect_303", follow_redirects=True)
-    assert response.status_code == httpr.codes.OK
+    assert response.status_code == httpxr.codes.OK
     assert response.url == "https://example.org/"
     assert len(response.history) == 1
 
 
 def test_next_request():
-    client = httpr.Client(transport=httpr.MockTransport(redirects))
+    client = httpxr.Client(transport=httpxr.MockTransport(redirects))
     request = client.build_request("POST", "https://example.org/redirect_303")
     response = client.send(request, follow_redirects=False)
-    assert response.status_code == httpr.codes.SEE_OTHER
+    assert response.status_code == httpxr.codes.SEE_OTHER
     assert response.url == "https://example.org/redirect_303"
     assert response.next_request is not None
 
     response = client.send(response.next_request, follow_redirects=False)
-    assert response.status_code == httpr.codes.OK
+    assert response.status_code == httpxr.codes.OK
     assert response.url == "https://example.org/"
     assert response.next_request is None
 
 
 @pytest.mark.anyio
 async def test_async_next_request():
-    async with httpr.AsyncClient(transport=httpr.MockTransport(redirects)) as client:
+    async with httpxr.AsyncClient(transport=httpxr.MockTransport(redirects)) as client:
         request = client.build_request("POST", "https://example.org/redirect_303")
         response = await client.send(request, follow_redirects=False)
-        assert response.status_code == httpr.codes.SEE_OTHER
+        assert response.status_code == httpxr.codes.SEE_OTHER
         assert response.url == "https://example.org/redirect_303"
         assert response.next_request is not None
 
         response = await client.send(response.next_request, follow_redirects=False)
-        assert response.status_code == httpr.codes.OK
+        assert response.status_code == httpxr.codes.OK
         assert response.url == "https://example.org/"
         assert response.next_request is None
 
@@ -170,9 +170,9 @@ def test_head_redirect():
     """
     Contrary to Requests, redirects remain enabled by default for HEAD requests.
     """
-    client = httpr.Client(transport=httpr.MockTransport(redirects))
+    client = httpxr.Client(transport=httpxr.MockTransport(redirects))
     response = client.head("https://example.org/redirect_302", follow_redirects=True)
-    assert response.status_code == httpr.codes.OK
+    assert response.status_code == httpxr.codes.OK
     assert response.url == "https://example.org/"
     assert response.request.method == "HEAD"
     assert len(response.history) == 1
@@ -180,58 +180,58 @@ def test_head_redirect():
 
 
 def test_relative_redirect():
-    client = httpr.Client(transport=httpr.MockTransport(redirects))
+    client = httpxr.Client(transport=httpxr.MockTransport(redirects))
     response = client.get(
         "https://example.org/relative_redirect", follow_redirects=True
     )
-    assert response.status_code == httpr.codes.OK
+    assert response.status_code == httpxr.codes.OK
     assert response.url == "https://example.org/"
     assert len(response.history) == 1
 
 
 def test_malformed_redirect():
     # https://github.com/encode/httpx/issues/771
-    client = httpr.Client(transport=httpr.MockTransport(redirects))
+    client = httpxr.Client(transport=httpxr.MockTransport(redirects))
     response = client.get(
         "http://example.org/malformed_redirect", follow_redirects=True
     )
-    assert response.status_code == httpr.codes.OK
+    assert response.status_code == httpxr.codes.OK
     assert response.url == "https://example.org:443/"
     assert len(response.history) == 1
 
 
 def test_invalid_redirect():
-    client = httpr.Client(transport=httpr.MockTransport(redirects))
-    with pytest.raises(httpr.RemoteProtocolError):
+    client = httpxr.Client(transport=httpxr.MockTransport(redirects))
+    with pytest.raises(httpxr.RemoteProtocolError):
         client.get("http://example.org/invalid_redirect", follow_redirects=True)
 
 
 def test_no_scheme_redirect():
-    client = httpr.Client(transport=httpr.MockTransport(redirects))
+    client = httpxr.Client(transport=httpxr.MockTransport(redirects))
     response = client.get(
         "https://example.org/no_scheme_redirect", follow_redirects=True
     )
-    assert response.status_code == httpr.codes.OK
+    assert response.status_code == httpxr.codes.OK
     assert response.url == "https://example.org/"
     assert len(response.history) == 1
 
 
 def test_fragment_redirect():
-    client = httpr.Client(transport=httpr.MockTransport(redirects))
+    client = httpxr.Client(transport=httpxr.MockTransport(redirects))
     response = client.get(
         "https://example.org/relative_redirect#fragment", follow_redirects=True
     )
-    assert response.status_code == httpr.codes.OK
+    assert response.status_code == httpxr.codes.OK
     assert response.url == "https://example.org/#fragment"
     assert len(response.history) == 1
 
 
 def test_multiple_redirects():
-    client = httpr.Client(transport=httpr.MockTransport(redirects))
+    client = httpxr.Client(transport=httpxr.MockTransport(redirects))
     response = client.get(
         "https://example.org/multiple_redirects?count=20", follow_redirects=True
     )
-    assert response.status_code == httpr.codes.OK
+    assert response.status_code == httpxr.codes.OK
     assert response.url == "https://example.org/multiple_redirects"
     assert len(response.history) == 20
     assert response.history[0].url == "https://example.org/multiple_redirects?count=20"
@@ -242,29 +242,29 @@ def test_multiple_redirects():
 
 @pytest.mark.anyio
 async def test_async_too_many_redirects():
-    async with httpr.AsyncClient(transport=httpr.MockTransport(redirects)) as client:
-        with pytest.raises(httpr.TooManyRedirects):
+    async with httpxr.AsyncClient(transport=httpxr.MockTransport(redirects)) as client:
+        with pytest.raises(httpxr.TooManyRedirects):
             await client.get(
                 "https://example.org/multiple_redirects?count=21", follow_redirects=True
             )
 
 
 def test_sync_too_many_redirects():
-    client = httpr.Client(transport=httpr.MockTransport(redirects))
-    with pytest.raises(httpr.TooManyRedirects):
+    client = httpxr.Client(transport=httpxr.MockTransport(redirects))
+    with pytest.raises(httpxr.TooManyRedirects):
         client.get(
             "https://example.org/multiple_redirects?count=21", follow_redirects=True
         )
 
 
 def test_redirect_loop():
-    client = httpr.Client(transport=httpr.MockTransport(redirects))
-    with pytest.raises(httpr.TooManyRedirects):
+    client = httpxr.Client(transport=httpxr.MockTransport(redirects))
+    with pytest.raises(httpxr.TooManyRedirects):
         client.get("https://example.org/redirect_loop", follow_redirects=True)
 
 
 def test_cross_domain_redirect_with_auth_header():
-    client = httpr.Client(transport=httpr.MockTransport(redirects))
+    client = httpxr.Client(transport=httpxr.MockTransport(redirects))
     url = "https://example.com/cross_domain"
     headers = {"Authorization": "abc"}
     response = client.get(url, headers=headers, follow_redirects=True)
@@ -273,7 +273,7 @@ def test_cross_domain_redirect_with_auth_header():
 
 
 def test_cross_domain_https_redirect_with_auth_header():
-    client = httpr.Client(transport=httpr.MockTransport(redirects))
+    client = httpxr.Client(transport=httpxr.MockTransport(redirects))
     url = "http://example.com/cross_domain"
     headers = {"Authorization": "abc"}
     response = client.get(url, headers=headers, follow_redirects=True)
@@ -282,7 +282,7 @@ def test_cross_domain_https_redirect_with_auth_header():
 
 
 def test_cross_domain_redirect_with_auth():
-    client = httpr.Client(transport=httpr.MockTransport(redirects))
+    client = httpxr.Client(transport=httpxr.MockTransport(redirects))
     url = "https://example.com/cross_domain"
     response = client.get(url, auth=("user", "pass"), follow_redirects=True)
     assert response.url == "https://example.org/cross_domain_target"
@@ -290,7 +290,7 @@ def test_cross_domain_redirect_with_auth():
 
 
 def test_same_domain_redirect():
-    client = httpr.Client(transport=httpr.MockTransport(redirects))
+    client = httpxr.Client(transport=httpxr.MockTransport(redirects))
     url = "https://example.org/cross_domain"
     headers = {"Authorization": "abc"}
     response = client.get(url, headers=headers, follow_redirects=True)
@@ -299,7 +299,7 @@ def test_same_domain_redirect():
 
 
 def test_same_domain_https_redirect_with_auth_header():
-    client = httpr.Client(transport=httpr.MockTransport(redirects))
+    client = httpxr.Client(transport=httpxr.MockTransport(redirects))
     url = "http://example.org/cross_domain"
     headers = {"Authorization": "abc"}
     response = client.get(url, headers=headers, follow_redirects=True)
@@ -311,7 +311,7 @@ def test_body_redirect():
     """
     A 308 redirect should preserve the request body.
     """
-    client = httpr.Client(transport=httpr.MockTransport(redirects))
+    client = httpxr.Client(transport=httpxr.MockTransport(redirects))
     url = "https://example.org/redirect_body"
     content = b"Example request body"
     response = client.post(url, content=content, follow_redirects=True)
@@ -324,7 +324,7 @@ def test_no_body_redirect():
     """
     A 303 redirect should remove the request body.
     """
-    client = httpr.Client(transport=httpr.MockTransport(redirects))
+    client = httpxr.Client(transport=httpxr.MockTransport(redirects))
     url = "https://example.org/redirect_no_body"
     content = b"Example request body"
     response = client.post(url, content=content, follow_redirects=True)
@@ -334,53 +334,53 @@ def test_no_body_redirect():
 
 
 def test_can_stream_if_no_redirect():
-    client = httpr.Client(transport=httpr.MockTransport(redirects))
+    client = httpxr.Client(transport=httpxr.MockTransport(redirects))
     url = "https://example.org/redirect_301"
     with client.stream("GET", url, follow_redirects=False) as response:
         pass
-    assert response.status_code == httpr.codes.MOVED_PERMANENTLY
+    assert response.status_code == httpxr.codes.MOVED_PERMANENTLY
     assert response.headers["location"] == "https://example.org/"
 
 
-class ConsumeBodyTransport(httpr.MockTransport):
+class ConsumeBodyTransport(httpxr.MockTransport):
     def __init__(self, handler):
         self.handler = handler
 
-    def handle_request(self, request: httpr.Request) -> httpr.Response:
-        assert isinstance(request.stream, httpr.SyncByteStream)
+    def handle_request(self, request: httpxr.Request) -> httpxr.Response:
+        assert isinstance(request.stream, httpxr.SyncByteStream)
         list(request.stream)
         return self.handler(request)  # type: ignore[return-value]
 
 
 def test_cannot_redirect_streaming_body():
-    client = httpr.Client(transport=ConsumeBodyTransport(redirects))
+    client = httpxr.Client(transport=ConsumeBodyTransport(redirects))
     url = "https://example.org/redirect_body"
 
     def streaming_body() -> typing.Iterator[bytes]:
         yield b"Example request body"  # pragma: no cover
 
-    with pytest.raises(httpr.StreamConsumed):
+    with pytest.raises(httpxr.StreamConsumed):
         client.post(url, content=streaming_body(), follow_redirects=True)
 
 
 def test_cross_subdomain_redirect():
-    client = httpr.Client(transport=httpr.MockTransport(redirects))
+    client = httpxr.Client(transport=httpxr.MockTransport(redirects))
     url = "https://example.com/cross_subdomain"
     response = client.get(url, follow_redirects=True)
     assert response.url == "https://www.example.org/cross_subdomain"
 
 
-def cookie_sessions(request: httpr.Request) -> httpr.Response:
+def cookie_sessions(request: httpxr.Request) -> httpxr.Response:
     if request.url.path == "/":
         cookie = request.headers.get("Cookie")
         if cookie is not None:
             content = b"Logged in"
         else:
             content = b"Not logged in"
-        return httpr.Response(200, content=content)
+        return httpxr.Response(200, content=content)
 
     elif request.url.path == "/login":
-        status_code = httpr.codes.SEE_OTHER
+        status_code = httpxr.codes.SEE_OTHER
         headers = {
             "location": "/",
             "set-cookie": (
@@ -388,11 +388,11 @@ def cookie_sessions(request: httpr.Request) -> httpr.Response:
                 "httponly; samesite=lax"
             ),
         }
-        return httpr.Response(status_code, headers=headers)
+        return httpxr.Response(status_code, headers=headers)
 
     else:
         assert request.url.path == "/logout"
-        status_code = httpr.codes.SEE_OTHER
+        status_code = httpxr.codes.SEE_OTHER
         headers = {
             "location": "/",
             "set-cookie": (
@@ -400,12 +400,12 @@ def cookie_sessions(request: httpr.Request) -> httpr.Response:
                 "httponly; samesite=lax"
             ),
         }
-        return httpr.Response(status_code, headers=headers)
+        return httpxr.Response(status_code, headers=headers)
 
 
 def test_redirect_cookie_behavior():
-    client = httpr.Client(
-        transport=httpr.MockTransport(cookie_sessions), follow_redirects=True
+    client = httpxr.Client(
+        transport=httpxr.MockTransport(cookie_sessions), follow_redirects=True
     )
 
     # The client is not logged in.
@@ -435,16 +435,16 @@ def test_redirect_cookie_behavior():
 
 
 def test_redirect_custom_scheme():
-    client = httpr.Client(transport=httpr.MockTransport(redirects))
-    with pytest.raises(httpr.UnsupportedProtocol) as e:
+    client = httpxr.Client(transport=httpxr.MockTransport(redirects))
+    with pytest.raises(httpxr.UnsupportedProtocol) as e:
         client.post("https://example.org/redirect_custom_scheme", follow_redirects=True)
     assert str(e.value) == "Scheme 'market' not supported."
 
 
 @pytest.mark.anyio
 async def test_async_invalid_redirect():
-    async with httpr.AsyncClient(transport=httpr.MockTransport(redirects)) as client:
-        with pytest.raises(httpr.RemoteProtocolError):
+    async with httpxr.AsyncClient(transport=httpxr.MockTransport(redirects)) as client:
+        with pytest.raises(httpxr.RemoteProtocolError):
             await client.get(
                 "http://example.org/invalid_redirect", follow_redirects=True
             )

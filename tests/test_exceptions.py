@@ -5,7 +5,7 @@ import typing
 import httpcore
 import pytest
 
-import httpr
+import httpxr
 
 if typing.TYPE_CHECKING:  # pragma: no cover
     from conftest import TestServer
@@ -26,7 +26,7 @@ def test_httpcore_all_exceptions_mapped() -> None:
 
     httpx_exceptions = {
         value.__name__
-        for _, value in vars(httpr).items()
+        for _, value in vars(httpxr).items()
         if isinstance(value, type) and issubclass(value, Exception)
     }
 
@@ -41,23 +41,23 @@ def test_httpcore_exception_mapping(server: TestServer) -> None:
     HTTPCore exception mapping works as expected.
     """
     impossible_port = 123456
-    with pytest.raises(httpr.ConnectError):
-        httpr.get(server.url.copy_with(port=impossible_port))
+    with pytest.raises(httpxr.ConnectError):
+        httpxr.get(server.url.copy_with(port=impossible_port))
 
-    with pytest.raises(httpr.ReadTimeout):
-        httpr.get(
+    with pytest.raises(httpxr.ReadTimeout):
+        httpxr.get(
             server.url.copy_with(path="/slow_response"),
-            timeout=httpr.Timeout(5, read=0.01),
+            timeout=httpxr.Timeout(5, read=0.01),
         )
 
 
 def test_request_attribute() -> None:
     # Exception without request attribute
-    exc = httpr.ReadTimeout("Read operation timed out")
+    exc = httpxr.ReadTimeout("Read operation timed out")
     with pytest.raises(RuntimeError):
         exc.request  # noqa: B018
 
     # Exception with request attribute
-    request = httpr.Request("GET", "https://www.example.com")
-    exc = httpr.ReadTimeout("Read operation timed out", request=request)
+    request = httpxr.Request("GET", "https://www.example.com")
+    exc = httpxr.ReadTimeout("Read operation timed out", request=request)
     assert exc.request == request

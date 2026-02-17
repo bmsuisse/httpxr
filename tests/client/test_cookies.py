@@ -2,15 +2,15 @@ from http.cookiejar import Cookie, CookieJar
 
 import pytest
 
-import httpr
+import httpxr
 
 
-def get_and_set_cookies(request: httpr.Request) -> httpr.Response:
+def get_and_set_cookies(request: httpxr.Request) -> httpxr.Response:
     if request.url.path == "/echo_cookies":
         data = {"cookies": request.headers.get("cookie")}
-        return httpr.Response(200, json=data)
+        return httpxr.Response(200, json=data)
     elif request.url.path == "/set_cookie":
-        return httpr.Response(200, headers={"set-cookie": "example-name=example-value"})
+        return httpxr.Response(200, headers={"set-cookie": "example-name=example-value"})
     else:
         raise NotImplementedError()  # pragma: no cover
 
@@ -22,8 +22,8 @@ def test_set_cookie() -> None:
     url = "http://example.org/echo_cookies"
     cookies = {"example-name": "example-value"}
 
-    client = httpr.Client(
-        cookies=cookies, transport=httpr.MockTransport(get_and_set_cookies)
+    client = httpxr.Client(
+        cookies=cookies, transport=httpxr.MockTransport(get_and_set_cookies)
     )
     response = client.get(url)
 
@@ -38,7 +38,7 @@ def test_set_per_request_cookie_is_deprecated() -> None:
     url = "http://example.org/echo_cookies"
     cookies = {"example-name": "example-value"}
 
-    client = httpr.Client(transport=httpr.MockTransport(get_and_set_cookies))
+    client = httpxr.Client(transport=httpxr.MockTransport(get_and_set_cookies))
     with pytest.warns(DeprecationWarning):
         response = client.get(url, cookies=cookies)
 
@@ -74,8 +74,8 @@ def test_set_cookie_with_cookiejar() -> None:
     )
     cookies.set_cookie(cookie)
 
-    client = httpr.Client(
-        cookies=cookies, transport=httpr.MockTransport(get_and_set_cookies)
+    client = httpxr.Client(
+        cookies=cookies, transport=httpxr.MockTransport(get_and_set_cookies)
     )
     response = client.get(url)
 
@@ -111,8 +111,8 @@ def test_setting_client_cookies_to_cookiejar() -> None:
     )
     cookies.set_cookie(cookie)
 
-    client = httpr.Client(
-        cookies=cookies, transport=httpr.MockTransport(get_and_set_cookies)
+    client = httpxr.Client(
+        cookies=cookies, transport=httpxr.MockTransport(get_and_set_cookies)
     )
     response = client.get(url)
 
@@ -126,10 +126,10 @@ def test_set_cookie_with_cookies_model() -> None:
     """
 
     url = "http://example.org/echo_cookies"
-    cookies = httpr.Cookies()
+    cookies = httpxr.Cookies()
     cookies["example-name"] = "example-value"
 
-    client = httpr.Client(transport=httpr.MockTransport(get_and_set_cookies))
+    client = httpxr.Client(transport=httpxr.MockTransport(get_and_set_cookies))
     client.cookies = cookies
     response = client.get(url)
 
@@ -140,7 +140,7 @@ def test_set_cookie_with_cookies_model() -> None:
 def test_get_cookie() -> None:
     url = "http://example.org/set_cookie"
 
-    client = httpr.Client(transport=httpr.MockTransport(get_and_set_cookies))
+    client = httpxr.Client(transport=httpxr.MockTransport(get_and_set_cookies))
     response = client.get(url)
 
     assert response.status_code == 200
@@ -152,7 +152,7 @@ def test_cookie_persistence() -> None:
     """
     Ensure that Client instances persist cookies between requests.
     """
-    client = httpr.Client(transport=httpr.MockTransport(get_and_set_cookies))
+    client = httpxr.Client(transport=httpxr.MockTransport(get_and_set_cookies))
 
     response = client.get("http://example.org/echo_cookies")
     assert response.status_code == 200

@@ -6,7 +6,7 @@ import typing
 
 import idna
 
-from ._httpr import InvalidURL
+from ._httpxr import InvalidURL
 
 MAX_URL_LENGTH = 65536
 

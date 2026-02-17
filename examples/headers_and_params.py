@@ -2,15 +2,15 @@
 Headers, Query Parameters, and Cookies
 =======================================
 
-Working with httpr's rich model objects: Headers, QueryParams, Cookies, and URL.
+Working with httpxr's rich model objects: Headers, QueryParams, Cookies, and URL.
 """
 
-import httpr
+import httpxr
 
 
 def main() -> None:
     # ── Custom headers ───────────────────────────────────────────────────
-    response = httpr.get(
+    response = httpxr.get(
         "https://httpbin.org/headers",
         headers={
             "X-Token": "secret-123",
@@ -24,26 +24,26 @@ def main() -> None:
     print()
 
     # ── Query parameters ─────────────────────────────────────────────────
-    response = httpr.get(
+    response = httpxr.get(
         "https://httpbin.org/get",
-        params={"search": "httpr", "page": "1", "sort": "stars"},
+        params={"search": "httpxr", "page": "1", "sort": "stars"},
     )
     print(f"URL with params: {response.url}")
     print(f"  args echoed: {response.json()['args']}")
     print()
 
     # ── Working with the Headers object ──────────────────────────────────
-    headers = httpr.Headers({"Content-Type": "text/html", "X-Custom": "value"})
+    headers = httpxr.Headers({"Content-Type": "text/html", "X-Custom": "value"})
     print(f"Headers object: {dict(headers)}")
     print()
 
     # ── Working with QueryParams ─────────────────────────────────────────
-    params = httpr.QueryParams({"key": "value", "list": ["a", "b"]})
+    params = httpxr.QueryParams({"key": "value", "list": ["a", "b"]})
     print(f"QueryParams: {params}")
     print()
 
     # ── Working with URL ─────────────────────────────────────────────────
-    url = httpr.URL("https://www.example.com/path?query=1#frag")
+    url = httpxr.URL("https://www.example.com/path?query=1#frag")
     print(f"URL object:  {url}")
     print(f"  scheme:    {url.scheme}")
     print(f"  host:      {url.host}")
@@ -53,15 +53,15 @@ def main() -> None:
     print()
 
     # ── Cookies ──────────────────────────────────────────────────────────
-    response = httpr.get(
+    response = httpxr.get(
         "https://httpbin.org/cookies/set/sessionid/abc123",
         follow_redirects=True,
     )
     print(f"Cookies in response: {dict(response.cookies)}")
 
     # ── Sending cookies ──────────────────────────────────────────────────
-    cookies = httpr.Cookies({"session": "xyz789"})
-    response = httpr.get("https://httpbin.org/cookies", cookies=cookies)
+    cookies = httpxr.Cookies({"session": "xyz789"})
+    response = httpxr.get("https://httpbin.org/cookies", cookies=cookies)
     print(f"Cookies echoed: {response.json()['cookies']}")
 
 

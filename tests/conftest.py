@@ -18,20 +18,20 @@ from cryptography.hazmat.primitives.serialization import (
 from uvicorn.config import Config
 from uvicorn.server import Server
 
-import httpr
+import httpxr
 from tests.concurrency import sleep
 
 
-# httpr uses tokio runtime which is only compatible with asyncio, not trio
+# httpxr uses tokio runtime which is only compatible with asyncio, not trio
 @pytest.fixture
 def anyio_backend():
     return "asyncio"
 
 
 def pytest_collection_modifyitems(items):
-    """Skip trio-backend tests since httpr uses tokio runtime (asyncio-only)."""
+    """Skip trio-backend tests since httpxr uses tokio runtime (asyncio-only)."""
     skip_trio = pytest.mark.skip(
-        reason="httpr uses tokio runtime, incompatible with trio"
+        reason="httpxr uses tokio runtime, incompatible with trio"
     )
     for item in items:
         if "[trio]" in item.nodeid:
@@ -251,10 +251,10 @@ class TestServer(Server):
         await asyncio.wait(tasks)
 
     @property
-    def url(self) -> httpr.URL:
+    def url(self) -> httpxr.URL:
         protocol = "https" if self.config.is_ssl else "http"
         port = self.servers[0].sockets[0].getsockname()[1]
-        url = httpr.URL(f"{protocol}://{self.config.host}:{port}/")
+        url = httpxr.URL(f"{protocol}://{self.config.host}:{port}/")
         print(f"DEBUG: TestServer running at {url}")
         return url
 

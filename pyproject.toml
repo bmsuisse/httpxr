@@ -3,7 +3,7 @@ requires = ["maturin>=1.9.4,<2"]
 build-backend = "maturin"
 
 [project]
-name = "httpr"
+name = "httpxr"
 description = "A 1:1 Rust port of httpx — same API, faster execution."
 license = { text = "MIT OR Apache-2.0" }
 requires-python = ">=3.10"
@@ -40,15 +40,15 @@ cli = [
 ]
 
 [project.scripts]
-httpr = "httpr:main"
+httpxr = "httpxr:main"
 
 [project.urls]
-Source = "https://dev.azure.com/bmeurope/BMS%20-%20Data/_git/httpr"
+Source = "https://dev.azure.com/bmeurope/BMS%20-%20Data/_git/httpxr"
 
 [tool.maturin]
 features = ["pyo3/extension-module"]
 python-source = "."
-module-name = "httpr._httpr"
+module-name = "httpxr._httpxr"
 
 
 [tool.ruff.lint]
@@ -83,7 +83,7 @@ testpaths = ["tests", "benchmarks"]
 
 [tool.coverage.run]
 omit = ["venv/*"]
-include = ["httpr/*", "tests/*"]
+include = ["httpxr/*", "tests/*"]
 
 [dependency-groups]
 dev = [

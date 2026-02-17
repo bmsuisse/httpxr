@@ -1,5 +1,5 @@
 import pytest
-import httpr
+import httpxr
 
 
 @pytest.mark.anyio
