@@ -93,6 +93,7 @@ dev = [
     "chardet>=5.0",
     "httpcore==1.*",
     "idna",
+    "maturin>=1.9.4",
     "pandas>=2.0",
     "polars>=1.0",
     "pyright>=1.1",
