@@ -78,7 +78,7 @@ jobs:
             elif command -v apk &> /dev/null; then
               apk add openssl-dev
             elif command -v apt-get &> /dev/null; then
-              apt-get update && apt-get install -y libssl-dev
+              apt-get update && apt-get install -y libssl-dev pkg-config
             fi
       - name: Upload wheels
         uses: actions/upload-artifact@v6
@@ -113,9 +113,9 @@ jobs:
             if command -v yum &> /dev/null; then
               yum install -y openssl-devel perl-IPC-Cmd
             elif command -v apk &> /dev/null; then
-              apk add openssl-dev perl
+              apk add openssl-dev perl pkgconfig musl-dev
             elif command -v apt-get &> /dev/null; then
-              apt-get update && apt-get install -y libssl-dev
+              apt-get update && apt-get install -y libssl-dev pkg-config
             fi
       - name: Upload wheels
         uses: actions/upload-artifact@v6
