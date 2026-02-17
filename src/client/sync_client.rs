@@ -300,23 +300,64 @@ impl Client {
                     pyo3::exceptions::PyRuntimeError::new_err(format!("Failed to build request: {}", e))
                 })?;
 
-                let client = transport.client.clone();
-                let handle = transport.handle.clone();
-                // Clone raw_headers for the redirect-loop closure (only used on redirects)
-                let raw_headers_owned = raw_headers.clone();
+                let do_follow_redirects = follow_redirects.unwrap_or(self.follow_redirects);
+                let max_redirects = self.max_redirects;
+                let client = &transport.client;
+                let handle = &transport.handle;
 
-                // Redirect loop with GIL released
-                let result = py.detach(move || {
+                // ── TIER 1: No-redirect fast path (covers 99% of requests) ──
+                // Execute directly without any redirect loop infrastructure.
+                // Only allocate redirect tracking if we actually get a 3xx.
+                let result = py.detach(|| {
                     handle.block_on(async {
-                        let mut current_url = full_url;
-                        let mut redirects_remaining = max_redirects;
-                        let mut current_request = Some(built);
-                        let mut history: Vec<(u16, Vec<(Vec<u8>, Vec<u8>)>, Vec<u8>, String)> = Vec::new();
+                        let response = client.execute(built).await?;
+                        let status = response.status().as_u16();
+                        let is_redirect = do_follow_redirects && (300..400).contains(&status);
 
-                        loop {
-                            let req = if let Some(r) = current_request.take() {
-                                r
+                        if !is_redirect {
+                            // Happy path: no redirect, extract response directly
+                            let resp_headers: Vec<(Vec<u8>, Vec<u8>)> = response
+                                .headers()
+                                .iter()
+                                .map(|(k, v)| (k.as_str().as_bytes().to_vec(), v.as_bytes().to_vec()))
+                                .collect();
+                            let url = response.url().to_string();
+                            let body = response.bytes().await?;
+                            Ok::<_, reqwest::Error>((status, resp_headers, body.to_vec(), url, Vec::new()))
+                        } else {
+                            // ── TIER 2: Redirect path ──
+                            let redirect_location = response.headers()
+                                .get("location")
+                                .and_then(|v| v.to_str().ok())
+                                .map(|s| s.to_string());
+                            let resp_headers: Vec<(Vec<u8>, Vec<u8>)> = response
+                                .headers()
+                                .iter()
+                                .map(|(k, v)| (k.as_str().as_bytes().to_vec(), v.as_bytes().to_vec()))
+                                .collect();
+                            let mut current_url = response.url().to_string();
+                            let body = response.bytes().await?;
+
+                            let Some(loc) = redirect_location else {
+                                return Ok((status, resp_headers, body.to_vec(), current_url, Vec::new()));
+                            };
+
+                            let mut history: Vec<(u16, Vec<(Vec<u8>, Vec<u8>)>, Vec<u8>, String)> = Vec::new();
+                            history.push((status, resp_headers, body.to_vec(), current_url.clone()));
+                            let mut redirects_remaining = max_redirects - 1;
+
+                            current_url = if loc.starts_with("http://") || loc.starts_with("https://") {
+                                loc
+                            } else if let Ok(base) = reqwest::Url::parse(&current_url) {
+                                base.join(&loc).map(|u| u.to_string()).unwrap_or(loc)
                             } else {
+                                loc
+                            };
+
+                            // Clone headers only now (redirect actually happened)
+                            let raw_headers_owned = raw_headers.clone();
+
+                            loop {
                                 let mut rb = client.request(method_reqwest.clone(),
                                     reqwest::Url::parse(&current_url).unwrap());
                                 for (key, value) in &raw_headers_owned {
@@ -329,49 +370,45 @@ impl Client {
                                     rb = rb.timeout(t);
                                 }
 
-                                rb.build()?
-                            };
+                                let response = client.execute(rb.build()?).await?;
+                                let status = response.status().as_u16();
+                                let is_redirect = (300..400).contains(&status);
 
-                            let response = client.execute(req).await?;
-                            let status = response.status().as_u16();
-                            let is_redirect = (300..400).contains(&status);
-
-                            let redirect_location = if is_redirect && do_follow_redirects {
-                                response.headers()
-                                    .get("location")
-                                    .and_then(|v| v.to_str().ok())
-                                    .map(|s| s.to_string())
-                            } else {
-                                None
-                            };
-
-                            let resp_headers: Vec<(Vec<u8>, Vec<u8>)> = response
-                                .headers()
-                                .iter()
-                                .map(|(k, v)| (k.as_str().as_bytes().to_vec(), v.as_bytes().to_vec()))
-                                .collect();
-
-                            let body = response.bytes().await?;
-
-                            if let Some(loc) = redirect_location {
-                                if redirects_remaining == 0 {
-                                    // Signal too-many-redirects via a special Result type
-                                    break Ok((0u16, Vec::new(), b"too many redirects".to_vec(), current_url, history));
-                                }
-                                // Save this redirect response in history
-                                history.push((status, resp_headers, body.to_vec(), current_url.clone()));
-                                redirects_remaining -= 1;
-                                current_url = if loc.starts_with("http://") || loc.starts_with("https://") {
-                                    loc
-                                } else if let Ok(base) = reqwest::Url::parse(&current_url) {
-                                    base.join(&loc).map(|u| u.to_string()).unwrap_or(loc)
+                                let redirect_location = if is_redirect {
+                                    response.headers()
+                                        .get("location")
+                                        .and_then(|v| v.to_str().ok())
+                                        .map(|s| s.to_string())
                                 } else {
-                                    loc
+                                    None
                                 };
-                                continue;
-                            }
 
-                            break Ok((status, resp_headers, body.to_vec(), current_url, history));
+                                let resp_headers: Vec<(Vec<u8>, Vec<u8>)> = response
+                                    .headers()
+                                    .iter()
+                                    .map(|(k, v)| (k.as_str().as_bytes().to_vec(), v.as_bytes().to_vec()))
+                                    .collect();
+
+                                let body = response.bytes().await?;
+
+                                if let Some(loc) = redirect_location {
+                                    if redirects_remaining == 0 {
+                                        break Ok((0u16, Vec::new(), b"too many redirects".to_vec(), current_url, history));
+                                    }
+                                    history.push((status, resp_headers, body.to_vec(), current_url.clone()));
+                                    redirects_remaining -= 1;
+                                    current_url = if loc.starts_with("http://") || loc.starts_with("https://") {
+                                        loc
+                                    } else if let Ok(base) = reqwest::Url::parse(&current_url) {
+                                        base.join(&loc).map(|u| u.to_string()).unwrap_or(loc)
+                                    } else {
+                                        loc
+                                    };
+                                    continue;
+                                }
+
+                                break Ok((status, resp_headers, body.to_vec(), current_url, history));
+                            }
                         }
                     })
                 }).map_err(|e: reqwest::Error| {
@@ -418,43 +455,48 @@ impl Client {
                     }
                 };
 
-                // Build history Response objects from redirect data
-                let mut history_responses: Vec<Response> = Vec::new();
-                for (hist_status, hist_headers, hist_body, hist_url) in &redirect_history {
-                    let h_hdrs = Headers::from_raw_byte_pairs(hist_headers.clone());
-                    let h_ext = pyo3::types::PyDict::new(py);
-                    h_ext.set_item("http_version", PyBytes::new(py, b"HTTP/1.1"))?;
-                    let h_req_url = crate::urls::URL::create_from_str_fast(hist_url);
-                    let h_req = Request {
-                        method: method_upper.clone(),
-                        url: h_req_url,
-                        headers: Py::new(py, Headers::empty())?,
-                        extensions: pyo3::types::PyDict::new(py).into(),
-                        content_body: None,
-                        stream: None,
-                        stream_response: false,
-                    };
-                    if log::log_enabled!(target: "httpxr", log::Level::Info) {
-                        log::info!(target: "httpxr", "HTTP Request: {} {} \"HTTP/1.1 {} {}\"", method_upper, hist_url, hist_status, reason_for(*hist_status));
+                // Build history Response objects only if there are redirects
+                let history_responses = if redirect_history.is_empty() {
+                    Vec::new()
+                } else {
+                    let mut hist: Vec<Response> = Vec::with_capacity(redirect_history.len());
+                    for (hist_status, hist_headers, hist_body, hist_url) in &redirect_history {
+                        let h_hdrs = Headers::from_raw_byte_pairs(hist_headers.clone());
+                        let h_ext = pyo3::types::PyDict::new(py);
+                        h_ext.set_item("http_version", PyBytes::new(py, b"HTTP/1.1"))?;
+                        let h_req_url = crate::urls::URL::create_from_str_fast(hist_url);
+                        let h_req = Request {
+                            method: method_upper.clone(),
+                            url: h_req_url,
+                            headers: Py::new(py, Headers::empty())?,
+                            extensions: pyo3::types::PyDict::new(py).into(),
+                            content_body: None,
+                            stream: None,
+                            stream_response: false,
+                        };
+                        if log::log_enabled!(target: "httpxr", log::Level::Info) {
+                            log::info!(target: "httpxr", "HTTP Request: {} {} \"HTTP/1.1 {} {}\"", method_upper, hist_url, hist_status, reason_for(*hist_status));
+                        }
+                        hist.push(Response {
+                            status_code: *hist_status,
+                            headers: Py::new(py, h_hdrs)?,
+                            extensions: h_ext.into(),
+                            request: Some(h_req),
+                            history: Vec::new(),
+                            content_bytes: Some(hist_body.clone()),
+                            stream: None,
+                            default_encoding: pyo3::types::PyString::intern(py, "utf-8").into_any().unbind(),
+                            default_encoding_override: None,
+                            elapsed: None,
+                            is_closed_flag: false,
+                            is_stream_consumed: false,
+                            was_streaming: false,
+                            text_accessed: std::sync::atomic::AtomicBool::new(false),
+                            num_bytes_downloaded_counter: std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+                        });
                     }
-                    history_responses.push(Response {
-                        status_code: *hist_status,
-                        headers: Py::new(py, h_hdrs)?,
-                        extensions: h_ext.into(),
-                        request: Some(h_req),
-                        history: Vec::new(),
-                        content_bytes: Some(hist_body.clone()),
-                        stream: None,
-                        default_encoding: pyo3::types::PyString::intern(py, "utf-8").into_any().unbind(),
-                        default_encoding_override: None,
-                        elapsed: None,
-                        is_closed_flag: false,
-                        is_stream_consumed: false,
-                        was_streaming: false,
-                        text_accessed: std::sync::atomic::AtomicBool::new(false),
-                        num_bytes_downloaded_counter: std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0)),
-                    });
-                }
+                    hist
+                };
 
                 let hdrs = Headers::from_raw_byte_pairs(resp_headers);
                 let ext = pyo3::types::PyDict::new(py);
