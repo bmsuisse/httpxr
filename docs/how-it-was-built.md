@@ -1,7 +1,7 @@
 # How It Was Built
 
 !!! info "🤖 100% AI-Generated"
-    Every line of Rust, Python, and configuration in httpxr was autonomously written, debugged, and tested by an AI coding agent. No human wrote any code.
+    Every line of Rust, Python, and configuration in httpxr was autonomously written, debugged, and tested by an AI coding agent powered by **Claude Opus 4.6**. No human wrote any code.
 
 ## Why This Exists
 

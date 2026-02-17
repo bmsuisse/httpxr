@@ -40,6 +40,7 @@ pub fn request(
     let _ = auth;
     let _ = follow_redirects;
     // Direct implementation using transport
+    let has_custom_ssl_context = verify.map(|v| crate::client::common::is_ssl_context(v)).unwrap_or(false);
     let (verify_bool, verify_path) = if let Some(v_bound) = verify {
         if let Ok(b) = v_bound.extract::<bool>() {
             (b, None)
@@ -58,7 +59,7 @@ pub fn request(
     };
 
     let transport =
-        HTTPTransport::create(verify_bool, verify_path.as_deref(), false, None, proxy, 0)?;
+        HTTPTransport::create(verify_bool, verify_path.as_deref(), false, None, proxy, 0, has_custom_ssl_context)?;
     let url_str = url.str()?.extract::<String>()?;
     let target_url = URL::create_from_str(&url_str)?;
 
@@ -466,7 +467,7 @@ pub fn fetch_all(
                 let _ = sem_rx.lock().unwrap().recv();
 
                 let result = Python::attach(|py| {
-                    let transport = HTTPTransport::create(vb, vp.as_deref(), false, None, None, 0)
+                    let transport = HTTPTransport::create(vb, vp.as_deref(), false, None, None, 0, false)
                         .map_err(|e| format!("Transport error: {}", e))?;
 
                     let target_url =
