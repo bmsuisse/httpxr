@@ -2,6 +2,8 @@
 
 A 1:1 Rust port of [httpx](https://github.com/encode/httpx) — same API, faster execution.
 
+[📖 **Documentation**](https://bmsuisse.github.io/httpxr) · [📦 PyPI](https://pypi.org/project/httpxr/) · [🐙 GitHub](https://github.com/bmsuisse/httpxr)
+
 > [!NOTE]
 > **🤖 100% AI-Generated** — This entire project was autonomously created by an AI coding agent. Every line of Rust, Python, and configuration was written, debugged, and tested entirely by AI.
 

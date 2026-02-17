@@ -43,6 +43,7 @@ cli = [
 httpxr = "httpxr:main"
 
 [project.urls]
+Documentation = "https://bmsuisse.github.io/httpxr"
 Source = "https://github.com/bmsuisse/httpxr"
 
 [tool.maturin]
