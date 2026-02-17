@@ -9,11 +9,7 @@ All benchmarks run against **10 HTTP libraries** on a local ASGI server (uvicorn
 
 ## Results
 
-![HTTP Library Benchmark](benchmark_results.png)
-
-## Interactive Chart
-
-Hover over the chart below for detailed statistics per library. Use the Plotly
+Hover over the chart for detailed statistics per library. Use the Plotly
 toolbar (top right) to zoom, pan, or download as PNG.
 
 <iframe src="../benchmark_results.html" width="100%" height="650" frameborder="0" style="border-radius: 8px; border: 1px solid var(--md-default-fg-color--lightest);"></iframe>
