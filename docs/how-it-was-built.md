@@ -39,7 +39,7 @@ This phase covered the full API surface:
 - **Error handling** — the full exception hierarchy (`TimeoutException`, `ConnectError`, `TooManyRedirects`, etc.)
 - **Edge cases** — multipart encoding, digest auth, SOCKS proxies, HTTP/2, international domain names
 
-The result: **all 1303 tests pass**, with only [6 minor behavioral differences](../README.md#behavioral-differences) documented (e.g., header ordering, which is unordered per RFC 9110).
+The result: **all 1303 tests pass**, with only [6 minor behavioral differences](https://github.com/bmsuisse/httpxr#behavioral-differences) documented (e.g., header ordering, which is unordered per RFC 9110).
 
 ---
 
