@@ -5,7 +5,7 @@ A 1:1 Rust port of [httpx](https://github.com/encode/httpx) — same API, faster
 [📖 **Documentation**](https://bmsuisse.github.io/httpxr) · [📦 PyPI](https://pypi.org/project/httpxr/) · [🐙 GitHub](https://github.com/bmsuisse/httpxr)
 
 > [!NOTE]
-> **🤖 100% AI-Generated** — This entire project was autonomously created by an AI coding agent. Every line of Rust, Python, and configuration was written, debugged, and tested entirely by AI.
+> **🤖 100% AI-Generated** — This entire project was autonomously created by an AI coding agent. Every line of Rust, Python, and configuration was written, debugged, and tested entirely by AI. [Read the full story →](#how-it-was-built)
 
 ---
 
@@ -222,6 +222,24 @@ uv run pyright
 ```
 
 A **pre-push hook** runs `pytest` and `pyright` automatically before every push.
+
+---
+
+## How It Was Built
+
+This entire project was **autonomously created by an AI coding agent** — no human wrote any code. The agent was given two objectives and iterated until both were achieved:
+
+### Phase 1: Correctness — Pass All httpx Tests
+
+The complete httpx test suite (1300+ tests) served as the specification. The agent ported each test module, ran `pytest`, read the failures, fixed the Rust implementation, rebuilt, and repeated — across clients, models, transports, streaming, auth flows, and edge cases — until all 1303 tests passed.
+
+### Phase 2: Performance — Beat the Benchmarks
+
+With correctness locked in, the agent ran benchmarks against 9 other HTTP libraries, profiled the hot path, and optimized: releasing the GIL during I/O, minimizing Python ↔ Rust boundary crossings, batching header construction, reusing connections and the tokio runtime. Each cycle was followed by a test run to ensure nothing regressed.
+
+The iterative loop — **correctness first, performance second, verify both continuously** — produced a client that is fully compatible with httpx while being **2.4× faster** sequentially and **13× faster** under concurrency.
+
+> 📖 **[Full development story →](https://bmsuisse.github.io/httpxr/how-it-was-built/)**
 
 ---
 

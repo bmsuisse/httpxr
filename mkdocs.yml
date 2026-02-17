@@ -50,6 +50,7 @@ nav:
   - Getting Started:
     - Quick Start: quickstart.md
     - Migration from httpx: migration.md
+    - How It Was Built: how-it-was-built.md
     - Benchmarks: benchmarks.md
   - User Guide:
     - Clients: clients.md
