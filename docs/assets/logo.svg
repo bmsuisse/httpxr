@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" fill="none">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="48" y2="48">
+      <stop offset="0%" stop-color="#7C4DFF"/>
+      <stop offset="100%" stop-color="#B388FF"/>
+    </linearGradient>
+    <linearGradient id="bolt" x1="4" y1="4" x2="16" y2="20">
+      <stop offset="0%" stop-color="#FFD54F"/>
+      <stop offset="100%" stop-color="#FFAB00"/>
+    </linearGradient>
+  </defs>
+  <rect width="48" height="48" rx="10" fill="url(#bg)"/>
+  <!-- Small lightning bolt top-left -->
+  <path d="M16 6 L10 16 H14 L11 24 L20 14 H16 Z" fill="url(#bolt)" opacity="0.9"/>
+  <!-- "xr" text -->
+  <text x="30" y="34" text-anchor="middle" font-family="Inter, system-ui, sans-serif" font-weight="800" font-size="22" fill="white" opacity="0.95">xr</text>
+  <!-- Subtle inner glow -->
+  <rect width="48" height="48" rx="10" fill="white" opacity="0.05"/>
+</svg>

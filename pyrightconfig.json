@@ -1,0 +1,6 @@
+{
+  "include": ["httpxr"],
+  "exclude": ["tests", "benchmarks"],
+  "reportMissingModuleSource": false,
+  "reportMissingTypeStubs": false
+}

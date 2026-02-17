@@ -1,0 +1,113 @@
+/* ── httpxr docs — custom styles ─────────────────────────────────────── */
+
+/* Hero section on index page */
+.hero {
+  text-align: center;
+  padding: 2rem 1rem 3rem;
+}
+
+.hero h1 {
+  font-size: 3rem;
+  font-weight: 800;
+  margin-bottom: 0.5rem;
+  background: linear-gradient(135deg, #7C4DFF 0%, #B388FF 50%, #FFD54F 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.hero p {
+  font-size: 1.25rem;
+  opacity: 0.85;
+  max-width: 600px;
+  margin: 0 auto 1.5rem;
+}
+
+.hero-buttons {
+  display: flex;
+  gap: 0.75rem;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+.hero-buttons a {
+  display: inline-block;
+  padding: 0.6rem 1.5rem;
+  border-radius: 2rem;
+  font-weight: 600;
+  text-decoration: none;
+  font-size: 0.95rem;
+  transition: transform 0.15s, box-shadow 0.15s;
+}
+
+.hero-buttons a:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+.hero-buttons .btn-primary {
+  background: #7C4DFF;
+  color: white;
+}
+
+.hero-buttons .btn-secondary {
+  border: 2px solid #7C4DFF;
+  color: #7C4DFF;
+}
+
+[data-md-color-scheme="slate"] .hero-buttons .btn-secondary {
+  color: #B388FF;
+  border-color: #B388FF;
+}
+
+/* Feature grid */
+.feature-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 1.5rem;
+  margin: 2rem 0;
+}
+
+.feature-card {
+  padding: 1.5rem;
+  border-radius: 12px;
+  border: 1px solid var(--md-default-fg-color--lightest);
+  background: var(--md-default-bg-color);
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.feature-card:hover {
+  border-color: #7C4DFF;
+  box-shadow: 0 2px 12px rgba(124, 77, 255, 0.12);
+}
+
+.feature-card h3 {
+  margin-top: 0;
+  font-size: 1.1rem;
+}
+
+.feature-card p {
+  margin-bottom: 0;
+  opacity: 0.85;
+  font-size: 0.9rem;
+}
+
+/* Benchmark section */
+.benchmark-table {
+  overflow-x: auto;
+}
+
+/* Code block tweaks */
+.md-typeset code {
+  font-size: 0.82rem;
+}
+
+/* Install command highlight */
+.install-cmd {
+  font-size: 1.1rem;
+}
+
+.install-cmd code {
+  font-size: 1rem;
+  padding: 0.5rem 1rem;
+}

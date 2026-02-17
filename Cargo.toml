@@ -1,0 +1,45 @@
+[package]
+name = "httpxr"
+version = "0.28.1"
+edition = "2021"
+
+[lib]
+name = "_httpxr"
+crate-type = ["cdylib"]
+
+[dependencies]
+pyo3 = { version = "0.28", features = ["auto-initialize", "extension-module", "multiple-pymethods"] }
+pyo3-async-runtimes = { version = "0.28", features = ["tokio-runtime"] }
+tokio = { version = "1", features = ["full"] }
+reqwest = { version = "0.13", features = ["rustls", "native-tls", "json", "cookies", "gzip", "brotli", "zstd", "deflate", "stream", "socks"] }
+native-tls = "0.2"
+regex = "1"
+percent-encoding = "2"
+md-5 = "0.10"
+sha1 = "0.10"
+sha2 = "0.10"
+base64 = "0.22"
+flate2 = "1"
+rand = "0.10"
+url = "2"
+rustls = "0.23"
+brotli = "8"
+zstd = "0.13"
+bytes = "1"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = { version = "1.0", features = ["raw_value"] }
+simd-json = { version = "0.17", features = ["serde_impl"] }
+anyhow = "1.0"
+encoding_rs = "0.8.35"
+log = "0.4.29"
+idna = "1.1.0"
+futures = "0.3.32"
+http = "1"
+mimalloc = { version = "0.1", default-features = false, features = ["local_dynamic_tls"] }
+
+[profile.release]
+opt-level = 3
+codegen-units = 1
+lto = "fat"
+strip = true
+panic = "abort"
