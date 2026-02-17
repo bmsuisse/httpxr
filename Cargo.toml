@@ -11,8 +11,7 @@ crate-type = ["cdylib"]
 pyo3 = { version = "0.28", features = ["auto-initialize", "extension-module", "multiple-pymethods"] }
 pyo3-async-runtimes = { version = "0.28", features = ["tokio-runtime"] }
 tokio = { version = "1", features = ["full"] }
-reqwest = { version = "0.13", features = ["rustls", "native-tls", "json", "cookies", "gzip", "brotli", "zstd", "deflate", "stream", "socks"] }
-native-tls = "0.2"
+reqwest = { version = "0.13", default-features = false, features = ["rustls", "charset", "json", "cookies", "gzip", "brotli", "zstd", "deflate", "stream", "socks"] }
 regex = "1"
 percent-encoding = "2"
 md-5 = "0.10"
