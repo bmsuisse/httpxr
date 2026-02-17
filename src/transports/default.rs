@@ -25,7 +25,8 @@ type HyperClient = hyper_util::client::legacy::Client<
 pub struct HTTPTransport {
     pub(crate) client: reqwest::Client,
     /// Direct hyper client for the ultra-fast path — skips all reqwest middleware.
-    pub(crate) hyper_client: HyperClient,
+    /// None when custom certs/proxy are configured (to avoid interfering with reqwest's TLS).
+    pub(crate) hyper_client: Option<HyperClient>,
     /// Whether to use the hyper fast path (false when custom certs/proxy configured).
     pub(crate) use_hyper_fast_path: bool,
     /// Kept alive for RAII — the `handle` references this runtime.
@@ -48,12 +49,12 @@ impl HTTPTransport {
             .danger_accept_invalid_certs(!verify)
             .redirect(reqwest::redirect::Policy::none())
             // ── Aggressive connection pool tuning ──
-            .pool_max_idle_per_host(64)      // default=1, keep many warm connections
-            .pool_idle_timeout(None)          // never expire idle connections
-            .tcp_nodelay(true)                // disable Nagle: send immediately
+            .pool_max_idle_per_host(64)
+            .pool_idle_timeout(None)
+            .tcp_nodelay(true)
             .tcp_keepalive(std::time::Duration::from_secs(60))
-            .http1_only()                     // skip HTTP/2 negotiation overhead
-            .no_proxy();                      // skip proxy env var checks
+            .http1_only()
+            .no_proxy();
 
         if let Some(cert_path) = root_cert_path {
             let mut buf = Vec::new();
@@ -82,45 +83,9 @@ impl HTTPTransport {
             pyo3::exceptions::PyRuntimeError::new_err(format!("Failed to create client: {}", e))
         })?;
 
-        // Build HTTPS connector for hyper-rustls
-        // Helper to create configured HTTP connector
-        let make_http_connector = || {
-            let mut c = hyper_util::client::legacy::connect::HttpConnector::new();
-            c.enforce_http(false); // Allow HTTPS scheme — hyper-rustls handles TLS
-            c.set_nodelay(true);
-            c.set_keepalive(Some(std::time::Duration::from_secs(60)));
-            c
-        };
+        let use_hyper_fast_path = proxy.is_none() && root_cert_path.is_none() && !has_custom_ssl_context;
 
-        // Install aws-lc-rs as the global default rustls provider.
-        // Both reqwest (via rustls-platform-verifier) and hyper-rustls use aws-lc-rs,
-        // so we must set it as the default when multiple providers are compiled in.
-        // This call is idempotent — subsequent calls are silently ignored.
-        let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
-
-        let https_connector = if verify {
-            hyper_rustls::HttpsConnectorBuilder::new()
-                .with_webpki_roots()
-                .https_or_http()
-                .enable_http1()
-                .wrap_connector(make_http_connector())
-        } else {
-            // Custom TLS config for verify=false (accept all certs)
-            let tls_config = rustls::ClientConfig::builder()
-                .dangerous()
-                .with_custom_certificate_verifier(std::sync::Arc::new(NoVerifier))
-                .with_no_client_auth();
-            hyper_rustls::HttpsConnectorBuilder::new()
-                .with_tls_config(tls_config)
-                .https_or_http()
-                .enable_http1()
-                .wrap_connector(make_http_connector())
-        };
-
-
-
-        // Create runtime FIRST — hyper_client::build() spawns a background idle-cleanup
-        // task via TokioExecutor, which requires an active tokio runtime context.
+        // Create a persistent multi-thread tokio runtime (1 worker) for this transport.
         let rt = tokio::runtime::Builder::new_multi_thread()
             .worker_threads(1)
             .enable_all()
@@ -132,20 +97,72 @@ impl HTTPTransport {
                 ))
             })?;
 
-        // Enter the runtime context so TokioExecutor::execute() can spawn the
-        // connection pool idle-cleanup task during Client::build().
-        let hyper_client = {
-            let _guard = rt.handle().enter();
-            hyper_util::client::legacy::Client::builder(
-                hyper_util::rt::TokioExecutor::new()
-            )
-                .pool_idle_timeout(None) // None = no background idle-cleanup task spawned
-                .pool_max_idle_per_host(64)
-                .build(https_connector)
+        // Only create the hyper client when the fast path is enabled.
+        // Creating the hyper-rustls connector installs a global rustls crypto
+        // provider that interferes with reqwest's TLS when custom CA certs are used.
+        let hyper_client = if use_hyper_fast_path {
+            // Build HTTPS connector for hyper-rustls
+            let make_http_connector = || {
+                let mut c = hyper_util::client::legacy::connect::HttpConnector::new();
+                c.enforce_http(false);
+                c.set_nodelay(true);
+                c.set_keepalive(Some(std::time::Duration::from_secs(60)));
+                c
+            };
+
+            let provider = std::sync::Arc::new(rustls::crypto::ring::default_provider());
+
+            let https_connector = if verify {
+                let root_store = rustls::RootCertStore::from_iter(
+                    webpki_roots::TLS_SERVER_ROOTS.iter().cloned(),
+                );
+                let tls_config = rustls::ClientConfig::builder_with_provider(provider)
+                    .with_safe_default_protocol_versions()
+                    .map_err(|e| {
+                        pyo3::exceptions::PyRuntimeError::new_err(format!(
+                            "Failed to configure TLS: {}", e
+                        ))
+                    })?
+                    .with_root_certificates(root_store)
+                    .with_no_client_auth();
+                hyper_rustls::HttpsConnectorBuilder::new()
+                    .with_tls_config(tls_config)
+                    .https_or_http()
+                    .enable_http1()
+                    .wrap_connector(make_http_connector())
+            } else {
+                let tls_config = rustls::ClientConfig::builder_with_provider(provider)
+                    .with_safe_default_protocol_versions()
+                    .map_err(|e| {
+                        pyo3::exceptions::PyRuntimeError::new_err(format!(
+                            "Failed to configure TLS: {}", e
+                        ))
+                    })?
+                    .dangerous()
+                    .with_custom_certificate_verifier(std::sync::Arc::new(NoVerifier))
+                    .with_no_client_auth();
+                hyper_rustls::HttpsConnectorBuilder::new()
+                    .with_tls_config(tls_config)
+                    .https_or_http()
+                    .enable_http1()
+                    .wrap_connector(make_http_connector())
+            };
+
+            let hc = {
+                let _guard = rt.handle().enter();
+                hyper_util::client::legacy::Client::builder(
+                    hyper_util::rt::TokioExecutor::new()
+                )
+                    .pool_idle_timeout(None)
+                    .pool_max_idle_per_host(64)
+                    .build(https_connector)
+            };
+            Some(hc)
+        } else {
+            None
         };
 
         let proxy_url_str = proxy.map(|p| p.url.clone());
-        let use_hyper_fast_path = proxy.is_none() && root_cert_path.is_none() && !has_custom_ssl_context;
         let handle = rt.handle().clone();
         Ok(HTTPTransport {
             client,
@@ -278,6 +295,8 @@ impl HTTPTransport {
                     }
                 } else if msg.contains("Unknown Scheme") || msg.contains("URL scheme is not allowed") {
                     crate::exceptions::UnsupportedProtocol::new_err(msg)
+                } else if msg.contains("certificate") || msg.contains("Certificate") || msg.contains("(Connect)") {
+                    crate::exceptions::ConnectError::new_err(msg)
                 } else {
                     crate::exceptions::NetworkError::new_err(msg)
                 }
