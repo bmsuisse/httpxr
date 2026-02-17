@@ -12,6 +12,19 @@ Build a **production-grade, httpx-compatible HTTP client** backed by Rust — an
 
 The agent iterated on these two goals until both were achieved.
 
+```mermaid
+flowchart LR
+    A["📝 Write Rust Code"] --> B["🧪 Run 1300+ Tests"]
+    B --> C{"All Pass?"}
+    C -->|"❌ No"| D["🔍 Read Failures"]
+    D --> A
+    C -->|"✅ Yes"| E["⏱ Run Benchmarks"]
+    E --> F{"Fast Enough?"}
+    F -->|"❌ No"| G["🔬 Profile & Optimize"]
+    G --> B
+    F -->|"✅ Yes"| H["🚀 Ship It"]
+```
+
 ---
 
 ## Phase 1: Correctness — Pass All httpx Tests
@@ -20,14 +33,16 @@ The first priority was **correctness, not speed**. The complete httpx test suite
 
 The AI agent worked through each test module — `test_client.py`, `test_async_client.py`, `test_models.py`, `test_urls.py`, `test_content.py`, and many more — porting the expected behavior into Rust via [PyO3](https://pyo3.rs/). Each iteration followed the same loop:
 
-```
-┌─────────────────────────────────────────────┐
-│  1. Run pytest against the httpx test suite │
-│  2. Read the failures                       │
-│  3. Fix the Rust implementation             │
-│  4. Rebuild with maturin                    │
-│  5. Repeat until green                      │
-└─────────────────────────────────────────────┘
+```mermaid
+flowchart TD
+    A["Port next test module"] --> B["uv run pytest tests/ -x"]
+    B --> C{"Tests pass?"}
+    C -->|"Failures"| D["Read error traceback"]
+    D --> E["Fix Rust impl in src/"]
+    E --> F["maturin develop --release"]
+    F --> B
+    C -->|"All green ✅"| G["Move to next module"]
+    G --> A
 ```
 
 This phase covered the full API surface:
@@ -54,16 +69,21 @@ Three scenarios were measured: **single GET**, **50 sequential GETs**, and **50 
 
 The agent then iterated on the Rust transport layer:
 
-```
-┌──────────────────────────────────────────────┐
-│  1. Run the full benchmark suite             │
-│  2. Profile the hot path (Python → Rust)     │
-│  3. Identify bottlenecks                     │
-│  4. Optimize (reduce allocations, GIL time,  │
-│     batch operations, connection reuse)      │
-│  5. Verify tests still pass                  │
-│  6. Repeat until state-of-the-art            │
-└──────────────────────────────────────────────┘
+```mermaid
+flowchart TD
+    A["Run benchmark suite"] --> B["Profile hot path"]
+    B --> C["Identify bottleneck"]
+    C --> D["Implement optimization"]
+    D --> E["uv run pytest tests/ -x"]
+    E --> F{"Tests still pass?"}
+    F -->|"❌ Regression"| G["Revert & fix"]
+    G --> E
+    F -->|"✅ Green"| H["Re-run benchmarks"]
+    H --> I{"Faster?"}
+    I -->|"Yes"| J["Keep optimization"]
+    J --> A
+    I -->|"No"| K["Revert"]
+    K --> A
 ```
 
 Key optimizations the agent discovered and applied:

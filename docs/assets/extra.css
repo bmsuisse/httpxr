@@ -111,3 +111,36 @@
   font-size: 1rem;
   padding: 0.5rem 1rem;
 }
+
+/* Benchmark chart iframe */
+iframe {
+  background: #fff;
+  border-radius: 8px;
+  border: 1px solid var(--md-default-fg-color--lightest) !important;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+  margin: 1rem 0;
+}
+
+[data-md-color-scheme="slate"] iframe {
+  background: #1e1e2e;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+  filter: invert(0.88) hue-rotate(180deg);
+}
+
+/* Mermaid diagram tweaks */
+.mermaid {
+  margin: 1.5rem 0;
+}
+
+/* Admonition styling */
+.md-typeset .admonition,
+.md-typeset details {
+  border-radius: 8px;
+}
+
+/* Tables */
+.md-typeset table:not([class]) {
+  border-radius: 8px;
+  overflow: hidden;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06);
+}

@@ -3,6 +3,15 @@
 These features are **exclusive to httpxr** — not available in httpx.
 They leverage the Rust runtime for performance that's impossible in pure Python.
 
+!!! tip "When to use what"
+
+    | Need | Solution | API |
+    |:---|:---|:---|
+    | Fetch 100 URLs in parallel | `gather()` | Full `Response` objects |
+    | Auto-follow pagination | `paginate()` | Lazy iterator of pages |
+    | Minimum latency per request | Raw API | `(status, headers, body)` tuple |
+    | Standard HTTP calls | `Client.get()` etc. | Full httpx API |
+
 ---
 
 ## gather() — Concurrent Batch Requests { #gather }

@@ -4,9 +4,29 @@
 
 Install httpxr from PyPI:
 
-```bash
-pip install httpxr
-```
+=== "pip"
+
+    ```bash
+    pip install httpxr
+    ```
+
+=== "uv"
+
+    ```bash
+    uv add httpxr
+    ```
+
+=== "poetry"
+
+    ```bash
+    poetry add httpxr
+    ```
+
+=== "conda"
+
+    ```bash
+    pip install httpxr  # httpxr is not on conda-forge yet
+    ```
 
 To also install the **optional CLI**:
 
@@ -14,10 +34,15 @@ To also install the **optional CLI**:
 pip install "httpxr[cli]"
 ```
 
-!!! note "Using uv?"
-    ```bash
-    uv add httpxr
+!!! tip "Coming from httpx?"
+    httpxr is a **drop-in replacement**. In most cases you just need to change your import:
+    ```python
+    # Before
+    import httpx
+    # After
+    import httpxr as httpx  # or just import httpxr
     ```
+    See the full [Migration Guide](migration.md) for details.
 
 ## Your First Request
 
