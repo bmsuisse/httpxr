@@ -625,6 +625,16 @@ impl AsyncHTTPTransport {
             pool_semaphore,
         })
     }
+
+    /// Get a clone of the underlying reqwest::Client for fast-path usage.
+    pub fn get_client(&self) -> reqwest::Client {
+        self.client.clone()
+    }
+
+    /// Get a clone of the pool semaphore for fast-path usage.
+    pub fn get_pool_semaphore(&self) -> Option<std::sync::Arc<tokio::sync::Semaphore>> {
+        self.pool_semaphore.clone()
+    }
 }
 
 #[pymethods]
@@ -844,6 +854,169 @@ impl AsyncHTTPTransport {
                         std::sync::atomic::AtomicUsize::new(0),
                     ),
                 })
+            })
+        })
+    }
+
+    /// Send multiple requests concurrently in a single batch.
+    /// Phase 1: Extract all request data under one GIL hold.
+    /// Phase 2: Dispatch all concurrently in Rust (no GIL needed).
+    /// Phase 3: Re-acquire GIL once to build all Response objects.
+    /// This minimizes GIL contention for concurrent workloads.
+    #[pyo3(signature = (requests, max_concurrency=50))]
+    fn handle_async_requests_batch<'py>(
+        &self,
+        py: Python<'py>,
+        requests: Vec<Py<Request>>,
+        max_concurrency: usize,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        let client = self.client.clone();
+
+        // Phase 1: Extract all request data under the GIL (one hold)
+        struct PreparedRequest {
+            url_str: String,
+            method_str: String,
+            raw_headers: Vec<(Vec<u8>, Vec<u8>)>,
+            body: Option<Vec<u8>>,
+            timeout_val: Option<std::time::Duration>,
+        }
+
+        let mut prepared: Vec<PreparedRequest> = Vec::with_capacity(requests.len());
+        for req_py in &requests {
+            let req = req_py.bind(py).borrow();
+            let url_str = req.url.to_string();
+            let method_str = req.method.clone();
+            let raw_headers = req.headers.bind(py).borrow().get_raw_items_owned();
+            let body = req.content_body.clone();
+
+            let mut connect_timeout_val = None;
+            let mut read_timeout_val = None;
+            let mut write_timeout_val = None;
+            if let Ok(ext) = req.extensions.bind(py).cast::<PyDict>() {
+                if let Some(timeout_obj) = ext.get_item("timeout").ok().flatten() {
+                    if let Ok(t) = timeout_obj.extract::<crate::config::Timeout>() {
+                        connect_timeout_val = t.connect;
+                        read_timeout_val = t.read;
+                        write_timeout_val = t.write;
+                    }
+                }
+            }
+
+            let timeout_val: Option<std::time::Duration> =
+                [connect_timeout_val, read_timeout_val, write_timeout_val]
+                    .iter()
+                    .filter_map(|t| *t)
+                    .reduce(f64::min)
+                    .map(std::time::Duration::from_secs_f64);
+
+            prepared.push(PreparedRequest {
+                url_str,
+                method_str,
+                raw_headers,
+                body,
+                timeout_val,
+            });
+        }
+
+        // Phase 2 + 3: Dispatch all concurrently in Rust, then build Responses
+        pyo3_async_runtimes::tokio::future_into_py(py, async move {
+            let semaphore = std::sync::Arc::new(tokio::sync::Semaphore::new(max_concurrency));
+            let mut handles = Vec::with_capacity(prepared.len());
+
+            for prep in prepared {
+                let client = client.clone();
+                let sem = semaphore.clone();
+                handles.push(tokio::spawn(async move {
+                    let _permit = sem.acquire().await.unwrap();
+
+                    let method = match prep.method_str.as_str() {
+                        "GET" => reqwest::Method::GET,
+                        "POST" => reqwest::Method::POST,
+                        "PUT" => reqwest::Method::PUT,
+                        "DELETE" => reqwest::Method::DELETE,
+                        "PATCH" => reqwest::Method::PATCH,
+                        "HEAD" => reqwest::Method::HEAD,
+                        "OPTIONS" => reqwest::Method::OPTIONS,
+                        _ => reqwest::Method::from_bytes(prep.method_str.as_bytes())
+                            .map_err(|e| format!("Invalid method: {}", e))?,
+                    };
+
+                    let mut req_builder = client.request(method, &prep.url_str);
+                    for (key, value) in &prep.raw_headers {
+                        req_builder = req_builder.header(key.as_slice(), value.as_slice());
+                    }
+                    if let Some(b) = prep.body {
+                        req_builder = req_builder.body(b);
+                    }
+                    if let Some(t) = prep.timeout_val {
+                        req_builder = req_builder.timeout(t);
+                    }
+
+                    let response = req_builder.send().await.map_err(|e| format!("{}", e))?;
+                    let status = response.status().as_u16();
+                    let headers = response.headers();
+                    let mut resp_headers: Vec<(Vec<u8>, Vec<u8>)> =
+                        Vec::with_capacity(headers.len());
+                    for (k, v) in headers.iter() {
+                        resp_headers.push((
+                            k.as_str().as_bytes().to_vec(),
+                            v.as_bytes().to_vec(),
+                        ));
+                    }
+                    let bytes = response.bytes().await.map_err(|e| format!("{}", e))?;
+                    Ok::<_, String>((status, resp_headers, Vec::from(bytes)))
+                }));
+            }
+
+            // Collect all results
+            let mut raw_results = Vec::with_capacity(handles.len());
+            for handle in handles {
+                match handle.await {
+                    Ok(result) => raw_results.push(result),
+                    Err(e) => raw_results.push(Err(format!("Task panicked: {}", e))),
+                }
+            }
+
+            // Phase 3: Re-acquire GIL once to build all Response objects
+            Python::attach(|py| {
+                let py_list = pyo3::types::PyList::empty(py);
+                for (i, result) in raw_results.into_iter().enumerate() {
+                    match result {
+                        Ok((status_code, resp_headers, body_bytes)) => {
+                            let hdrs = Headers::from_raw_byte_pairs(resp_headers);
+                            let ext = PyDict::new(py);
+                            ext.set_item("http_version", pyo3::types::PyBytes::new(py, b"HTTP/1.1"))?;
+                            let req_ref = requests[i].bind(py).borrow();
+                            let response = Response {
+                                status_code,
+                                headers: Py::new(py, hdrs)?,
+                                extensions: ext.into(),
+                                request: Some(req_ref.clone()),
+                                history: Vec::new(),
+                                content_bytes: Some(body_bytes),
+                                stream: None,
+                                default_encoding: PyString::intern(py, "utf-8")
+                                    .into_any()
+                                    .unbind(),
+                                default_encoding_override: None,
+                                elapsed: None,
+                                is_closed_flag: false,
+                                is_stream_consumed: false,
+                                was_streaming: false,
+                                text_accessed: std::sync::atomic::AtomicBool::new(false),
+                                num_bytes_downloaded_counter: std::sync::Arc::new(
+                                    std::sync::atomic::AtomicUsize::new(0),
+                                ),
+                            };
+                            py_list.append(Py::new(py, response)?)?;
+                        }
+                        Err(msg) => {
+                            let err = crate::exceptions::NetworkError::new_err(msg);
+                            py_list.append(err.value(py))?;
+                        }
+                    }
+                }
+                Ok(py_list.unbind())
             })
         })
     }

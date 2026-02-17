@@ -1,5 +1,5 @@
 use pyo3::prelude::*;
-use pyo3::types::{PyAnyMethods, PyBytes, PyDict, PyDictMethods};
+use pyo3::types::{PyAnyMethods, PyBytes, PyDict, PyDictMethods, PyString};
 use std::time::Instant;
 
 use crate::config::{Limits, Timeout};
@@ -170,18 +170,302 @@ impl AsyncClient {
             }
         }
 
+        let follow_redirects = follow_redirects.unwrap_or(self.follow_redirects);
+        let is_streaming = stream;
+
+        // ── FAST PATH ──────────────────────────────────────────────────
+        // For simple non-streaming requests with no auth flow, no event hooks,
+        // and no custom mounts: bypass all Python overhead and call reqwest
+        // directly from Rust. This reduces GIL acquisitions from ~6 to 2.
+        let has_auth_flow = auth.is_some();
+        let has_hooks = self.event_hooks.is_some() && {
+            let hooks = self.event_hooks.as_ref().unwrap().bind(py);
+            if let Ok(d) = hooks.cast::<PyDict>() {
+                let has_request_hooks = d.get_item("request").ok().flatten()
+                    .map(|l| l.len().unwrap_or(0) > 0).unwrap_or(false);
+                let has_response_hooks = d.get_item("response").ok().flatten()
+                    .map(|l| l.len().unwrap_or(0) > 0).unwrap_or(false);
+                has_request_hooks || has_response_hooks
+            } else {
+                false
+            }
+        };
+        let has_custom_mounts = !self.mounts.bind(py).is_empty();
+
+        // Try to extract the reqwest::Client directly from our transport
+        let can_fast_path = !has_auth_flow && !has_hooks && !has_custom_mounts && !is_streaming;
+
+        if can_fast_path {
+            if let Ok(transport_ref) = self.transport.bind(py)
+                .cast::<crate::transports::default::AsyncHTTPTransport>()
+            {
+                let transport_borrow = transport_ref.borrow();
+                let client = transport_borrow.get_client();
+                let pool_sem = transport_borrow.get_pool_semaphore();
+
+                // Extract all request data under THIS GIL hold (no additional Python::attach needed)
+                let url_str = req.url.to_string();
+                let method_str = req.method.clone();
+                let raw_headers = req.headers.bind(py).borrow().get_raw_items_owned();
+                let body = req.content_body.clone();
+                let req_url = req.url.clone();
+
+                let mut connect_timeout_val = None;
+                let mut read_timeout_val = None;
+                let mut write_timeout_val = None;
+                let mut pool_timeout_val = None;
+                if let Ok(ext) = req.extensions.bind(py).cast::<PyDict>() {
+                    if let Some(timeout_obj) = ext.get_item("timeout").ok().flatten() {
+                        if let Ok(t) = timeout_obj.extract::<crate::config::Timeout>() {
+                            connect_timeout_val = t.connect;
+                            read_timeout_val = t.read;
+                            write_timeout_val = t.write;
+                            pool_timeout_val = t.pool;
+                        }
+                    }
+                }
+
+                let timeout_val: Option<std::time::Duration> =
+                    [connect_timeout_val, read_timeout_val, write_timeout_val]
+                        .iter()
+                        .filter_map(|t| *t)
+                        .reduce(f64::min)
+                        .map(std::time::Duration::from_secs_f64);
+
+                let max_redirects = self.max_redirects;
+
+                // All data extracted — now release GIL and do everything in Rust
+                return pyo3_async_runtimes::tokio::future_into_py(py, async move {
+                    let start = Instant::now();
+
+                    // Pool semaphore
+                    let _pool_permit = if let Some(ref sem) = pool_sem {
+                        let pool_dur = pool_timeout_val
+                            .map(std::time::Duration::from_secs_f64)
+                            .unwrap_or(std::time::Duration::from_secs(30));
+                        match tokio::time::timeout(pool_dur, sem.clone().acquire_owned()).await {
+                            Ok(Ok(permit)) => Some(permit),
+                            Ok(Err(_)) => {
+                                return Err(crate::exceptions::PoolTimeout::new_err(
+                                    "Connection pool is closed".to_string(),
+                                ));
+                            }
+                            Err(_) => {
+                                return Err(crate::exceptions::PoolTimeout::new_err(
+                                    "Timed out waiting for a connection from the pool".to_string(),
+                                ));
+                            }
+                        }
+                    } else {
+                        None
+                    };
+
+                    // Handle redirects in Rust (no GIL needed for simple redirect logic)
+                    let mut current_url = url_str;
+                    let mut current_method = method_str;
+                    let mut current_headers = raw_headers;
+                    let mut current_body = body;
+                    let mut redirect_count: u32 = 0;
+                    let mut history_entries: Vec<(u16, Vec<(Vec<u8>, Vec<u8>)>, Vec<u8>, String)> = Vec::new();
+
+                    loop {
+                        let method = match current_method.as_str() {
+                            "GET" => reqwest::Method::GET,
+                            "POST" => reqwest::Method::POST,
+                            "PUT" => reqwest::Method::PUT,
+                            "DELETE" => reqwest::Method::DELETE,
+                            "PATCH" => reqwest::Method::PATCH,
+                            "HEAD" => reqwest::Method::HEAD,
+                            "OPTIONS" => reqwest::Method::OPTIONS,
+                            _ => reqwest::Method::from_bytes(current_method.as_bytes())
+                                .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("Invalid method: {}", e)))?,
+                        };
+
+                        let mut req_builder = client.request(method, &current_url);
+                        for (key, value) in &current_headers {
+                            req_builder = req_builder.header(key.as_slice(), value.as_slice());
+                        }
+                        if let Some(ref b) = current_body {
+                            req_builder = req_builder.body(b.clone());
+                        }
+                        if let Some(t) = timeout_val {
+                            req_builder = req_builder.timeout(t);
+                        }
+
+                        let response = req_builder.send().await.map_err(|e| {
+                            if e.is_timeout() {
+                                if e.is_connect()
+                                    || (connect_timeout_val.is_some()
+                                        && read_timeout_val.is_none()
+                                        && write_timeout_val.is_none())
+                                {
+                                    crate::exceptions::ConnectTimeout::new_err(format!("{}", e))
+                                } else if write_timeout_val.is_some()
+                                    && current_body.is_some()
+                                    && read_timeout_val.is_none()
+                                {
+                                    crate::exceptions::WriteTimeout::new_err(format!("{}", e))
+                                } else {
+                                    crate::exceptions::ReadTimeout::new_err(format!("{}", e))
+                                }
+                            } else if e.is_connect() {
+                                crate::exceptions::ConnectError::new_err(format!("{}", e))
+                            } else {
+                                crate::exceptions::NetworkError::new_err(format!("{}", e))
+                            }
+                        })?;
+
+                        let status_code = response.status().as_u16();
+                        let version = response.version();
+                        let resp_headers: Vec<(Vec<u8>, Vec<u8>)> = response.headers().iter()
+                            .map(|(k, v)| (k.as_str().as_bytes().to_vec(), v.as_bytes().to_vec()))
+                            .collect();
+
+                        // Check for redirect (in Rust, no GIL)
+                        if follow_redirects && (300..400).contains(&status_code) {
+                            let location = resp_headers.iter()
+                                .find(|(k, _)| k == b"location")
+                                .map(|(_, v)| String::from_utf8_lossy(v).to_string());
+
+                            if let Some(loc) = location {
+                                if redirect_count >= max_redirects {
+                                    return Err(crate::exceptions::TooManyRedirects::new_err(format!(
+                                        "Exceeded maximum number of redirects ({})",
+                                        max_redirects
+                                    )));
+                                }
+
+                                // Read body for history entry
+                                let body_bytes = response.bytes().await
+                                    .map_err(|e| crate::exceptions::ReadError::new_err(format!("{}", e)))?;
+                                history_entries.push((status_code, resp_headers, Vec::from(body_bytes), current_url.clone()));
+
+                                // Resolve redirect URL
+                                let redirect_url = req_url.join_relative(&loc)
+                                    .map_err(|e| crate::exceptions::RemoteProtocolError::new_err(e.to_string()))?;
+                                current_url = redirect_url.to_string();
+
+                                // Method change for 303
+                                if status_code == 303 {
+                                    current_method = "GET".to_string();
+                                    current_body = None;
+                                }
+
+                                // Strip auth on cross-origin redirect
+                                let original_host = req_url.get_raw_host().to_lowercase();
+                                let redirect_host = redirect_url.get_raw_host().to_lowercase();
+                                if original_host != redirect_host {
+                                    current_headers.retain(|(k, _)| {
+                                        let key_lower = String::from_utf8_lossy(k).to_lowercase();
+                                        key_lower != "authorization"
+                                    });
+                                }
+                                // Update host header
+                                let new_host = crate::client::common::build_host_header(&redirect_url);
+                                current_headers.retain(|(k, _)| {
+                                    let key_lower = String::from_utf8_lossy(k).to_lowercase();
+                                    key_lower != "host"
+                                });
+                                current_headers.push((b"host".to_vec(), new_host.into_bytes()));
+
+                                redirect_count += 1;
+                                continue;
+                            }
+                        }
+
+                        // Final response — read body
+                        let body_bytes = response.bytes().await.map_err(|e| {
+                            if e.is_timeout() {
+                                crate::exceptions::ReadTimeout::new_err(format!("{}", e))
+                            } else {
+                                crate::exceptions::ReadError::new_err(format!("{}", e))
+                            }
+                        })?;
+
+                        let elapsed = start.elapsed().as_secs_f64();
+
+                        // Single GIL acquisition to build Response
+                        return Python::attach(|py| {
+                            let hdrs = Headers::from_raw_byte_pairs(resp_headers);
+                            let ext = PyDict::new(py);
+                            let version_str = match version {
+                                reqwest::Version::HTTP_09 => "HTTP/0.9",
+                                reqwest::Version::HTTP_10 => "HTTP/1.0",
+                                reqwest::Version::HTTP_11 => "HTTP/1.1",
+                                reqwest::Version::HTTP_2 => "HTTP/2",
+                                reqwest::Version::HTTP_3 => "HTTP/3",
+                                _ => "HTTP/1.1",
+                            };
+                            ext.set_item("http_version", version_str.as_bytes())?;
+
+                            // Build history if we had redirects
+                            let history = if history_entries.is_empty() {
+                                Vec::new()
+                            } else {
+                                let mut hist = Vec::new();
+                                for (h_status, h_headers, h_body, _h_url) in &history_entries {
+                                    let h_hdrs = Headers::from_raw_byte_pairs(h_headers.clone());
+                                    let h_ext = PyDict::new(py);
+                                    h_ext.set_item("http_version", b"HTTP/1.1")?;
+                                    let h_resp = Response {
+                                        status_code: *h_status,
+                                        headers: Py::new(py, h_hdrs)?,
+                                        extensions: h_ext.into(),
+                                        request: Some(req.clone()),
+                                        history: Vec::new(),
+                                        content_bytes: Some(h_body.clone()),
+                                        stream: None,
+                                        default_encoding: PyString::intern(py, "utf-8")
+                                            .into_any().unbind(),
+                                        default_encoding_override: None,
+                                        elapsed: None,
+                                        is_closed_flag: false,
+                                        is_stream_consumed: false,
+                                        was_streaming: false,
+                                        text_accessed: std::sync::atomic::AtomicBool::new(false),
+                                        num_bytes_downloaded_counter: std::sync::Arc::new(
+                                            std::sync::atomic::AtomicUsize::new(0),
+                                        ),
+                                    };
+                                    hist.push(h_resp);
+                                }
+                                hist
+                            };
+
+                            let response = Response {
+                                status_code,
+                                headers: Py::new(py, hdrs)?,
+                                extensions: ext.into(),
+                                request: Some(req),
+                                history,
+                                content_bytes: Some(Vec::from(body_bytes)),
+                                stream: None,
+                                default_encoding: PyString::intern(py, "utf-8")
+                                    .into_any().unbind(),
+                                default_encoding_override: None,
+                                elapsed: Some(elapsed),
+                                is_closed_flag: false,
+                                is_stream_consumed: false,
+                                was_streaming: false,
+                                text_accessed: std::sync::atomic::AtomicBool::new(false),
+                                num_bytes_downloaded_counter: std::sync::Arc::new(
+                                    std::sync::atomic::AtomicUsize::new(0),
+                                ),
+                            };
+
+                            Ok(Py::new(py, response)?)
+                        });
+                    }
+                });
+            }
+        }
+
+        // ── SLOW PATH ──────────────────────────────────────────────────
+        // Full-featured path with auth flows, event hooks, streaming, etc.
         let transport = self.transport.clone_ref(py);
         let mounts = self.mounts.clone_ref(py);
         let max_redirects = self.max_redirects;
-        let follow_redirects = follow_redirects.unwrap_or(self.follow_redirects);
         let event_hooks = self.event_hooks.as_ref().map(|h| h.clone_ref(py));
-        let is_streaming = stream;
-
-        // Capture the running asyncio event loop for non-streaming requests.
-        // Only needed for the eager-read Task that handles BaseException properly.
-        // Cannot capture unconditionally because send() may be called from a
-        // tokio-managed thread (e.g., StreamContextManager.__aenter__) where
-        // there is no running event loop.
         let event_loop: Option<Py<PyAny>> = if !is_streaming {
             Some(
                 py.import("asyncio")?
@@ -278,8 +562,6 @@ impl AsyncClient {
                     let mut resp: Response = response_obj.bind(py).extract()?;
                     resp.request = Some(current_req.clone());
                     resp.elapsed = Some(start.elapsed().as_secs_f64());
-
-                    // Apply default_encoding (not stored in AsyncClient currently)
 
                     // Set http_version
                     let ext = resp.extensions.bind(py);
@@ -420,16 +702,6 @@ impl AsyncClient {
                             Ok::<bool, PyErr>(has_stream && !has_content)
                         })?;
                         if has_async_stream {
-                            // Create an asyncio Task to run aread() and bridge the result
-                            // via an asyncio.Future + callback. This avoids pyo3_async_runtimes
-                            // from polling the coroutine directly, which doesn't properly
-                            // handle BaseException (KeyboardInterrupt, SystemExit).
-                            //
-                            // Flow:
-                            // 1. Create asyncio.Future on the event loop
-                            // 2. Create asyncio.Task for the aread() coroutine
-                            // 3. Add done-callback on Task that resolves the Future
-                            // 4. Await the Future via into_future (no KeyboardInterrupt here)
                             let result_future = Python::attach(|py| {
                                 let resp_bound = final_response.bind(py);
                                 let loop_bound = event_loop.as_ref().unwrap().bind(py);
@@ -449,13 +721,8 @@ async def _eagerly_read(resp, exc_holder):
         async for chunk in aiter_obj:
             buf += bytes(chunk)
     except BaseException as _exc:
-        # Do NOT re-raise — store exception and return False.
-        # Re-raising BaseException (especially KeyboardInterrupt) inside
-        # an asyncio Task causes it to escape Task.__step and crash the
-        # event loop.
         resp._mark_closed()
         exc_holder.append(_exc)
-        # Cleanup: close iterator and stream
         if hasattr(aiter_obj, 'aclose'):
             try:
                 await aiter_obj.aclose()
@@ -490,13 +757,10 @@ _task.add_done_callback(_on_done)
                                     pyo3_async_runtimes::tokio::into_future(result_fut.clone())?;
                                 Ok::<_, PyErr>((fut, exc_holder))
                             })?;
-                            // Await the result future — it resolves with True/False,
-                            // never with an exception (to avoid KeyboardInterrupt escaping)
                             let success_obj = result_future.0.await?;
                             let success =
                                 Python::attach(|py| success_obj.bind(py).extract::<bool>())?;
                             if !success {
-                                // Retrieve the stored exception from exc_holder
                                 let err = Python::attach(|py| -> PyResult<PyErr> {
                                     let holder = result_future.1.bind(py);
                                     let exc_obj = holder.get_item(0)?;
@@ -1083,6 +1347,242 @@ impl AsyncClient {
         extensions: Option<&Bound<'_, PyAny>>,
         kwargs: Option<&Bound<'_, PyDict>>,
     ) -> PyResult<Bound<'py, PyAny>> {
+        // ULTRA-FAST PATH: bypass both request() and send() entirely
+        // Conditions: no extra params/headers/cookies/extensions/kwargs,
+        // no client-level auth/hooks/base_url/params, default transport, no custom mounts
+        let has_no_extras = params.is_none()
+            && headers.is_none()
+            && cookies.is_none()
+            && extensions.is_none()
+            && (kwargs.is_none() || kwargs.map_or(true, |k| k.is_empty()));
+
+        if has_no_extras
+            && !self.is_closed
+            && self.auth.is_none()
+            && self.event_hooks.is_none()
+            && self.base_url.is_none()
+            && self.params.is_none()
+        {
+            let has_custom_mounts = !self.mounts.bind(py).is_empty();
+            if !has_custom_mounts {
+                if let Ok(transport_ref) = self.transport.bind(py)
+                    .cast::<crate::transports::default::AsyncHTTPTransport>()
+                {
+                    let transport_borrow = transport_ref.borrow();
+                    let client = transport_borrow.get_client();
+                    let pool_sem = transport_borrow.get_pool_semaphore();
+
+                    // Extract URL as string
+                    let url_str = url.str()?.extract::<String>()?;
+
+                    // Only fast-path for valid http/https URLs with a host
+                    let can_use_fast = (url_str.starts_with("http://") || url_str.starts_with("https://"))
+                        && reqwest::Url::parse(&url_str).map_or(false, |u| u.host_str().is_some());
+                    if can_use_fast {
+
+                    // Extract default headers as raw bytes (no clone of Headers struct needed)
+                    let raw_headers = self.default_headers.bind(py).borrow().get_raw_items_owned();
+
+                    // Extract timeout — preserve individual components for error classification
+                    let (timeout_val, connect_timeout_val, read_timeout_val, write_timeout_val, pool_timeout_val) = if let Some(t_arg) = timeout {
+                        if t_arg.is_none() {
+                            (None, None, None, None, None)
+                        } else {
+                            let t = crate::config::Timeout::new(py, Some(t_arg), None, None, None, None)?;
+                            let dur = [t.connect, t.read, t.write]
+                                .iter()
+                                .filter_map(|t| *t)
+                                .reduce(f64::min)
+                                .map(std::time::Duration::from_secs_f64);
+                            (dur, t.connect, t.read, t.write, t.pool)
+                        }
+                    } else if let Some(ref t) = self.timeout {
+                        let dur = [t.connect, t.read, t.write]
+                            .iter()
+                            .filter_map(|t| *t)
+                            .reduce(f64::min)
+                            .map(std::time::Duration::from_secs_f64);
+                        (dur, t.connect, t.read, t.write, t.pool)
+                    } else {
+                        (None, None, None, None, None)
+                    };
+
+                    let max_redirects = self.max_redirects;
+                    let do_follow_redirects = follow_redirects.unwrap_or(self.follow_redirects);
+
+                    // ALL data extracted — release GIL, do everything in Rust
+                    return pyo3_async_runtimes::tokio::future_into_py(py, async move {
+                        let start = Instant::now();
+
+                        // Pool semaphore
+                        let _pool_permit = if let Some(ref sem) = pool_sem {
+                            let pool_dur = pool_timeout_val
+                                .map(std::time::Duration::from_secs_f64)
+                                .unwrap_or(std::time::Duration::from_secs(30));
+                            match tokio::time::timeout(pool_dur, sem.clone().acquire_owned()).await {
+                                Ok(Ok(permit)) => Some(permit),
+                                Ok(Err(_)) => {
+                                    return Err(crate::exceptions::PoolTimeout::new_err(
+                                        "Connection pool is closed".to_string(),
+                                    ));
+                                }
+                                Err(_) => {
+                                    return Err(crate::exceptions::PoolTimeout::new_err(
+                                        "Timed out waiting for a connection from the pool".to_string(),
+                                    ));
+                                }
+                            }
+                        } else {
+                            None
+                        };
+
+                        // Build and send request (with redirect handling in Rust)
+                        let mut current_url = url_str;
+                        let mut redirects_remaining = max_redirects;
+
+                        let (final_status, final_headers_raw, final_body, final_url) = loop {
+                            let mut req_builder = client.get(&current_url);
+                            for (key, value) in &raw_headers {
+                                req_builder = req_builder.header(key.as_slice(), value.as_slice());
+                            }
+                            // Add host header
+                            if let Ok(parsed) = reqwest::Url::parse(&current_url) {
+                                if let Some(host) = parsed.host_str() {
+                                    let host_val = if let Some(port) = parsed.port() {
+                                        format!("{}:{}", host, port)
+                                    } else {
+                                        host.to_string()
+                                    };
+                                    req_builder = req_builder.header("host", &host_val);
+                                }
+                            }
+                            if let Some(t) = timeout_val {
+                                req_builder = req_builder.timeout(t);
+                            }
+
+                            let response = req_builder.send().await.map_err(|e| {
+                                if e.is_timeout() {
+                                    if e.is_connect()
+                                        || (connect_timeout_val.is_some()
+                                            && read_timeout_val.is_none()
+                                            && write_timeout_val.is_none())
+                                    {
+                                        crate::exceptions::ConnectTimeout::new_err(format!("{}", e))
+                                    } else {
+                                        crate::exceptions::ReadTimeout::new_err(format!("{}", e))
+                                    }
+                                } else if e.is_connect() {
+                                    crate::exceptions::ConnectError::new_err(format!("{}", e))
+                                } else {
+                                    crate::exceptions::NetworkError::new_err(format!("{}", e))
+                                }
+                            })?;
+
+                            let status = response.status().as_u16();
+                            let is_redirect = (300..400).contains(&status);
+                            let redirect_location = if is_redirect && do_follow_redirects {
+                                response.headers()
+                                    .get("location")
+                                    .and_then(|v| v.to_str().ok())
+                                    .map(|s| s.to_string())
+                            } else {
+                                None
+                            };
+
+                            let resp_headers: Vec<(Vec<u8>, Vec<u8>)> = response
+                                .headers()
+                                .iter()
+                                .map(|(k, v)| (k.as_str().as_bytes().to_vec(), v.as_bytes().to_vec()))
+                                .collect();
+
+                            let body = response.bytes().await.map_err(|e| {
+                                if e.is_timeout() {
+                                    crate::exceptions::ReadTimeout::new_err(format!("{}", e))
+                                } else {
+                                    crate::exceptions::ReadError::new_err(format!("{}", e))
+                                }
+                            })?;
+
+                            if let Some(loc) = redirect_location {
+                                if redirects_remaining == 0 {
+                                    return Err(crate::exceptions::TooManyRedirects::new_err(
+                                        "Too many redirects".to_string(),
+                                    ));
+                                }
+                                redirects_remaining -= 1;
+                                // Resolve relative redirect
+                                let new_url = if loc.starts_with("http://") || loc.starts_with("https://") {
+                                    loc
+                                } else if let Ok(base) = reqwest::Url::parse(&current_url) {
+                                    base.join(&loc)
+                                        .map(|u| u.to_string())
+                                        .unwrap_or(loc)
+                                } else {
+                                    loc
+                                };
+                                current_url = new_url;
+                                continue;
+                            }
+
+                            break (status, resp_headers, body.to_vec(), current_url);
+                        };
+
+                        let elapsed = start.elapsed().as_secs_f64();
+
+                        // Single GIL acquisition to build Response
+                        Python::attach(|py| {
+                            let headers_obj = crate::models::Headers::from_raw_byte_pairs(final_headers_raw);
+
+                            // Build the request object for response.request
+                            let req_url = crate::urls::URL::create_from_str(&final_url)?;
+                            let req_headers = crate::models::Headers {
+                                raw: raw_headers.clone(),
+                                encoding: "utf-8".to_string(),
+                            };
+                            let request_obj = crate::models::Request {
+                                method: "GET".to_string(),
+                                url: req_url,
+                                headers: Py::new(py, req_headers)?,
+                                extensions: PyDict::new(py).into(),
+                                content_body: None,
+                                stream: None,
+                                stream_response: false,
+                            };
+
+                            let ext = PyDict::new(py);
+                            ext.set_item("http_version", PyBytes::new(py, b"HTTP/1.1"))?;
+
+                            let response = crate::models::Response {
+                                status_code: final_status,
+                                headers: Py::new(py, headers_obj)?,
+                                stream: None,
+                                content_bytes: Some(final_body),
+                                is_stream_consumed: false,
+                                is_closed_flag: false,
+                                was_streaming: false,
+                                default_encoding: PyString::intern(py, "utf-8")
+                                    .into_any()
+                                    .unbind(),
+                                default_encoding_override: None,
+                                text_accessed: std::sync::atomic::AtomicBool::new(false),
+                                request: Some(request_obj),
+                                elapsed: Some(elapsed),
+                                extensions: ext.into(),
+                                history: Vec::new(),
+                                num_bytes_downloaded_counter: std::sync::Arc::new(
+                                    std::sync::atomic::AtomicUsize::new(0),
+                                ),
+                            };
+
+                            Ok(Py::new(py, response)?)
+                        })
+                    });
+                    } // is_http_url
+                }
+            }
+        }
+
+        // SLOW PATH: fall through to normal request() → send()
         let timeout_kw = extract_from_kwargs(kwargs, "timeout");
         let t = if let Some(t) = timeout {
             Some(t)
@@ -1501,7 +2001,7 @@ impl AsyncClient {
         })
     }
 
-    /// Dispatch multiple requests concurrently using asyncio.gather.
+    /// Dispatch multiple requests concurrently using the batch transport.
     /// Returns a list of Response objects (or exceptions if return_exceptions=True).
     /// This is an httpr extension — not available in httpx.
     #[pyo3(signature = (requests, *, max_concurrency=10, return_exceptions=false))]
@@ -1526,14 +2026,40 @@ impl AsyncClient {
             });
         }
 
-        // Build all Request data we need upfront
         let transport = self.transport.clone_ref(py);
         let mounts = self.mounts.clone_ref(py);
 
-        // Build coroutines and asyncio.gather coroutine in the MAIN thread
-        // (which has a running asyncio event loop). This avoids the
-        // "no current event loop" error when asyncio.gather is called from
-        // a tokio worker thread.
+        // Check if the transport supports batch requests (our optimized path)
+        let has_batch = transport
+            .bind(py)
+            .hasattr("handle_async_requests_batch")
+            .unwrap_or(false);
+
+        // Check that no request uses a custom mount (all use default transport)
+        let all_default_transport = requests.iter().all(|req_py| {
+            let req = req_py.bind(py).borrow();
+            let selected = select_transport(
+                mounts.bind(py).clone(),
+                transport.clone_ref(py),
+                &req.url,
+            );
+            match selected {
+                Ok(t) => t.bind(py).is(&transport.bind(py)),
+                Err(_) => false,
+            }
+        });
+
+        if has_batch && all_default_transport && !return_exceptions {
+            // Fast path: use Rust batch transport — minimal GIL contention
+            let t_bound = transport.bind(py);
+            let req_list = pyo3::types::PyList::new(py, &requests)?;
+            return t_bound.call_method1(
+                "handle_async_requests_batch",
+                (req_list, max_concurrency),
+            ).map(|b| b.clone());
+        }
+
+        // Fallback path: use asyncio.gather (for custom transports or return_exceptions)
         let coros = pyo3::types::PyList::empty(py);
         for req_py in &requests {
             let transport_to_use = {

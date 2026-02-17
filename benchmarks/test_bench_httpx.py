@@ -50,13 +50,17 @@ def test_single_post__rust(benchmark: typing.Any, rust_client: typing.Any) -> No
 # ============================================================================
 
 
-def test_single_get_raw__rust(benchmark: typing.Any, rust_client: typing.Any, base_url: str) -> None:
+def test_single_get_raw__rust(
+    benchmark: typing.Any, rust_client: typing.Any, base_url: str
+) -> None:
     """Single GET / — Rust httpr raw fast-path."""
     url = base_url + "/"
     benchmark(rust_client.get_raw, url)
 
 
-def test_single_post_raw__rust(benchmark: typing.Any, rust_client: typing.Any, base_url: str) -> None:
+def test_single_post_raw__rust(
+    benchmark: typing.Any, rust_client: typing.Any, base_url: str
+) -> None:
     """Single POST /echo_body with 1 KB body — Rust httpr raw fast-path."""
     url = base_url + "/echo_body"
     benchmark(rust_client.post_raw, url, body=SMALL_BODY)
