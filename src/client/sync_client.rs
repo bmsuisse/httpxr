@@ -25,7 +25,6 @@ pub struct Client {
     pub(crate) event_hooks: Option<Py<PyAny>>,
     pub(crate) timeout: Option<Py<PyAny>>,
     pub(crate) default_encoding: Option<Py<PyAny>>,
-    // ── Cached fields for ultra-fast path ──
     /// Pre-built raw header bytes — avoids cloning Headers on every request
     pub(crate) cached_raw_headers: Vec<(Vec<u8>, Vec<u8>)>,
     /// Pre-parsed timeout duration for the fast path
@@ -83,7 +82,6 @@ impl Client {
         event_hooks: Option<&Bound<'_, PyAny>>,
     ) -> PyResult<Self> {
         let mut hdrs = Headers::create(headers, "utf-8")?;
-        // Add default headers if not already present
         if !hdrs.contains_header("user-agent") {
             hdrs.set_header(
                 "user-agent",
@@ -114,10 +112,8 @@ impl Client {
         let to = timeout.map(|t| t.clone().unbind());
         let de = default_encoding.map(|e| e.clone().unbind());
 
-        // Pre-cache raw headers for the ultra-fast path
         let cached_raw_headers = hdrs_py.bind(py).borrow().get_raw_items_owned();
 
-        // Pre-parse timeout for the ultra-fast path
         let (cached_timeout, cached_connect_timeout, cached_read_timeout, cached_write_timeout) =
             if let Some(ref t) = to {
                 if let Ok(t_val) = t.extract::<Timeout>(py) {
@@ -134,7 +130,6 @@ impl Client {
                 (None, None, None, None)
             };
 
-        // Pre-compute base URL string before base is moved into struct
         let cached_base_url_str = base.as_ref().map(|b| b.to_string().trim_end_matches('/').to_string());
 
         Ok(Client {
@@ -187,7 +182,6 @@ impl Client {
         extensions: Option<&Bound<'_, PyAny>>,
         kwargs: Option<&Bound<'_, PyDict>>,
     ) -> PyResult<Response> {
-        // Enforce closed state
         if self.is_closed {
             return Err(pyo3::exceptions::PyRuntimeError::new_err(
                 "Cannot send a request, as the client has been closed.",
@@ -196,17 +190,11 @@ impl Client {
 
         let start = Instant::now();
 
-        // ── ULTRA-FAST PATH ────────────────────────────────────────────
-        // For simple GET/HEAD/DELETE/OPTIONS with no body, auth, hooks,
-        // or per-request overrides: bypass ALL Python overhead and go
-        // straight to reqwest.
-        // Fast method check — avoid to_uppercase() String allocation
         let method_bytes = method.as_bytes();
         let is_bodyless = method_bytes.eq_ignore_ascii_case(b"GET")
             || method_bytes.eq_ignore_ascii_case(b"HEAD")
             || method_bytes.eq_ignore_ascii_case(b"DELETE")
             || method_bytes.eq_ignore_ascii_case(b"OPTIONS");
-        // Extract URL string early for fast-path validation
         let url_str_for_check = url.str()?.extract::<String>()?;
         let has_valid_scheme = (url_str_for_check.starts_with("http://") && url_str_for_check.len() > 7)
             || (url_str_for_check.starts_with("https://") && url_str_for_check.len() > 8)
@@ -227,14 +215,11 @@ impl Client {
             && self.mounts.is_empty();
 
         if can_fast_path {
-            // Try to extract our HTTPTransport for direct Rust dispatch
             let t_bound = self.transport.bind(py);
             if let Ok(t) = t_bound.cast::<crate::transports::default::HTTPTransport>() {
                 let transport = t.borrow();
-                // Only use hyper path when no custom certs/proxy
                 if transport.use_hyper_fast_path {
 
-                // Resolve URL — fast string concat using cached base URL string
                 let url_str = url_str_for_check;
 
                 let full_url = if let Some(ref base_str) = self.cached_base_url_str {
@@ -247,10 +232,8 @@ impl Client {
                     url_str
                 };
 
-                // No reqwest::Url::parse needed — reqwest parses internally in .get()/.request()
 
-                // Extract timeout — use cached values unless per-request override
-                let (timeout_val, connect_timeout_val, read_timeout_val, write_timeout_val) =
+                let (timeout_val, _connect_timeout_val, _read_timeout_val, _write_timeout_val) =
                     if let Some(t_arg) = timeout {
                         if t_arg.is_none() {
                             (None, None, None, None)
@@ -265,14 +248,11 @@ impl Client {
                             (dur, t.connect, t.read, t.write)
                         }
                     } else {
-                        // Use pre-cached timeout — no Python extraction needed
                         (self.cached_timeout, self.cached_connect_timeout, self.cached_read_timeout, self.cached_write_timeout)
                     };
 
-                // Use pre-cached raw headers — no cloning needed
                 let raw_headers = &self.cached_raw_headers;
 
-                // Merge per-request headers if any
                 let extra_raw: Vec<(Vec<u8>, Vec<u8>)> = if let Some(h) = headers {
                     let extra = Headers::create(Some(h), "utf-8")?;
                     extra.get_raw_items_owned()
@@ -293,7 +273,6 @@ impl Client {
                 let do_follow_redirects = follow_redirects.unwrap_or(self.follow_redirects);
                 let max_redirects = self.max_redirects;
 
-                // Build hyper::Request directly — bypass reqwest's RequestBuilder overhead
                 let uri: hyper::Uri = full_url.parse().map_err(|e: hyper::http::uri::InvalidUri| {
                     pyo3::exceptions::PyValueError::new_err(format!("Invalid URL: {}", e))
                 })?;
@@ -329,13 +308,9 @@ impl Client {
                 let reqwest_client = &transport.client;
                 let handle = &transport.handle;
 
-                // ── TIER 1: No-redirect fast path (covers 99% of requests) ──
-                // Execute directly via hyper — no reqwest middleware overhead.
-                // Only allocate redirect tracking if we actually get a 3xx.
                 type FastPathError = Box<dyn std::error::Error + Send + Sync>;
                 let result = py.detach(|| {
                     handle.block_on(async {
-                        // Send via hyper with optional timeout
                         let response = if let Some(t) = timeout_val {
                             match tokio::time::timeout(t, hyper_client.request(req)).await {
                                 Ok(r) => r.map_err(|e| -> FastPathError { Box::new(e) }),
@@ -349,14 +324,12 @@ impl Client {
                         let is_redirect = do_follow_redirects && (300..400).contains(&status);
 
                         if !is_redirect {
-                            // Happy path: no redirect, extract response via hyper
                             let resp_headers: Vec<(Vec<u8>, Vec<u8>)> = response
                                 .headers()
                                 .iter()
                                 .map(|(k, v)| (k.as_str().as_bytes().to_vec(), v.as_bytes().to_vec()))
                                 .collect();
                             let url = uri.to_string();
-                            // Collect body via http-body-util
                             use http_body_util::BodyExt;
                             let body = response.into_body().collect().await
                                 .map_err(|e| -> FastPathError { Box::new(e) })?
@@ -364,7 +337,6 @@ impl Client {
                             Ok::<_, FastPathError>((status, resp_headers, body.to_vec(), url, Vec::new()))
                         } else {
 
-                            // ── TIER 2: Redirect path ──
                             let redirect_location = response.headers()
                                 .get("location")
                                 .and_then(|v| v.to_str().ok())
@@ -375,7 +347,6 @@ impl Client {
                                 .map(|(k, v)| (k.as_str().as_bytes().to_vec(), v.as_bytes().to_vec()))
                                 .collect();
                             let mut current_url = uri.to_string();
-                            // Collect body via http-body-util
                             use http_body_util::BodyExt;
                             let body = response.into_body().collect().await
                                 .map_err(|e| -> FastPathError { Box::new(e) })?
@@ -397,10 +368,8 @@ impl Client {
                                 loc
                             };
 
-                            // Clone headers only now (redirect actually happened)
                             let raw_headers_owned = raw_headers.clone();
 
-                            // Redirect loop uses reqwest (full-featured) for subsequent requests
                             loop {
                                 let mut rb = reqwest_client.request(method_reqwest.clone(),
                                     reqwest::Url::parse(&current_url).unwrap());
@@ -457,7 +426,6 @@ impl Client {
                         }
                     })
                 }).map_err(|e: FastPathError| {
-                    // Traverse the full error chain to get the most informative message
                     let mut msg = e.to_string();
                     let mut source = e.source();
                     while let Some(s) = source {
@@ -483,7 +451,6 @@ impl Client {
 
                 let (status_code, resp_headers, body_bytes, final_url, redirect_history) = result;
 
-                // Check for too-many-redirects sentinel
                 if status_code == 0 {
                     return Err(crate::exceptions::TooManyRedirects::new_err(
                         "Too many redirects".to_string(),
@@ -492,7 +459,6 @@ impl Client {
 
                 let elapsed = start.elapsed().as_secs_f64();
 
-                // Helper: status code to reason phrase
                 let reason_for = |code: u16| -> &'static str {
                     match code {
                         200 => "OK", 201 => "Created", 204 => "No Content",
@@ -504,7 +470,6 @@ impl Client {
                     }
                 };
 
-                // Build history Response objects only if there are redirects
                 let history_responses = if redirect_history.is_empty() {
                     Vec::new()
                 } else {
@@ -550,11 +515,7 @@ impl Client {
                 };
 
                 let hdrs = Headers::from_raw_byte_pairs(resp_headers);
-                // Skip extensions dict creation — use py.None() sentinel.
-                // The getter will lazily build the dict on first access.
 
-                // Build minimal Request for response.url / response.request
-                // → Use lazy fields to defer construction until first `.request` access
                 let lazy_method = method.to_uppercase();
                 let lazy_url = final_url.clone();
 
@@ -588,12 +549,9 @@ impl Client {
                 } // end if transport.use_hyper_fast_path
             }
         }
-        // ── END ULTRA-FAST PATH ────────────────────────────────────────
 
-        // Slow path needs uppercase method — only allocate here (fast path already returned above)
         let method_upper = method.to_uppercase();
 
-        // Build URL
         let url_str = url.str()?.extract::<String>()?;
         let mut target_url = match resolve_url(&self.base_url, &url_str) {
             Ok(u) => u,
@@ -615,7 +573,6 @@ impl Client {
             }
         };
 
-        // Validate resolved URL has valid scheme and host
         let scheme = target_url.get_scheme();
         let host = target_url.get_host();
         if scheme.is_empty() || scheme == "://" {
@@ -642,22 +599,18 @@ impl Client {
             )));
         }
 
-        // Merge client-level params and per-request params into URL
         {
             let mut merged_qp_items: Vec<(String, String)> = Vec::new();
-            // First add client-level params
             if let Some(ref client_params) = self.params {
                 let bound = client_params.bind(py);
                 let qp = crate::urls::QueryParams::create(Some(bound))?;
                 merged_qp_items.extend(qp.items_raw());
             }
-            // Then add per-request params
             if let Some(req_params) = params {
                 let qp = crate::urls::QueryParams::create(Some(req_params))?;
                 merged_qp_items.extend(qp.items_raw());
             }
             if !merged_qp_items.is_empty() {
-                // Merge with existing URL query params
                 if let Some(ref existing_q) = target_url.parsed.query {
                     let existing_qp = crate::urls::QueryParams::from_query_string(existing_q);
                     let mut all_items = existing_qp.items_raw();
@@ -669,16 +622,13 @@ impl Client {
             }
         }
 
-        // Merge headers
         let mut merged_headers = self.default_headers.bind(py).borrow().clone();
         if let Some(h) = headers {
             merged_headers.update_from(Some(h))?;
         }
 
-        // Build body
         let body = build_request_body(py, content, data, files, json, &mut merged_headers)?;
 
-        // For POST/PUT/PATCH with no body, set content-length: 0
         if body.is_none()
             && content.is_none()
             && data.is_none()
@@ -693,16 +643,12 @@ impl Client {
             }
         }
 
-        // Arrange headers in httpx order
         let mut merged_headers = arrange_headers_httpx_order(&merged_headers, &target_url);
 
-        // URL auth
         apply_url_auth(&target_url, &mut merged_headers);
 
-        // Apply cookies
         apply_cookies(py, &self.cookies, cookies, &mut merged_headers)?;
 
-        // Build stream object
         let stream_obj = build_stream_obj(py, content, &body)?;
 
         let mut request = Request {
@@ -727,29 +673,6 @@ impl Client {
         }
         let _ = files;
 
-        // Apply auth
-        // auth=None (default) means "not set" (use client auth), auth=None means "disable auth"
-        // Apply auth
-        // AuthArg enum handles: None (Rust default), ExplicitNone (Python None), ExplicitBoolean, Custom
-        // Apply auth
-        // AuthArg handles distinguishing missing vs explicit None vs Values
-        // Apply auth
-        // AuthArg (default=True).
-        // Boolean(true) -> Default (Use Client Auth)
-        // Boolean(false) -> Disable Auth
-        // Custom(None) -> Disable Auth
-        // Custom(obj) -> Use Object
-        // Apply auth
-        // AuthArg handles usage.
-        // None (missing arg) -> Use Client Auth.
-        // Some(AuthArg::Boolean(true)) -> Use Client Auth.
-        // Some(AuthArg::Boolean(false)) -> Disable Auth.
-        // Some(AuthArg::Custom(obj)) -> If None: Disable, Else: Use Object.
-        // Extract auth from kwargs or use Client Default
-        // If auth is in kwargs:
-        //   None -> Explicit Disable
-        //   Object -> Use Object
-        // If auth NOT in kwargs -> Default        // Extract auth from kwargs
         let auth_kw = if let Some(kw) = kwargs {
             kw.get_item("auth").unwrap_or(None)
         } else {
@@ -758,9 +681,6 @@ impl Client {
 
         let (auth_val, auth_explicitly_none) = match auth_kw {
             None => (None, false), // Not passed -> Default (Use Client Auth) -> (None, false)? Wait.
-            // Logic: apply_auth(..., auth_val, client_auth, ..., disable_client_auth)
-            // disable_client_auth=false means USE client auth.
-            // So (None, false) is correct for Default.
             Some(b) => {
                 if b.is_none() {
                     (None, true) // Explicit None -> Disable Client Auth
@@ -778,7 +698,6 @@ impl Client {
             auth_explicitly_none,
         )?;
 
-        // Apply cookies (string override)
         if let Some(c) = cookies {
             if let Ok(cookie_val) = c.extract::<String>() {
                 request
@@ -789,7 +708,6 @@ impl Client {
             }
         }
 
-        // Event hooks: request
         if let Some(hooks) = &self.event_hooks {
             if let Ok(l) = hooks.bind(py).get_item("request") {
                 if let Ok(l) = l.cast::<pyo3::types::PyList>() {
@@ -803,11 +721,9 @@ impl Client {
 
         match auth_result {
             AuthResult::Flow(flow) => {
-                // Drive the auth flow generator
                 self._send_handling_auth(py, start, request, flow, follow_redirects)
             }
             _ => {
-                // No auth flow, send directly
                 self._send_single_request(py, start, request, follow_redirects)
             }
         }
@@ -822,17 +738,13 @@ impl Client {
         request: Request,
         follow_redirects: Option<bool>,
     ) -> PyResult<Response> {
-        // Select transport (mounts support)
         let selected_transport = self.select_transport_for_url(py, &request.url);
 
-        // Send request — fast path: direct Rust call if transport is our HTTPTransport
         let mut response = {
             let t_bound = selected_transport.bind(py);
             if let Ok(t) = t_bound.cast::<crate::transports::default::HTTPTransport>() {
-                // Direct Rust dispatch — no Python FFI overhead
                 t.borrow().send_request(py, &request)?
             } else {
-                // Slow path: Python dispatch for custom/mock transports
                 let req_py = Py::new(py, request.clone())?;
                 let res_py = t_bound.call_method1("handle_request", (req_py,))?;
                 res_py.extract::<Response>()?
@@ -842,12 +754,10 @@ impl Client {
         response.elapsed = Some(start.elapsed().as_secs_f64());
         response.request = Some(request.clone());
 
-        // Apply default_encoding from client to response
         if let Some(ref de) = self.default_encoding {
             response.default_encoding = de.clone_ref(py);
         }
 
-        // Set http_version in response extensions if not present
         let ext = response.extensions.bind(py);
         if let Ok(d) = ext.cast::<PyDict>() {
             if !d.contains("http_version")? {
@@ -855,7 +765,6 @@ impl Client {
             }
         }
 
-        // Log the request/response
         {
             let method = &request.method;
             let url = request.url.to_string();
@@ -877,16 +786,13 @@ impl Client {
             log::info!(target: "httpxr", "HTTP Request: {} {} \"{} {} {}\"", method, url, http_version, status, reason);
         }
 
-        // Persist response cookies to client cookie jar
         extract_cookies_to_jar(py, &response, self.cookies.jar.bind(py))?;
 
-        // Handle redirects
         let should_follow = follow_redirects.unwrap_or(self.follow_redirects);
         if should_follow {
             return self.handle_redirects(py, start, request, response);
         }
 
-        // Event hooks: response
         if let Some(hooks) = &self.event_hooks {
             if let Ok(l) = hooks.bind(py).get_item("response") {
                 if let Ok(l) = l.cast::<pyo3::types::PyList>() {
@@ -913,7 +819,6 @@ impl Client {
         let mut history: Vec<Response> = Vec::new();
         let _last_response: Option<Response> = None;
 
-        // Get the first request from the flow
         let first_req = match flow_bound.call_method0("__next__") {
             Ok(r) => r.extract::<Request>()?,
             Err(e) if e.is_instance_of::<pyo3::exceptions::PyStopIteration>(py) => {
@@ -922,24 +827,20 @@ impl Client {
             Err(e) => return Err(e),
         };
 
-        // Send first request and collect response
         let mut current_req = first_req;
 
         loop {
-            // Check if auth requires_request_body
             let req_body_needed = flow_bound
                 .getattr("requires_request_body")
                 .ok()
                 .and_then(|v| v.extract::<bool>().ok())
                 .unwrap_or(false);
             if req_body_needed {
-                // Read the request body if needed
                 if let Some(ref body) = current_req.content_body {
                     let _ = body; // Body is already available
                 }
             }
 
-            // Send the request — fast path: direct Rust dispatch
             let mut response = {
                 let selected_transport = self.select_transport_for_url(py, &current_req.url);
                 let t_bound = selected_transport.bind(py);
@@ -954,12 +855,10 @@ impl Client {
             response.elapsed = Some(start.elapsed().as_secs_f64());
             response.request = Some(current_req.clone());
 
-            // Apply default_encoding
             if let Some(ref de) = self.default_encoding {
                 response.default_encoding = de.clone_ref(py);
             }
 
-            // Set http_version
             let ext = response.extensions.bind(py);
             if let Ok(d) = ext.cast::<PyDict>() {
                 if !d.contains("http_version")? {
@@ -967,17 +866,14 @@ impl Client {
                 }
             }
 
-            // Persist response cookies
             extract_cookies_to_jar(py, &response, self.cookies.jar.bind(py))?;
 
-            // Check if auth requires_response_body
             let resp_body_needed = flow_bound
                 .getattr("requires_response_body")
                 .ok()
                 .and_then(|v| v.extract::<bool>().ok())
                 .unwrap_or(false);
             if resp_body_needed {
-                // Ensure response body is read
                 if response.content_bytes.is_none() {
                     let resp_py = Py::new(py, response.clone())?;
                     let _ = resp_py.call_method0(py, "read");
@@ -985,15 +881,12 @@ impl Client {
                 }
             }
 
-            // Feed the response to the auth flow using send()
             let resp_py = Py::new(py, response.clone())?;
             let next_req = match flow_bound.call_method1("send", (resp_py.bind(py),)) {
                 Ok(r) => {
-                    // Got another request to send
                     match r.extract::<Request>() {
                         Ok(req) => Some(req),
                         Err(_) => {
-                            // Result is not a Request, try getting next via __next__
                             match flow_bound.call_method0("__next__") {
                                 Ok(r2) => Some(r2.extract::<Request>()?),
                                 Err(e)
@@ -1009,7 +902,6 @@ impl Client {
                     }
                 }
                 Err(e) if e.is_instance_of::<pyo3::exceptions::PyStopIteration>(py) => {
-                    // Flow is done, check if there's another request via __next__
                     match flow_bound.call_method0("__next__") {
                         Ok(r) => Some(r.extract::<Request>()?),
                         Err(e2) if e2.is_instance_of::<pyo3::exceptions::PyStopIteration>(py) => {
@@ -1022,15 +914,12 @@ impl Client {
             };
 
             if let Some(next) = next_req {
-                // There's another request to send
                 response.history = history.clone();
                 history.push(response);
                 current_req = next;
             } else {
-                // Auth flow is complete, this is the final response
                 response.history = history;
 
-                // Handle redirects
                 let should_follow = follow_redirects.unwrap_or(self.follow_redirects);
                 if should_follow {
                     return self.handle_redirects(py, start, current_req, response);
@@ -1266,9 +1155,6 @@ impl Client {
         )
     }
 
-    // ── Fast-path raw API ──────────────────────────────────────────────
-    // These bypass httpx-compatible Request/Response construction entirely.
-    // Returns (status_code: int, headers: dict[str, str], body: bytes).
 
     #[pyo3(signature = (url, *, headers=None, timeout=None))]
     fn get_raw(
@@ -1502,7 +1388,6 @@ impl Client {
             None
         };
 
-        // For POST/PUT/PATCH with no body, set content-length: 0
         let method_upper = method.to_uppercase();
         if body.is_none()
             && content.is_none()
@@ -1555,7 +1440,6 @@ impl Client {
             return Ok(pyo3::types::PyList::empty(py).unbind());
         }
 
-        // Extract Request objects
         let request_refs: Vec<Request> = requests
             .iter()
             .map(|r| {
@@ -1565,7 +1449,6 @@ impl Client {
             })
             .collect();
 
-        // Try to downcast transport to HTTPTransport for batch dispatch
         let transport_bound = self.transport.bind(py);
         if let Ok(transport) = transport_bound.cast::<crate::transports::default::HTTPTransport>() {
             let transport_ref = transport.borrow();
@@ -1593,7 +1476,6 @@ impl Client {
             }
             Ok(py_list.unbind())
         } else {
-            // Fallback: non-native transport, send sequentially
             let py_list = pyo3::types::PyList::empty(py);
             for req in &request_refs {
                 let req_py = Py::new(py, req.clone())?;
@@ -1756,7 +1638,6 @@ impl Client {
     fn _transport_for_url(&self, py: Python<'_>, url: &Bound<'_, PyAny>) -> PyResult<Py<PyAny>> {
         let url_str = url.str()?.extract::<String>().unwrap_or_default();
 
-        // Check mounts with proper pattern matching
         let mut best_transport: Option<Py<PyAny>> = None;
         let mut best_priority = 0u32;
 
@@ -1782,7 +1663,6 @@ impl Client {
             return Ok(t);
         }
 
-        // Check environment proxy if trust_env is true
         if self.trust_env {
             if let Some(proxy_url) = get_env_proxy_url(&url_str) {
                 let transport = crate::transports::default::HTTPTransport::create(
@@ -1822,7 +1702,6 @@ impl Client {
     #[getter]
     fn get_params(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
         if let Some(ref p) = self.params {
-            // Always return a QueryParams instance, converting if needed
             let bound = p.bind(py);
             if bound.is_instance_of::<crate::urls::QueryParams>() {
                 Ok(p.clone_ref(py))
@@ -1856,7 +1735,6 @@ impl Client {
         Python::attach(|py| {
             let mut hdrs = request.headers.bind(py).borrow().clone();
 
-            // Check if this is a same-origin or HTTPS upgrade redirect
             let request_url = &request.url;
             let redirect_url = if let Ok(u) = url.extract::<URL>() {
                 u
@@ -1872,10 +1750,8 @@ impl Client {
             let req_port = request_url.get_port();
             let red_port = redirect_url.get_port();
 
-            // Determine if this is a same-origin redirect
             let is_same_host = req_host == red_host;
             let is_same_port = req_port == red_port;
-            // HTTPS upgrade: same host, http -> https, both on default ports
             let is_https_upgrade = is_same_host
                 && req_scheme == "http"
                 && red_scheme == "https"
@@ -1887,7 +1763,6 @@ impl Client {
                 hdrs.remove_header("authorization");
             }
 
-            // Update host header
             hdrs.set_header("host", &build_host_header(&redirect_url));
 
             Ok(hdrs)
@@ -1956,7 +1831,6 @@ impl Client {
         _e3: Option<&Bound<'_, PyAny>>,
     ) -> PyResult<()> {
         self.close()?;
-        // Call close() on transport explicitly, then __exit__ (proper lifecycle ordering)
         let transport = self.transport.bind(py);
         if transport.hasattr("close")? {
             transport.call_method0("close")?;
@@ -2031,7 +1905,6 @@ impl Client {
         let mut current_response = response;
         let mut current_request = request;
 
-        // Event hooks: response for the initial response
         if let Some(hooks) = &self.event_hooks {
             if let Ok(l) = hooks.bind(py).get_item("response") {
                 if let Ok(l) = l.cast::<pyo3::types::PyList>() {
@@ -2059,7 +1932,6 @@ impl Client {
                 .join_relative(&location)
                 .map_err(|e| crate::exceptions::RemoteProtocolError::new_err(e.to_string()))?;
 
-            // Fragment preservation
             if redirect_url.parsed.fragment.is_none() {
                 redirect_url.parsed.fragment = current_request.url.parsed.fragment.clone();
             }
@@ -2070,7 +1942,6 @@ impl Client {
                 current_request.method.clone()
             };
 
-            // Check for streaming body
             if redirect_method != "GET" && redirect_method != "HEAD" {
                 if current_request.stream.is_some() {
                     return Err(crate::exceptions::StreamConsumed::new_err(
@@ -2085,13 +1956,11 @@ impl Client {
                 current_request.content_body.clone()
             };
 
-            // Update cookies from response
             extract_cookies_to_jar(py, &current_response, self.cookies.jar.bind(py))?;
 
             let mut redirect_headers = current_request.headers.bind(py).borrow().clone();
             redirect_headers.remove_header("cookie");
 
-            // Get fresh cookie header for redirect_url
             let cookie_header_val = {
                 let locals = pyo3::types::PyDict::new(py);
                 locals.set_item("jar", self.cookies.jar.bind(py))?;
@@ -2109,7 +1978,6 @@ impl Client {
                 redirect_headers.set_header("cookie", &c);
             }
 
-            // Preserve body/content headers for 307/308
             if (current_response.status_code == 307 || current_response.status_code == 308)
                 && redirect_method != "GET"
                 && redirect_method != "HEAD"
@@ -2133,14 +2001,12 @@ impl Client {
                 redirect_headers.remove_header("Transfer-Encoding");
             }
 
-            // Strip authorization on cross-origin redirect
             let current_host = current_request.url.get_raw_host().to_lowercase();
             let redirect_host = redirect_url.get_raw_host().to_lowercase();
             if current_host != redirect_host {
                 redirect_headers.remove_header("authorization");
             }
 
-            // Update host header
             redirect_headers.set_header("host", &build_host_header(&redirect_url));
 
             let redirect_request = Request {
@@ -2156,7 +2022,6 @@ impl Client {
             let mut history = current_response.history.clone();
             history.push(current_response);
 
-            // Event hooks: request (redirect)
             if let Some(hooks) = &self.event_hooks {
                 if let Ok(l) = hooks.bind(py).get_item("request") {
                     if let Ok(l) = l.cast::<pyo3::types::PyList>() {
@@ -2179,7 +2044,6 @@ impl Client {
                 }
             };
 
-            // Event hooks: response (redirect)
             if let Some(hooks) = &self.event_hooks {
                 if let Ok(l) = hooks.bind(py).get_item("response") {
                     if let Ok(l) = l.cast::<pyo3::types::PyList>() {
@@ -2194,7 +2058,6 @@ impl Client {
             new_response.request = Some(redirect_request.clone());
             new_response.history = history;
 
-            // Log the redirect request/response
             {
                 let method = &redirect_request.method;
                 let url = redirect_request.url.to_string();
@@ -2293,10 +2156,8 @@ impl PageIterator {
             }
         };
 
-        // Call client.request() to fetch the page
         let client_bound = self.client.bind(py);
 
-        // Only pass params on the first page
         let params_arg = if self.page_count == 0 {
             self.params.as_ref().map(|p| p.bind(py).clone())
         } else {
@@ -2333,7 +2194,6 @@ impl PageIterator {
 
         self.page_count += 1;
 
-        // Extract next URL from response
         let next: Option<String> = if let Some(ref json_key) = self.next_url_key {
             let resp_py = Py::new(py, response.clone())?;
             let json_val = resp_py.call_method0(py, "json")?;
@@ -2367,7 +2227,6 @@ impl PageIterator {
             None
         };
 
-        // Update URL for next iteration
         match next {
             Some(next_url_str) => {
                 self.current_url =
@@ -2402,9 +2261,7 @@ impl PageIterator {
 fn parse_link_next(header: &str) -> Option<String> {
     for part in header.split(',') {
         let part = part.trim();
-        // Check if this part contains rel="next"
         if part.contains("rel=\"next\"") || part.contains("rel='next'") {
-            // Extract URL from angle brackets
             if let Some(start) = part.find('<') {
                 if let Some(end) = part.find('>') {
                     if start < end {

@@ -73,7 +73,6 @@ pub fn encode_request(
 ) -> PyResult<(Py<PyAny>, Py<PyAny>)> {
     let headers = PyDict::new(py);
 
-    // JSON content
     if let Some(j) = json {
         let json_mod = py.import("json")?;
         let body_str: String = json_mod.call_method1("dumps", (j,))?.extract()?;
@@ -84,7 +83,6 @@ pub fn encode_request(
         return Ok((headers.into(), stream.into_pyobject(py)?.into_any().into()));
     }
 
-    // Raw content (bytes or str)
     if let Some(c) = content {
         if let Ok(b) = c.cast::<PyBytes>() {
             let body = b.as_bytes();
@@ -99,15 +97,12 @@ pub fn encode_request(
             let stream = ByteStream::new(Some(&body));
             return Ok((headers.into(), stream.into_pyobject(py)?.into_any().into()));
         }
-        // Iterable or async iterable — pass through as-is
         headers.set_item("transfer-encoding", "chunked")?;
         return Ok((headers.into(), c.clone().unbind()));
     }
 
-    // URL-encoded form data
     if let Some(d) = data {
         if files.is_none() {
-            // Simple form encoding
             let urllib = py.import("urllib.parse")?;
             let encoded: String = urllib.call_method1("urlencode", (d, true))?.extract()?;
             let body = encoded.into_bytes();
@@ -118,9 +113,7 @@ pub fn encode_request(
         }
     }
 
-    // Multipart (files + optional data)
     if let Some(_f) = files {
-        // Delegate to multipart module
         let multipart = py.import("httpxr._multipart")?;
         let data_arg = data.map(|d| d.clone().unbind()).unwrap_or(py.None());
         let stream = multipart.call_method1("MultipartStream", (data_arg, _f))?;
@@ -133,7 +126,6 @@ pub fn encode_request(
         return Ok((headers.into(), stream.into()));
     }
 
-    // No content
     let stream = ByteStream::new(None);
     Ok((headers.into(), stream.into_pyobject(py)?.into_any().into()))
 }

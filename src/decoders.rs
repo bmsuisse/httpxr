@@ -41,7 +41,6 @@ impl ContentDecoder for GZipDecoder {
                 Ok(output)
             }
             Err(_) => {
-                // Not enough data yet, wait for more
                 Ok(Vec::new())
             }
         }
@@ -114,7 +113,6 @@ impl PyDecoder {
             "deflate" => Box::new(DeflateDecoder::new()),
             "identity" | "" => Box::new(IdentityDecoder),
             "br" => {
-                // Try to use brotli via Python fallback
                 return Err(pyo3::exceptions::PyValueError::new_err(
                     "Brotli support requires the 'brotli' Python package. Use: pip install brotli",
                 ));
@@ -205,19 +203,15 @@ impl LineDecoder {
         self.buffer.push_str(data);
         let mut lines = Vec::new();
         loop {
-            // Find the earliest line ending: \r\n, \r, or \n
             let crlf_pos = self.buffer.find("\r\n");
             let cr_pos = self.buffer.find('\r');
             let lf_pos = self.buffer.find('\n');
 
-            // Determine which line ending comes first
             let (end_pos, skip_len) = match (crlf_pos, cr_pos, lf_pos) {
                 (Some(crlf), _, _) if lf_pos.is_none() || crlf + 1 == lf_pos.unwrap() => {
-                    // \r\n found and it's the \r\n pair (not a standalone \r before a later \n)
                     (crlf + 2, crlf + 2)
                 }
                 (_, Some(cr), Some(lf)) if cr < lf => {
-                    // Check if this \r is part of \r\n
                     if cr + 1 == lf {
                         (cr + 2, cr + 2) // \r\n
                     } else {

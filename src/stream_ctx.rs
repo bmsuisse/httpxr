@@ -25,7 +25,6 @@ impl StreamContextManager {
         let slf_py = slf.clone().unbind();
 
         pyo3_async_runtimes::tokio::future_into_py(py, async move {
-            // First, call client.request(..., stream=true) to get the coroutine
             let coro_future = Python::attach(|py| -> PyResult<_> {
                 let c_bound = client.bind(py);
                 let u_bound = url.bind(py);
@@ -41,14 +40,11 @@ impl StreamContextManager {
                     (&method, u_bound),
                     Some(kwargs_dict.bind(py)),
                 )?;
-                // Convert the coroutine to a Rust future
                 pyo3_async_runtimes::tokio::into_future(coro)
             })?;
 
-            // Await the coroutine to get the response
             let resp_py = coro_future.await?;
 
-            // Extract the Response and store it
             Python::attach(|py| -> PyResult<Py<Response>> {
                 let resp = resp_py.bind(py).extract::<Response>()?;
                 let slf_bound = slf_py.bind(py);
@@ -70,7 +66,7 @@ impl StreamContextManager {
         if let Some(resp) = &self.response {
             let r = resp.clone_ref(py);
             pyo3_async_runtimes::tokio::future_into_py(py, async move {
-                let _ = Python::attach(|py| r.call_method0(py, "aclose")); // Ignore errors on close?
+                let _ = Python::attach(|py| r.call_method0(py, "aclose"));
                 Ok(())
             })
         } else {

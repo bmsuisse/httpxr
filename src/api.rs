@@ -39,7 +39,6 @@ pub fn request(
     let _ = cookies;
     let _ = auth;
     let _ = follow_redirects;
-    // Direct implementation using transport
     let has_custom_ssl_context = verify.map(|v| crate::client::common::is_ssl_context(v)).unwrap_or(false);
     let (verify_bool, verify_path) = if let Some(v_bound) = verify {
         if let Ok(b) = v_bound.extract::<bool>() {
@@ -47,7 +46,6 @@ pub fn request(
         } else if let Ok(s) = v_bound.extract::<String>() {
             (true, Some(s))
         } else {
-            // Check for _cafile attribute (added by our create_ssl_context patch)
             let cafile = v_bound
                 .getattr("_cafile")
                 .ok()
@@ -63,7 +61,6 @@ pub fn request(
     let url_str = url.str()?.extract::<String>()?;
     let target_url = URL::create_from_str(&url_str)?;
 
-    // Validate scheme early – tests expect UnsupportedProtocol, not NetworkError
     if let Some(pos) = url_str.find("://") {
         let scheme = &url_str[..pos].to_lowercase();
         if scheme != "http" && scheme != "https" {
@@ -76,7 +73,6 @@ pub fn request(
 
     let mut hdrs = Headers::create(headers, "utf-8")?;
 
-    // Build body
     let body = if let Some(c) = content {
         if let Ok(b) = c.cast::<pyo3::types::PyBytes>() {
             Some(b.as_bytes().to_vec())
@@ -403,7 +399,7 @@ pub fn fetch_all(
 ) -> PyResult<Py<PyAny>> {
     use std::sync::Arc;
 
-    let _ = timeout; // TODO: wire timeout through
+    let _ = timeout;
 
     if urls.is_empty() {
         return Ok(pyo3::types::PyList::empty(py).into());
@@ -433,17 +429,14 @@ pub fn fetch_all(
 
     let concurrency = concurrency.max(1).min(urls.len());
 
-    // Collect response data (status + body bytes) outside Python
     let url_count = urls.len();
     let vp = verify_path.clone();
     let hp = header_pairs.clone();
 
-    // Execute all requests with GIL released for max throughput
     let responses: Vec<Result<Response, String>> = py.detach(|| {
         use std::sync::mpsc;
         use std::thread;
 
-        // Channel-based semaphore for concurrency control
         let (sem_tx, sem_rx) = mpsc::sync_channel::<()>(concurrency);
         for _ in 0..concurrency {
             let _ = sem_tx.send(());
@@ -463,7 +456,6 @@ pub fn fetch_all(
             let hp = hp.clone();
 
             let handle = thread::spawn(move || {
-                // Acquire semaphore slot
                 let _ = sem_rx.lock().unwrap().recv();
 
                 let result = Python::attach(|py| {
@@ -514,7 +506,6 @@ pub fn fetch_all(
                 });
 
                 results.lock().unwrap().push((idx, result));
-                // Release semaphore slot
                 let _ = sem_tx.send(());
             });
             handles.push(handle);
@@ -529,7 +520,6 @@ pub fn fetch_all(
         results_vec.into_iter().map(|(_, r)| r).collect()
     });
 
-    // Return list of Responses
     let py_list = pyo3::types::PyList::empty(py);
     for result in responses {
         match result {
