@@ -73,6 +73,7 @@ check_untyped_defs = true
 
 [tool.pytest.ini_options]
 addopts = "-rxXs"
+timeout = 120
 filterwarnings = [
   "default",
 ]
