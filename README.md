@@ -5,7 +5,7 @@ A 1:1 Rust port of [httpx](https://github.com/encode/httpx) — same API, faster
 [📖 **Documentation**](https://bmsuisse.github.io/httpxr) · [📦 PyPI](https://pypi.org/project/httpxr/) · [🐙 GitHub](https://github.com/bmsuisse/httpxr)
 
 > [!NOTE]
-> **🤖 100% AI-Generated** — This entire project was autonomously created by an AI coding agent. Every line of Rust, Python, and configuration was written, debugged, and tested entirely by AI. [Read the full story →](#how-it-was-built)
+> **🤖 100% AI-Generated** — This entire project was autonomously created by an AI coding agent powered by **Claude Opus 4.6**. Every line of Rust, Python, and configuration was written, debugged, and tested entirely by AI. [Read the full story →](#how-it-was-built)
 
 ---
 
@@ -34,7 +34,7 @@ Unlike httpx (which depends on `httpcore`, `certifi`, `anyio`, `idna`, and optio
 All benchmarks run against **10 HTTP libraries** on a local ASGI server (uvicorn), 100 rounds each.
 Scenarios: **Single GET**, **50 Sequential GETs**, **50 Concurrent GETs**.
 
-![HTTP Library Benchmark](docs/benchmark_results.png)
+![HTTP Library Benchmark](https://raw.githubusercontent.com/bmsuisse/httpxr/main/docs/benchmark_results.png)
 
 > 📊 **[Interactive version →](https://bmsuisse.github.io/httpxr/benchmarks/)** with full hover/zoom
 
@@ -227,7 +227,7 @@ A **pre-push hook** runs `pytest` and `pyright` automatically before every push.
 
 ## How It Was Built
 
-This entire project was **autonomously created by an AI coding agent** — no human wrote any code.
+This entire project was **autonomously created by an AI coding agent** powered by **Claude Opus 4.6** — no human wrote any code.
 
 > **Why build another Rust HTTP library?** Great Rust-powered Python HTTP clients already exist — [pyreqwest](https://github.com/MarkusSintonen/pyreqwest), [httpr](https://github.com/thomasht86/httpr), [rnet](https://github.com/0x676e67/rnet), and others. This project was never about reinventing the wheel. It started as an **experiment to see how well an AI coding agent performs** when given a clear, well-scoped goal in a domain with established solutions. The two objectives — pass every httpx test and beat httpx in benchmarks — provided a tight feedback loop to push the agent's capabilities. Along the way the result turned into a genuinely useful library, so here it is. 🙂
 
