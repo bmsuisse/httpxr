@@ -1,0 +1,106 @@
+site_name: httpxr
+site_description: A 1:1 Rust port of httpx — same API, faster execution.
+site_url: https://bmsuisse.github.io/httpxr
+repo_url: https://github.com/bmsuisse/httpxr
+repo_name: bmsuisse/httpxr
+edit_uri: edit/main/docs/
+
+theme:
+  name: material
+  logo: assets/logo.svg
+  favicon: assets/favicon.svg
+  icon:
+    repo: fontawesome/brands/github
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: deep purple
+      accent: amber
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: deep purple
+      accent: amber
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  font:
+    text: Inter
+    code: JetBrains Mono
+  features:
+    - navigation.instant
+    - navigation.instant.prefetch
+    - navigation.tracking
+    - navigation.tabs
+    - navigation.sections
+    - navigation.expand
+    - navigation.top
+    - navigation.footer
+    - toc.follow
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+    - content.code.annotate
+    - content.tabs.link
+
+nav:
+  - Home: index.md
+  - Getting Started:
+    - Quick Start: quickstart.md
+    - Migration from httpx: migration.md
+  - User Guide:
+    - Clients: clients.md
+    - Requests & Responses: requests-responses.md
+    - Authentication: authentication.md
+    - Headers, Params & Cookies: headers-params-cookies.md
+    - Streaming: streaming.md
+    - Timeouts & Limits: timeouts-limits.md
+    - Error Handling: error-handling.md
+  - Extensions:
+    - Overview: extensions.md
+  - Reference:
+    - CLI: cli.md
+    - Testing: testing.md
+    - Changelog: changelog.md
+
+markdown_extensions:
+  - admonition
+  - pymdownx.details
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.highlight:
+      anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.tasklist:
+      custom_checkbox: true
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
+  - attr_list
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+
+plugins:
+  - search
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/bmsuisse/httpxr
+    - icon: fontawesome/brands/python
+      link: https://pypi.org/project/httpxr/
+
+extra_css:
+  - assets/extra.css

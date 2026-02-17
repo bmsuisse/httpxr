@@ -35,3 +35,4 @@ benchmarks/
 
 # Linter cache
 .ruff_cache/
+site/
