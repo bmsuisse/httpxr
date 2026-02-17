@@ -30,7 +30,14 @@ impl HTTPTransport {
     ) -> PyResult<Self> {
         let mut builder = reqwest::Client::builder()
             .danger_accept_invalid_certs(!verify)
-            .redirect(reqwest::redirect::Policy::none());
+            .redirect(reqwest::redirect::Policy::none())
+            // ── Aggressive connection pool tuning ──
+            .pool_max_idle_per_host(64)      // default=1, keep many warm connections
+            .pool_idle_timeout(None)          // never expire idle connections
+            .tcp_nodelay(true)                // disable Nagle: send immediately
+            .tcp_keepalive(std::time::Duration::from_secs(60))
+            .http1_only()                     // skip HTTP/2 negotiation overhead
+            .no_proxy();                      // skip proxy env var checks
 
         if let Some(cert_path) = root_cert_path {
             let mut buf = Vec::new();
@@ -580,7 +587,14 @@ impl AsyncHTTPTransport {
     ) -> PyResult<Self> {
         let mut builder = reqwest::Client::builder()
             .danger_accept_invalid_certs(!verify)
-            .redirect(reqwest::redirect::Policy::none());
+            .redirect(reqwest::redirect::Policy::none())
+            // ── Aggressive connection pool tuning ──
+            .pool_max_idle_per_host(64)      // default=1, keep many warm connections
+            .pool_idle_timeout(None)          // never expire idle connections
+            .tcp_nodelay(true)                // disable Nagle: send immediately
+            .tcp_keepalive(std::time::Duration::from_secs(60))
+            .http1_only()                     // skip HTTP/2 negotiation overhead
+            .no_proxy();                      // skip proxy env var checks
 
         // Apply pool size limits
         let pool_semaphore = if let Some(l) = limits {
