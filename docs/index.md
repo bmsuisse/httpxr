@@ -16,6 +16,7 @@ with the performance of native Rust networking.
 <div class="hero-buttons">
   <a href="quickstart/" class="btn-primary">Get Started</a>
   <a href="https://github.com/bmsuisse/httpxr" class="btn-secondary">View on GitHub</a>
+  <a href="llm.txt" class="btn-secondary">llm.txt</a>
 </div>
 
 </div>

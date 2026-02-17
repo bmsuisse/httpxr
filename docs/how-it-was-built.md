@@ -5,7 +5,7 @@
 
 ## Why This Exists
 
-Great Rust-powered Python HTTP clients already exist — [pyreqwest](https://github.com/deedy5/primp), [httpr](https://github.com/thomasht86/httpr), [rnet](https://github.com/0x676e67/rnet), and many more. This project was never about reinventing the wheel.
+Great Rust-powered Python HTTP clients already exist — [pyreqwest](https://github.com/MarkusSintonen/pyreqwest), [httpr](https://github.com/thomasht86/httpr), [rnet](https://github.com/0x676e67/rnet), and many more. This project was never about reinventing the wheel.
 
 It started as an **experiment**: _How well can an AI coding agent perform when given a clear, well-scoped goal in a domain with established solutions?_ The two objectives below provided a tight, measurable feedback loop to push the agent's capabilities.
 

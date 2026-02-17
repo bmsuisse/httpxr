@@ -6,7 +6,7 @@ build-backend = "maturin"
 name = "httpxr"
 description = "A 1:1 Rust port of httpx — same API, faster execution."
 license = { text = "MIT OR Apache-2.0" }
-requires-python = ">=3.10"
+requires-python = ">=3.12"
 authors = [
     { name = "Dominik Peter" },
 ]
@@ -23,10 +23,9 @@ classifiers = [
     "Programming Language :: Python :: Implementation :: CPython",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3 :: Only",
-    "Programming Language :: Python :: 3.10",
-    "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
     "Topic :: Internet :: WWW/HTTP",
 ]
 dependencies = []
