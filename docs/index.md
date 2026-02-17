@@ -121,7 +121,17 @@ pip install httpxr
 
 All benchmarks run against **10 HTTP libraries** on a local ASGI server, 100 rounds each.
 
-<iframe src="benchmark_results.html" width="100%" height="650" frameborder="0" style="border-radius: 8px; border: 1px solid var(--md-default-fg-color--lightest);"></iframe>
+### Single GET
+
+<iframe src="benchmark_single.html" width="100%" height="360" frameborder="0"></iframe>
+
+### 50 Sequential GETs
+
+<iframe src="benchmark_sequential.html" width="100%" height="360" frameborder="0"></iframe>
+
+### 50 Concurrent GETs
+
+<iframe src="benchmark_concurrent.html" width="100%" height="360" frameborder="0"></iframe>
 
 | Scenario | httpxr | httpr | pyreqwest | ry | aiohttp | curl_cffi | urllib3 | rnet | httpx | niquests |
 |:---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
