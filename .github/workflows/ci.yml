@@ -17,7 +17,7 @@ jobs:
   test:
     name: Test (Python ${{ matrix.python-version }})
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     strategy:
       matrix:
         python-version: ['3.12', '3.13', '3.13t', '3.14', '3.14t']
@@ -34,6 +34,8 @@ jobs:
 
       - name: Rust cache
         uses: Swatinem/rust-cache@v2
+        with:
+          key: py${{ matrix.python-version }}
 
       - name: Cargo check
         run: cargo check --all-targets
