@@ -10,7 +10,7 @@ A 1:1 Rust port of [httpx](https://github.com/encode/httpx) — same API, faster
 [📖 **Documentation**](https://bmsuisse.github.io/httpxr) · [📦 PyPI](https://pypi.org/project/httpxr/) · [🐙 GitHub](https://github.com/bmsuisse/httpxr) · [🤖 llm.txt](https://bmsuisse.github.io/httpxr/llm.txt)
 
 > [!NOTE]
-> **🤖 100% AI-Generated** — This entire project was autonomously created by an AI coding agent powered by **Claude Opus 4.6**. Every line of Rust, Python, and configuration was written, debugged, and tested entirely by AI. [Read the full story →](#how-it-was-built)
+> **🤖 AI-Generated** — Every line of Rust, Python, and configuration in this project was written by an AI coding agent powered by **Claude Opus 4.6**. The iterative process of getting all 1300+ tests to pass involved human oversight — reviewing agent output, steering direction, and deciding next steps — so this was not a press-button-and-done affair. [Read the full story →](#how-it-was-built)
 
 ---
 
@@ -232,7 +232,7 @@ A **pre-push hook** runs `pytest` and `pyright` automatically before every push.
 
 ## How It Was Built
 
-This entire project was **autonomously created by an AI coding agent** powered by **Claude Opus 4.6** — no human wrote any code.
+Every line of code in this project was **written by an AI coding agent** powered by **Claude Opus 4.6**. The iterative process — running tests, reading failures, fixing the Rust implementation, rebuilding — was guided by **human oversight**: reviewing agent output, steering direction, and deciding what to tackle next. This was not a fully autonomous "press button and done" workflow, but a human-in-the-loop collaboration where the AI did the coding and the human kept it on track. Still, the project demonstrates what becomes possible when an AI agent is given a clear, measurable goal — and hints at a near future where this kind of work runs fully autonomously.
 
 > **Why build another Rust HTTP library?** Great Rust-powered Python HTTP clients already exist — [pyreqwest](https://github.com/MarkusSintonen/pyreqwest), [httpr](https://github.com/thomasht86/httpr), [rnet](https://github.com/0x676e67/rnet), and others. This project was never about reinventing the wheel. It started as an **experiment to see how well an AI coding agent performs** when given a clear, well-scoped goal in a domain with established solutions. The two objectives — pass every httpx test and beat httpx in benchmarks — provided a tight feedback loop to push the agent's capabilities. Along the way the result turned into a genuinely useful library, so here it is. 🙂
 

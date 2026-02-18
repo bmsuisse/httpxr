@@ -75,7 +75,7 @@ and raw API methods for maximum-speed dispatch.
 ### :material-test-tube: Battle Tested
 
 Validated against the **complete httpx test suite** — 1300+ tests ported
-1:1 from the original project. [100% AI-built](how-it-was-built.md) via an iterative agent loop.
+1:1 from the original project. [AI-built with human oversight](how-it-was-built.md) via an iterative agent loop.
 
 </div>
 

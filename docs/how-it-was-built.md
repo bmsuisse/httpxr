@@ -1,7 +1,7 @@
 # How It Was Built
 
-!!! info "🤖 100% AI-Generated"
-    Every line of Rust, Python, and configuration in httpxr was autonomously written, debugged, and tested by an AI coding agent powered by **Claude Opus 4.6**. No human wrote any code.
+!!! info "🤖 AI-Generated with Human Oversight"
+    Every line of Rust, Python, and configuration in httpxr was written by an AI coding agent powered by **Claude Opus 4.6**. The iterative process of getting all 1300+ tests to pass involved human oversight — reviewing agent output, steering direction, and deciding next steps. This was a human-in-the-loop collaboration, not a fully autonomous push-button workflow — but it demonstrates the potential of AI agents given a clear, measurable goal, and hints at a near future where this kind of work runs fully autonomously.
 
 ## Why This Exists
 
@@ -13,7 +13,7 @@ Along the way the result turned into a genuinely useful library — a **full htt
 
 ## The Goal
 
-Build a **production-grade, httpx-compatible HTTP client** backed by Rust — and do it entirely with AI. The agent was given two clear objectives:
+Build a **production-grade, httpx-compatible HTTP client** backed by Rust — with AI doing the coding and a human keeping it on track. The agent was given two clear objectives:
 
 1. **Pass every original httpx test** — full behavioral compatibility, no shortcuts
 2. **Beat httpx in benchmarks** — achieve state-of-the-art performance
