@@ -255,7 +255,7 @@ The iterative loop — **correctness first, performance second, verify both cont
 
 Licensed under either of:
 
-- [MIT License](./LICENSE-MIT)
+- [MIT License](./LICENSE)
 - [Apache License, Version 2.0](./LICENSE-APACHE)
 
 at your option.
