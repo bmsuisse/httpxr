@@ -181,6 +181,8 @@ with httpxr.Client() as client:
 | `max_concurrency` | `10` | Max simultaneous in-flight requests |
 | `return_exceptions` | `False` | Return errors inline instead of raising |
 
+> 📖 **[`gather()` docs →](https://bmsuisse.github.io/httpxr/extensions/#gather)**
+
 ### `paginate()` — Auto-Follow Pagination
 
 Automatically follow pagination links across multiple API responses.
@@ -205,6 +207,8 @@ pages = client.paginate("GET", url, next_func=my_extractor)
 
 Both methods are available on `Client` (sync) and `AsyncClient` (async). See [`examples/gather.py`](examples/gather.py) and [`examples/paginate.py`](examples/paginate.py) for full examples.
 
+> 📖 **[`paginate()` docs →](https://bmsuisse.github.io/httpxr/extensions/#paginate)**
+
 ### `gather_raw()` — Batch Raw Requests
 
 Like `gather()` but returns `(status, headers, body)` tuples — maximum throughput
@@ -217,6 +221,8 @@ Shorthand for `paginate("GET", ...)` and `paginate("POST", ...)`.
 ### `gather_paginate()` — Concurrent Paginated Fetches
 
 Fetch all pages from multiple paginated endpoints concurrently in one call.
+
+> 📖 **[Full extensions docs →](https://bmsuisse.github.io/httpxr/extensions/)**
 
 ### `download()` — Direct File Download
 
@@ -235,6 +241,8 @@ directly into [orjson](https://github.com/ijl/orjson) or [msgspec](https://githu
 Parse NDJSON or SSE responses as a stream of Python dicts. Handles `data:` prefixes
 and `[DONE]` sentinels automatically.
 
+> 📖 **[Requests & Responses docs →](https://bmsuisse.github.io/httpxr/requests-responses/)**
+
 ### `RetryConfig` — Automatic Retries
 
 ```python
@@ -250,6 +258,8 @@ with httpxr.Client(rate_limit=httpxr.RateLimit(requests_per_second=10.0)) as cli
         client.get(f"https://api.example.com/items/{i}")  # auto-throttled
 ```
 
+> 📖 **[Resilience docs →](https://bmsuisse.github.io/httpxr/resilience/)**
+
 ### `httpxr.sse` — Server-Sent Events
 
 ```python
@@ -262,6 +272,8 @@ with httpxr.Client() as client:
 ```
 
 Port of [httpx-sse](https://github.com/florimondmanca/httpx-sse) — supports sync and async, `EventSource`, `ServerSentEvent`, and `SSEError`.
+
+> 📖 **[SSE docs →](https://bmsuisse.github.io/httpxr/sse/)**
 
 ### Raw API — Maximum-Speed Dispatch
 
@@ -276,6 +288,8 @@ with httpxr.Client() as client:
 ```
 
 These accept `url` (full URL, not path), optional `headers` (dict), optional `body` (bytes, for POST/PUT/PATCH), and optional `timeout` (float, seconds).
+
+> 📖 **[Full extensions docs →](https://bmsuisse.github.io/httpxr/extensions/#raw-api)**
 
 ---
 
