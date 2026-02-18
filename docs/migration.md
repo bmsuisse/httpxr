@@ -40,6 +40,22 @@ The full httpx API is supported:
 
 ---
 
+## Zero-Effort Migration with `httpxr.compat`
+
+Don't want to change any imports? Use the **compatibility shim** to redirect
+all `import httpx` calls — including from third-party libraries — to httpxr:
+
+```python
+import httpxr.compat   # add this one line
+
+import httpx            # now resolves to httpxr 🚀
+```
+
+This is great for trying httpxr in an existing project with zero risk.
+See the [full compat docs](compat.md) for details.
+
+---
+
 ## Behavioral Differences
 
 There are a few minor behavioral differences to be aware of. None of these

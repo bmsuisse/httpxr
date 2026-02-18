@@ -50,6 +50,7 @@ nav:
   - Getting Started:
     - Quick Start: quickstart.md
     - Migration from httpx: migration.md
+    - Compatibility Shim: compat.md
     - How It Was Built: how-it-was-built.md
     - Benchmarks: benchmarks.md
   - User Guide:
@@ -60,6 +61,7 @@ nav:
     - Streaming: streaming.md
     - Timeouts & Limits: timeouts-limits.md
     - Error Handling: error-handling.md
+    - Cookbook: cookbook.md
   - Extensions:
     - Overview: extensions.md
   - Reference:
