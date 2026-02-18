@@ -1,5 +1,6 @@
 pub mod base;
 pub mod default;
+pub mod helpers;
 pub mod mock;
 
 use pyo3::prelude::*;

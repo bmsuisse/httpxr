@@ -3,6 +3,10 @@ use pyo3::types::{PyDict, PyString};
 use pyo3::Python;
 
 use crate::models::{Headers, Request, Response};
+use super::helpers::{
+    parse_method, extract_timeout_from_extensions, compute_effective_timeout,
+    map_reqwest_error, map_reqwest_error_simple, build_default_response, http_version_str,
+};
 use std::io::Read;
 
 /// Synchronous HTTP Transport backed by reqwest with a persistent tokio runtime.
@@ -92,42 +96,15 @@ impl HTTPTransport {
             crate::exceptions::InvalidURL::new_err(format!("Invalid URL: {}", e))
         })?;
 
-        let mut connect_timeout_val = None;
-        let mut read_timeout_val = None;
-        let mut write_timeout_val = None;
-        if let Ok(ext) = request.extensions.bind(py).cast::<PyDict>() {
-            if let Some(timeout_obj) = ext.get_item("timeout").ok().flatten() {
-                if let Ok(t) = timeout_obj.extract::<crate::config::Timeout>() {
-                    connect_timeout_val = t.connect;
-                    read_timeout_val = t.read;
-                    write_timeout_val = t.write;
-                }
-            }
-        }
-
-        let timeout_val: Option<std::time::Duration> =
-            [connect_timeout_val, read_timeout_val, write_timeout_val]
-                .iter()
-                .filter_map(|t| *t)
-                .reduce(f64::min)
-                .map(std::time::Duration::from_secs_f64);
+        let (connect_timeout_val, read_timeout_val, write_timeout_val, _pool) =
+            extract_timeout_from_extensions(py, &request.extensions);
+        let timeout_val = compute_effective_timeout(connect_timeout_val, read_timeout_val, write_timeout_val);
 
         let body_bytes = request.content_body.clone();
         let has_body = body_bytes.is_some();
         let stream_response = request.stream_response;
 
-        let method_str = request.method.as_str();
-        let method = match method_str {
-            "GET" => reqwest::Method::GET,
-            "POST" => reqwest::Method::POST,
-            "PUT" => reqwest::Method::PUT,
-            "DELETE" => reqwest::Method::DELETE,
-            "PATCH" => reqwest::Method::PATCH,
-            "HEAD" => reqwest::Method::HEAD,
-            "OPTIONS" => reqwest::Method::OPTIONS,
-            _ => reqwest::Method::from_bytes(method_str.as_bytes())
-                .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("Invalid method: {}", e)))?,
-        };
+        let method = parse_method(request.method.as_str())?;
 
         let hdrs = request.headers.bind(py).borrow();
         let mut req_builder = self.client.request(method, parsed_url);
@@ -170,76 +147,38 @@ impl HTTPTransport {
                 })
             })
             .map_err(|e: reqwest::Error| {
-                let msg = format!("{}", e);
-                if e.is_timeout() {
-                    if e.is_connect()
-                        || (connect_timeout_val.is_some()
-                            && read_timeout_val.is_none()
-                            && write_timeout_val.is_none())
-                    {
-                        crate::exceptions::ConnectTimeout::new_err(msg)
-                    } else if write_timeout_val.is_some()
-                        && has_body
-                        && read_timeout_val.is_none()
-                    {
-                        crate::exceptions::WriteTimeout::new_err(msg)
-                    } else {
-                        crate::exceptions::ReadTimeout::new_err(msg)
-                    }
-                } else if e.is_connect() {
-                    crate::exceptions::ConnectError::new_err(msg)
-                } else if e.is_body() || e.is_decode() {
-                    if read_timeout_val.is_some() || write_timeout_val.is_some() {
-                        crate::exceptions::ReadTimeout::new_err(msg)
-                    } else {
-                        crate::exceptions::NetworkError::new_err(msg)
-                    }
-                } else if msg.contains("Unknown Scheme") || msg.contains("URL scheme is not allowed") {
-                    crate::exceptions::UnsupportedProtocol::new_err(msg)
-                } else if msg.contains("certificate") || msg.contains("Certificate") || msg.contains("(Connect)") {
-                    crate::exceptions::ConnectError::new_err(msg)
-                } else {
-                    crate::exceptions::NetworkError::new_err(msg)
-                }
+                map_reqwest_error(e, connect_timeout_val, read_timeout_val, write_timeout_val, has_body)
             })?;
 
-        let hdrs = Headers::from_raw_byte_pairs(resp_headers);
-
-        let ext = PyDict::new(py);
-
-        let (content_bytes, stream_obj) = if stream_response {
+        if stream_response {
+            let hdrs = Headers::from_raw_byte_pairs(resp_headers);
+            let ext = PyDict::new(py);
             let cursor = std::io::Cursor::new(body_bytes_result);
             let blocking_iter =
                 crate::types::BlockingBytesIterator::new(Box::new(cursor) as Box<dyn Read + Send>);
             let py_iter = Py::new(py, blocking_iter)?.into_any();
-            (None, Some(py_iter))
+            Ok(Response {
+                status_code,
+                headers: Py::new(py, hdrs)?,
+                extensions: ext.into(),
+                request: None,
+                lazy_request_method: None,
+                lazy_request_url: None,
+                history: Vec::new(),
+                content_bytes: None,
+                stream: Some(py_iter),
+                default_encoding: PyString::intern(py, "utf-8").into_any().unbind(),
+                default_encoding_override: None,
+                elapsed: None,
+                is_closed_flag: false,
+                is_stream_consumed: false,
+                was_streaming: true,
+                text_accessed: std::sync::atomic::AtomicBool::new(false),
+                num_bytes_downloaded_counter: std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+            })
         } else {
-            (Some(body_bytes_result), None)
-        };
-
-        let has_stream = stream_obj.is_some();
-
-        Ok(Response {
-            status_code,
-            headers: Py::new(py, hdrs)?,
-            extensions: ext.into(),
-            request: None,
-            lazy_request_method: None,
-            lazy_request_url: None,
-            history: Vec::new(),
-            content_bytes,
-            stream: stream_obj,
-            default_encoding: PyString::intern(py, "utf-8").into_any().unbind(),
-            default_encoding_override: None,
-            elapsed: None,
-            is_closed_flag: false,
-            is_stream_consumed: false,
-            was_streaming: has_stream,
-            text_accessed: std::sync::atomic::AtomicBool::new(false),
-            num_bytes_downloaded_counter: std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(
-                0,
-            )),
-        })
+            build_default_response(py, status_code, resp_headers, body_bytes_result)
+        }
     }
 
     /// Fast-path: send a raw request, return (status, headers_dict, body) Python tuple directly.
@@ -289,35 +228,16 @@ impl HTTPTransport {
                 handle.block_on(async {
                     let response = client.execute(built_request).await?;
                     let status = response.status().as_u16();
-                    let hdrs: Vec<(&str, &[u8])> = response
+                    let owned_hdrs: Vec<(String, Vec<u8>)> = response
                         .headers()
                         .iter()
-                        .map(|(k, v)| (k.as_str(), v.as_bytes()))
-                        .collect();
-                    let owned_hdrs: Vec<(String, Vec<u8>)> = hdrs
-                        .into_iter()
-                        .map(|(k, v)| (k.to_owned(), v.to_vec()))
+                        .map(|(k, v)| (k.as_str().to_owned(), v.as_bytes().to_vec()))
                         .collect();
                     let body = response.bytes().await?;
                     Ok::<_, reqwest::Error>((status, owned_hdrs, body))
                 })
             })
-            .map_err(|e: reqwest::Error| {
-                let msg = format!("{}", e);
-                if e.is_timeout() {
-                    if e.is_connect() {
-                        crate::exceptions::ConnectTimeout::new_err(msg)
-                    } else {
-                        crate::exceptions::ReadTimeout::new_err(msg)
-                    }
-                } else if e.is_connect() {
-                    crate::exceptions::ConnectError::new_err(msg)
-                } else if msg.contains("Unknown Scheme") || msg.contains("URL scheme is not allowed") {
-                    crate::exceptions::UnsupportedProtocol::new_err(msg)
-                } else {
-                    crate::exceptions::NetworkError::new_err(msg)
-                }
-            })?;
+            .map_err(|e: reqwest::Error| map_reqwest_error_simple(e))?;
 
         let (status, resp_headers, body_bytes) = result;
 
@@ -353,31 +273,12 @@ impl HTTPTransport {
                 crate::exceptions::InvalidURL::new_err(format!("Invalid URL: {}", e))
             })?;
 
-            let mut timeout_val: Option<std::time::Duration> = None;
-            if let Ok(ext) = request.extensions.bind(py).cast::<PyDict>() {
-                if let Some(timeout_obj) = ext.get_item("timeout").ok().flatten() {
-                    if let Ok(t) = timeout_obj.extract::<crate::config::Timeout>() {
-                        timeout_val = [t.connect, t.read, t.write]
-                            .iter()
-                            .filter_map(|t| *t)
-                            .reduce(f64::min)
-                            .map(std::time::Duration::from_secs_f64);
-                    }
-                }
-            }
+            let (connect_t, read_t, write_t, _pool_t) =
+                extract_timeout_from_extensions(py, &request.extensions);
+            let timeout_val = compute_effective_timeout(connect_t, read_t, write_t);
 
             let method_str = request.method.as_str();
-            let method = match method_str {
-                "GET" => reqwest::Method::GET,
-                "POST" => reqwest::Method::POST,
-                "PUT" => reqwest::Method::PUT,
-                "DELETE" => reqwest::Method::DELETE,
-                "PATCH" => reqwest::Method::PATCH,
-                "HEAD" => reqwest::Method::HEAD,
-                "OPTIONS" => reqwest::Method::OPTIONS,
-                _ => reqwest::Method::from_bytes(method_str.as_bytes())
-                    .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("Invalid method: {}", e)))?,
-            };
+            let method = parse_method(method_str)?;
 
             let hdrs = request.headers.bind(py).borrow();
             let mut req_builder = self.client.request(method, parsed_url);
@@ -444,29 +345,7 @@ impl HTTPTransport {
         for result in results {
             match result {
                 Ok((status_code, resp_headers, body_bytes)) => {
-                    let hdrs = Headers::from_raw_byte_pairs(resp_headers);
-                    let ext = PyDict::new(py);
-                    let response = Response {
-                        status_code,
-                        headers: Py::new(py, hdrs)?,
-                        extensions: ext.into(),
-                        request: None,
-                        lazy_request_method: None,
-                        lazy_request_url: None,
-                        history: Vec::new(),
-                        content_bytes: Some(body_bytes),
-                        stream: None,
-                        default_encoding: PyString::intern(py, "utf-8").into_any().unbind(),
-                        default_encoding_override: None,
-                        elapsed: None,
-                        is_closed_flag: false,
-                        is_stream_consumed: false,
-                        was_streaming: false,
-                        text_accessed: std::sync::atomic::AtomicBool::new(false),
-                        num_bytes_downloaded_counter: std::sync::Arc::new(
-                            std::sync::atomic::AtomicUsize::new(0),
-                        ),
-                    };
+                    let response = build_default_response(py, status_code, resp_headers, body_bytes)?;
                     responses.push(Ok(response));
                 }
                 Err(msg) => {
@@ -628,10 +507,6 @@ impl AsyncHTTPTransport {
         self.client.clone()
     }
 
-
-
-
-
     /// Get a clone of the pool semaphore for fast-path usage.
     pub fn get_pool_semaphore(&self) -> Option<std::sync::Arc<tokio::sync::Semaphore>> {
         self.pool_semaphore.clone()
@@ -676,27 +551,9 @@ impl AsyncHTTPTransport {
         let raw_headers = request.headers.bind(py).borrow().get_raw_items_owned();
         let body = request.content_body.clone();
 
-        let mut connect_timeout_val = None;
-        let mut read_timeout_val = None;
-        let mut write_timeout_val = None;
-        let mut pool_timeout_val = None;
-        if let Ok(ext) = request.extensions.bind(py).cast::<PyDict>() {
-            if let Some(timeout_obj) = ext.get_item("timeout").ok().flatten() {
-                if let Ok(t) = timeout_obj.extract::<crate::config::Timeout>() {
-                    connect_timeout_val = t.connect;
-                    read_timeout_val = t.read;
-                    write_timeout_val = t.write;
-                    pool_timeout_val = t.pool;
-                }
-            }
-        }
-
-        let timeout_val: Option<std::time::Duration> =
-            [connect_timeout_val, read_timeout_val, write_timeout_val]
-                .iter()
-                .filter_map(|t| *t)
-                .reduce(f64::min)
-                .map(std::time::Duration::from_secs_f64);
+        let (connect_timeout_val, read_timeout_val, write_timeout_val, pool_timeout_val) =
+            extract_timeout_from_extensions(py, &request.extensions);
+        let timeout_val = compute_effective_timeout(connect_timeout_val, read_timeout_val, write_timeout_val);
 
         let pool_sem = self.pool_semaphore.clone();
 
@@ -724,18 +581,7 @@ impl AsyncHTTPTransport {
                 None
             };
 
-            let method = match method_str.as_str() {
-                "GET" => reqwest::Method::GET,
-                "POST" => reqwest::Method::POST,
-                "PUT" => reqwest::Method::PUT,
-                "DELETE" => reqwest::Method::DELETE,
-                "PATCH" => reqwest::Method::PATCH,
-                "HEAD" => reqwest::Method::HEAD,
-                "OPTIONS" => reqwest::Method::OPTIONS,
-                _ => reqwest::Method::from_bytes(method_str.as_bytes()).map_err(|e| {
-                    pyo3::exceptions::PyValueError::new_err(format!("Invalid method: {}", e))
-                })?,
-            };
+            let method = parse_method(method_str.as_str())?;
 
             let mut req_builder = client.request(method, &url_str);
             for (key, value) in &raw_headers {
@@ -750,26 +596,7 @@ impl AsyncHTTPTransport {
             }
 
             let response = req_builder.send().await.map_err(|e| {
-                if e.is_timeout() {
-                    if e.is_connect()
-                        || (connect_timeout_val.is_some()
-                            && read_timeout_val.is_none()
-                            && write_timeout_val.is_none())
-                    {
-                        crate::exceptions::ConnectTimeout::new_err(format!("{}", e))
-                    } else if write_timeout_val.is_some()
-                        && body.is_some()
-                        && read_timeout_val.is_none()
-                    {
-                        crate::exceptions::WriteTimeout::new_err(format!("{}", e))
-                    } else {
-                        crate::exceptions::ReadTimeout::new_err(format!("{}", e))
-                    }
-                } else if e.is_connect() {
-                    crate::exceptions::ConnectError::new_err(format!("{}", e))
-                } else {
-                    crate::exceptions::NetworkError::new_err(format!("{}", e))
-                }
+                map_reqwest_error(e, connect_timeout_val, read_timeout_val, write_timeout_val, body.is_some())
             })?;
 
             let status_code = response.status().as_u16();
@@ -807,15 +634,7 @@ impl AsyncHTTPTransport {
             pyo3::Python::attach(|py| {
                 let hdrs = Headers::from_raw_byte_pairs(resp_headers);
                 let ext = PyDict::new(py);
-                let version_str = match version {
-                    reqwest::Version::HTTP_09 => "HTTP/0.9",
-                    reqwest::Version::HTTP_10 => "HTTP/1.0",
-                    reqwest::Version::HTTP_11 => "HTTP/1.1",
-                    reqwest::Version::HTTP_2 => "HTTP/2",
-                    reqwest::Version::HTTP_3 => "HTTP/3",
-                    _ => "HTTP/1.1",
-                };
-                ext.set_item("http_version", version_str.as_bytes())?;
+                ext.set_item("http_version", http_version_str(version).as_bytes())?;
 
                 let (content_bytes, stream_obj) = match body_val {
                     BodyType::Bytes(b) => (Some(b), None),
@@ -840,7 +659,7 @@ impl AsyncHTTPTransport {
                     lazy_request_method: None,
                     lazy_request_url: None,
                     history: Vec::new(),
-                    content_bytes: content_bytes,
+                    content_bytes,
                     stream: stream_obj,
                     default_encoding: PyString::intern(py, "utf-8").into_any().unbind(),
                     default_encoding_override: None,
@@ -887,25 +706,9 @@ impl AsyncHTTPTransport {
             let raw_headers = req.headers.bind(py).borrow().get_raw_items_owned();
             let body = req.content_body.clone();
 
-            let mut connect_timeout_val = None;
-            let mut read_timeout_val = None;
-            let mut write_timeout_val = None;
-            if let Ok(ext) = req.extensions.bind(py).cast::<PyDict>() {
-                if let Some(timeout_obj) = ext.get_item("timeout").ok().flatten() {
-                    if let Ok(t) = timeout_obj.extract::<crate::config::Timeout>() {
-                        connect_timeout_val = t.connect;
-                        read_timeout_val = t.read;
-                        write_timeout_val = t.write;
-                    }
-                }
-            }
-
-            let timeout_val: Option<std::time::Duration> =
-                [connect_timeout_val, read_timeout_val, write_timeout_val]
-                    .iter()
-                    .filter_map(|t| *t)
-                    .reduce(f64::min)
-                    .map(std::time::Duration::from_secs_f64);
+            let (connect_t, read_t, write_t, _pool_t) =
+                extract_timeout_from_extensions(py, &req.extensions);
+            let timeout_val = compute_effective_timeout(connect_t, read_t, write_t);
 
             prepared.push(PreparedRequest {
                 url_str,
@@ -926,17 +729,8 @@ impl AsyncHTTPTransport {
                 handles.push(tokio::spawn(async move {
                     let _permit = sem.acquire().await.unwrap();
 
-                    let method = match prep.method_str.as_str() {
-                        "GET" => reqwest::Method::GET,
-                        "POST" => reqwest::Method::POST,
-                        "PUT" => reqwest::Method::PUT,
-                        "DELETE" => reqwest::Method::DELETE,
-                        "PATCH" => reqwest::Method::PATCH,
-                        "HEAD" => reqwest::Method::HEAD,
-                        "OPTIONS" => reqwest::Method::OPTIONS,
-                        _ => reqwest::Method::from_bytes(prep.method_str.as_bytes())
-                            .map_err(|e| format!("Invalid method: {}", e))?,
-                    };
+                    let method = parse_method(prep.method_str.as_str())
+                        .map_err(|e| format!("{}", e))?;
 
                     let mut req_builder = client.request(method, &prep.url_str);
                     for (key, value) in &prep.raw_headers {
@@ -978,33 +772,12 @@ impl AsyncHTTPTransport {
                 for (i, result) in raw_results.into_iter().enumerate() {
                     match result {
                         Ok((status_code, resp_headers, body_bytes)) => {
-                            let hdrs = Headers::from_raw_byte_pairs(resp_headers);
-                            let ext = PyDict::new(py);
-                            ext.set_item("http_version", pyo3::types::PyBytes::new(py, b"HTTP/1.1"))?;
+                            let mut response = build_default_response(py, status_code, resp_headers, body_bytes)?;
+                            if let Ok(ext) = response.extensions.bind(py).cast::<PyDict>() {
+                                ext.set_item("http_version", pyo3::types::PyBytes::new(py, b"HTTP/1.1"))?;
+                            }
                             let req_ref = requests[i].bind(py).borrow();
-                            let response = Response {
-                                status_code,
-                                headers: Py::new(py, hdrs)?,
-                                extensions: ext.into(),
-                                request: Some(req_ref.clone()),
-                                lazy_request_method: None,
-                                lazy_request_url: None,
-                                history: Vec::new(),
-                                content_bytes: Some(body_bytes),
-                                stream: None,
-                                default_encoding: PyString::intern(py, "utf-8")
-                                    .into_any()
-                                    .unbind(),
-                                default_encoding_override: None,
-                                elapsed: None,
-                                is_closed_flag: false,
-                                is_stream_consumed: false,
-                                was_streaming: false,
-                                text_accessed: std::sync::atomic::AtomicBool::new(false),
-                                num_bytes_downloaded_counter: std::sync::Arc::new(
-                                    std::sync::atomic::AtomicUsize::new(0),
-                                ),
-                            };
+                            response.request = Some(req_ref.clone());
                             py_list.append(Py::new(py, response)?)?;
                         }
                         Err(msg) => {

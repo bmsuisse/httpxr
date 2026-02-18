@@ -685,7 +685,7 @@ pub fn select_transport(
 }
 
 /// Compute priority for a mount pattern (higher = more specific).
-fn compute_pattern_priority(pattern: &str) -> u32 {
+pub fn compute_pattern_priority(pattern: &str) -> u32 {
     let (scheme, rest) = if let Some(idx) = pattern.find("://") {
         (&pattern[..idx], &pattern[idx + 3..])
     } else {
