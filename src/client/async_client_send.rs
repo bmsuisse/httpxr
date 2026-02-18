@@ -330,21 +330,21 @@ impl AsyncClient {
             let mut merged_qp_items: Vec<(String, String)> = Vec::new();
             if let Some(ref client_params) = self.params {
                 let bound = client_params.bind(py);
-                let qp = crate::urls::QueryParams::create(Some(bound))?;
+                let qp = crate::query_params::QueryParams::create(Some(bound))?;
                 merged_qp_items.extend(qp.items_raw());
             }
             if let Some(req_params) = params {
-                let qp = crate::urls::QueryParams::create(Some(req_params))?;
+                let qp = crate::query_params::QueryParams::create(Some(req_params))?;
                 merged_qp_items.extend(qp.items_raw());
             }
             if !merged_qp_items.is_empty() {
                 if let Some(ref existing_q) = target_url.parsed.query {
-                    let existing_qp = crate::urls::QueryParams::from_query_string(existing_q);
+                    let existing_qp = crate::query_params::QueryParams::from_query_string(existing_q);
                     let mut all_items = existing_qp.items_raw();
                     all_items.extend(merged_qp_items);
                     merged_qp_items = all_items;
                 }
-                let final_qp = crate::urls::QueryParams::from_items(merged_qp_items);
+                let final_qp = crate::query_params::QueryParams::from_items(merged_qp_items);
                 target_url.parsed.query = Some(final_qp.encode());
             }
         }

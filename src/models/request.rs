@@ -111,7 +111,7 @@ impl Request {
 
         if let Some(p) = params {
             if !p.is_none() {
-                let qp = crate::urls::QueryParams::create(Some(p))?;
+                let qp = crate::query_params::QueryParams::create(Some(p))?;
                 let qs = qp.encode();
                 let host = url_obj.get_host();
                 let authority = if let Some(port) = url_obj.get_port() {

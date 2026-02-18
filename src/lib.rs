@@ -17,6 +17,7 @@ mod stream_ctx;
 mod transports;
 mod types;
 mod urlparse;
+mod query_params;
 mod urls;
 mod utils;
 
@@ -37,6 +38,7 @@ fn _httpxr(m: &Bound<'_, PyModule>) -> PyResult<()> {
     utils::register(m)?;
     urlparse::register(m)?;
     urls::register(m)?;
+    query_params::register(m)?;
     models::register(m)?;
     decoders::register(m)?;
     content::register(m)?;

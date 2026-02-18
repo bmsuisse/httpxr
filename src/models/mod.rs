@@ -2,6 +2,7 @@ pub mod cookies;
 pub mod headers;
 pub mod request;
 pub mod response;
+mod response_properties;
 mod response_streaming;
 
 use pyo3::prelude::*;

@@ -472,4 +472,144 @@ impl Response {
         self.stream = None;
         Ok(())
     }
+
+    fn aread<'py>(slf: Py<Self>, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
+        let (content_bytes, stream_ref, is_closed, is_consumed, was_streaming) = {
+            let response = slf.borrow(py);
+            (
+                response.content_bytes.clone(),
+                response.stream.as_ref().map(|s| s.clone_ref(py)),
+                response.is_closed_flag,
+                response.is_stream_consumed,
+                response.was_streaming,
+            )
+        };
+
+        if let Some(bytes) = content_bytes {
+            return pyo3_async_runtimes::tokio::future_into_py(py, async move { Ok(bytes) });
+        }
+
+        if was_streaming && is_consumed && stream_ref.is_none() {
+            return Err(crate::exceptions::StreamConsumed::new_err(
+                "Attempted to read or stream content, but the stream has already been consumed.",
+            ));
+        }
+
+        if is_closed {
+            return Err(crate::exceptions::StreamClosed::new_err(
+                "Attempted to read or stream content, but the stream has been closed.",
+            ));
+        }
+        if is_consumed {
+            return Err(crate::exceptions::StreamConsumed::new_err(
+                "Attempted to read or stream content, but the stream has already been consumed.",
+            ));
+        }
+
+        if let Some(stream_py) = stream_ref {
+            let s = stream_py.bind(py);
+            if let Ok(iter) = s.try_iter() {
+                let mut buf = Vec::new();
+                for item in iter {
+                    let item = item?;
+                    if let Ok(b) = item.cast::<PyBytes>() {
+                        buf.extend_from_slice(b.as_bytes());
+                    } else if let Ok(v) = item.extract::<Vec<u8>>() {
+                        buf.extend(v);
+                    }
+                }
+                let hdrs_ref = {
+                    let response = slf.borrow(py);
+                    response.headers.clone_ref(py)
+                };
+                let hdrs_borrowed = hdrs_ref.borrow(py);
+                let buf = Response::decompress_content(py, &buf, &hdrs_borrowed)?;
+                let result = buf.clone();
+                {
+                    let mut response = slf.borrow_mut(py);
+                    response.content_bytes = Some(buf);
+                    response.is_stream_consumed = true;
+                    response.is_closed_flag = true;
+                    response.stream = None; // Stream is consumed
+                    response
+                        .num_bytes_downloaded_counter
+                        .store(result.len(), std::sync::atomic::Ordering::Relaxed);
+                }
+                return pyo3_async_runtimes::tokio::future_into_py(py, async move { Ok(result) });
+            }
+        }
+
+        let slf_bound = slf.bind(py);
+        {
+            let mut self_mut = slf_bound.borrow_mut();
+            if self_mut.stream.is_none() {
+                self_mut.content_bytes = Some(Vec::new());
+                self_mut.is_closed_flag = true;
+                drop(self_mut);
+                return pyo3_async_runtimes::tokio::future_into_py(py, async move {
+                    Ok(Vec::<u8>::new())
+                });
+            }
+        }
+
+        let ns = pyo3::types::PyDict::new(py);
+        ns.set_item("_resp", slf_bound)?;
+        py.run(
+            c"
+async def _aread_impl(resp):
+    stream = resp._take_stream()
+    if stream is None:
+        return b''
+    buf = b''
+    try:
+        async for chunk in stream:
+            buf += bytes(chunk)
+    except BaseException:
+        # Close the stream if it has aclose
+        if hasattr(stream, 'aclose'):
+            try:
+                await stream.aclose()
+            except Exception:
+                pass
+        raise
+    result = resp._set_aread_result(buf)
+    return result
+",
+            Some(&ns),
+            Some(&ns),
+        )?;
+        let aread_fn = ns.get_item("_aread_impl")?.unwrap();
+        let coro = aread_fn.call1((slf_bound,))?;
+        Ok(coro.unbind().into_bound(py))
+    }
+
+    /// Helper for Python-based aread: take the stream out of the response
+    fn _take_stream(&mut self, _py: Python<'_>) -> Option<Py<PyAny>> {
+        self.stream.take()
+    }
+
+    /// Helper: mark the response as closed (used by Python-side error cleanup)
+    fn _mark_closed(&mut self) {
+        self.is_closed_flag = true;
+        self.stream = None;
+    }
+
+    /// Helper for Python-based aread: store the read result and apply decompression
+    fn _set_aread_result(&mut self, py: Python<'_>, data: Vec<u8>) -> PyResult<Vec<u8>> {
+        let hdrs_ref = self.headers.borrow(py);
+        let decompressed = Response::decompress_content(py, &data, &hdrs_ref)?;
+        self.content_bytes = Some(decompressed.clone());
+        self.is_stream_consumed = true;
+        self.is_closed_flag = true;
+        self.stream = None;
+        self.num_bytes_downloaded_counter
+            .store(decompressed.len(), std::sync::atomic::Ordering::Relaxed);
+        Ok(decompressed)
+    }
+
+    /// Helper: increment num_bytes_downloaded counter (used by Python-side async iterators)
+    fn _add_bytes_downloaded(&self, n: usize) {
+        self.num_bytes_downloaded_counter
+            .fetch_add(n, std::sync::atomic::Ordering::Relaxed);
+    }
 }
