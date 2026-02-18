@@ -17,12 +17,18 @@ except ImportError:
         sys.exit(1)
 
 
+_EXCLUDED_FROM_ALL = {"compat", "cli", "main"}
+
 __all__ = sorted(
     (
         member
         for member in list(vars().keys())
-        if not member.startswith("_")
-        or member in ["__description__", "__title__", "__version__"]
+        if (
+            not member.startswith("_")
+            or member in ["__description__", "__title__", "__version__"]
+        )
+        and member not in _EXCLUDED_FROM_ALL
     ),
     key=str.casefold,
 )
+

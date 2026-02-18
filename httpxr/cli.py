@@ -12,9 +12,9 @@ import click
 # ---------------------------------------------------------------------------
 
 try:
-    from rich.console import Console
-    from rich.syntax import Syntax
-    from rich.text import Text
+    from rich.console import Console  # type: ignore[import-not-found]
+    from rich.syntax import Syntax  # type: ignore[import-not-found]
+    from rich.text import Text  # type: ignore[import-not-found]
 
     HAS_RICH = True
 except ImportError:  # pragma: no cover
@@ -110,7 +110,7 @@ def print_response_rich(
     color = _status_color(status_code)
 
     # Status line
-    status_line = Text()
+    status_line = Text()  # type: ignore[possibly-undefined]
     status_line.append(f"{http_version} ", style="bold dim")
     status_line.append(f"{status_code}", style=f"bold {color}")
     if reason:
@@ -120,7 +120,7 @@ def print_response_rich(
     # Headers
     headers = response.headers
     for key, value in headers.items():
-        header_text = Text()
+        header_text = Text()  # type: ignore[possibly-undefined]
         header_text.append(f"{key}", style="dim cyan")
         header_text.append(": ", style="dim")
         header_text.append(value)
@@ -142,7 +142,7 @@ def print_response_rich(
             try:
                 data = json.loads(text)
                 formatted = json.dumps(data, indent=4, ensure_ascii=False)
-                syntax = Syntax(formatted, "json", theme="monokai")
+                syntax = Syntax(formatted, "json", theme="monokai")  # type: ignore[possibly-undefined]
                 console.print(syntax)
             except (json.JSONDecodeError, TypeError):
                 console.print(text or "")
@@ -249,7 +249,7 @@ def main(
                     f.write(response.content)
 
                 if use_rich:
-                    console = Console()
+                    console = Console()  # type: ignore[possibly-undefined]
                     size = len(response.content)
                     console.print(
                         f"[green]✓[/green] Downloaded [bold]{size:,}[/bold] bytes "
@@ -258,7 +258,7 @@ def main(
                 return
 
             if use_rich:
-                console = Console()
+                console = Console()  # type: ignore[possibly-undefined]
 
                 # Print redirect history
                 for hist_resp in getattr(response, "history", []):
@@ -300,7 +300,7 @@ def main(
 
     except _httpxr_mod.HTTPError as exc:  # type: ignore[attr-defined]
         if use_rich:
-            console = Console(stderr=True)
+            console = Console(stderr=True)  # type: ignore[possibly-undefined]
             console.print(f"[bold red]{type(exc).__name__}[/bold red]: {exc}")
         else:
             click.echo(f"{type(exc).__name__}: {exc}", err=False)
