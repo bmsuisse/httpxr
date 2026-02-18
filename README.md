@@ -3,6 +3,7 @@
 [![CI](https://github.com/bmsuisse/httpxr/actions/workflows/ci.yml/badge.svg)](https://github.com/bmsuisse/httpxr/actions/workflows/ci.yml)
 [![PyPI version](https://img.shields.io/pypi/v/httpxr.svg)](https://pypi.org/project/httpxr/)
 [![Python versions](https://img.shields.io/pypi/pyversions/httpxr.svg)](https://pypi.org/project/httpxr/)
+[![Docs](https://img.shields.io/badge/docs-online-blue?logo=materialformkdocs)](https://bmsuisse.github.io/httpxr/)
 
 A 1:1 Rust port of [httpx](https://github.com/encode/httpx) — same API, faster execution.
 
