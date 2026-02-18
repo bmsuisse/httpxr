@@ -636,6 +636,82 @@ impl Client {
         }
     }
 
+    /// Dispatch multiple raw requests concurrently.
+    /// Returns a list of (status, headers_dict, body_bytes) tuples.
+    /// Skips Response construction entirely for maximum speed.
+    /// This is an httpxr extension — not available in httpx.
+    ///
+    /// Usage:
+    ///   results = client.gather_raw([
+    ///       client.build_request("GET", "https://api.example.com/1"),
+    ///       client.build_request("GET", "https://api.example.com/2"),
+    ///   ])
+    #[pyo3(signature = (requests, *, max_concurrency=10))]
+    fn gather_raw(
+        &self,
+        py: Python<'_>,
+        requests: Vec<Py<Request>>,
+        max_concurrency: usize,
+    ) -> PyResult<Py<pyo3::types::PyList>> {
+        if self.is_closed {
+            return Err(pyo3::exceptions::PyRuntimeError::new_err(
+                "Cannot send requests, as the client has been closed.",
+            ));
+        }
+        if requests.is_empty() {
+            return Ok(pyo3::types::PyList::empty(py).unbind());
+        }
+
+        let transport_bound = self.transport.bind(py);
+        let transport = transport_bound
+            .cast::<crate::transports::default::HTTPTransport>()
+            .map_err(|_| {
+                pyo3::exceptions::PyRuntimeError::new_err(
+                    "gather_raw requires the default HTTPTransport",
+                )
+            })?;
+
+        // Convert Request objects to raw tuples for the transport
+        let mut raw_requests: Vec<(
+            reqwest::Method,
+            String,
+            Option<Vec<(String, String)>>,
+            Option<Vec<u8>>,
+            Option<f64>,
+        )> = Vec::with_capacity(requests.len());
+
+        for req_py in &requests {
+            let req = req_py.bind(py).borrow();
+            let method = crate::transports::helpers::parse_method(&req.method)?;
+            let url = req.url.to_string();
+
+            // Extract headers as string pairs
+            let hdrs = req.headers.bind(py).borrow();
+            let header_pairs: Vec<(String, String)> = hdrs.raw.iter().map(|(k, v)| {
+                (
+                    String::from_utf8_lossy(k).to_string(),
+                    String::from_utf8_lossy(v).to_string(),
+                )
+            }).collect();
+            drop(hdrs);
+
+            let (connect_t, read_t, write_t, _pool_t) =
+                crate::transports::helpers::extract_timeout_from_extensions(py, &req.extensions);
+            let timeout_val = crate::transports::helpers::compute_effective_timeout(connect_t, read_t, write_t);
+            let timeout_secs = timeout_val.map(|d| d.as_secs_f64());
+
+            raw_requests.push((
+                method,
+                url,
+                Some(header_pairs),
+                req.content_body.clone(),
+                timeout_secs,
+            ));
+        }
+
+        transport.borrow().send_batch_raw(py, &raw_requests, max_concurrency)
+    }
+
     /// Auto-follow pagination links, returning a lazy iterator.
     /// Each iteration fetches the next page — memory-efficient for large result sets.
     /// Supports JSON key extraction, Link header parsing, and custom callables.

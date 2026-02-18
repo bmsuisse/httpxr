@@ -165,3 +165,40 @@ pub fn http_version_str(version: reqwest::Version) -> &'static str {
         _ => "HTTP/1.1",
     }
 }
+
+/// Convert a vector of raw results into a Python list of `(status, headers_dict, body)` tuples.
+///
+/// Shared by `send_batch_raw`, sync `gather_raw`, and async `gather_raw`.
+/// Each `Ok` result becomes a tuple; each `Err` becomes a `NetworkError` exception object.
+pub fn raw_results_to_pylist(
+    py: Python<'_>,
+    results: Vec<Result<(u16, Vec<(String, Vec<u8>)>, Vec<u8>), String>>,
+) -> PyResult<Py<pyo3::types::PyList>> {
+    use pyo3::types::{PyBytes, PyTuple};
+    use pyo3::IntoPyObject;
+
+    let py_list = pyo3::types::PyList::empty(py);
+    for result in results {
+        match result {
+            Ok((status, resp_headers, body_bytes)) => {
+                let dict = PyDict::new(py);
+                for (k, v) in &resp_headers {
+                    let val_str = std::str::from_utf8(v).unwrap_or("");
+                    dict.set_item(k.as_str(), val_str)?;
+                }
+                let body_py = PyBytes::new(py, &body_bytes);
+                let tuple = PyTuple::new(py, &[
+                    status.into_pyobject(py)?.into_any().as_borrowed(),
+                    dict.as_any().as_borrowed(),
+                    body_py.as_any().as_borrowed(),
+                ])?;
+                py_list.append(tuple)?;
+            }
+            Err(msg) => {
+                let err = crate::exceptions::NetworkError::new_err(msg);
+                py_list.append(err.value(py))?;
+            }
+        }
+    }
+    Ok(py_list.unbind())
+}

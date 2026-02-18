@@ -6,6 +6,7 @@ use crate::models::{Headers, Request, Response};
 use super::helpers::{
     parse_method, extract_timeout_from_extensions, compute_effective_timeout,
     map_reqwest_error, map_reqwest_error_simple, build_default_response, http_version_str,
+    raw_results_to_pylist,
 };
 use std::io::Read;
 
@@ -357,6 +358,79 @@ impl HTTPTransport {
         }
 
         Ok(responses)
+    }
+
+    /// Like send_batch_requests, but returns raw (status, headers_dict, body) tuples.
+    /// Skips Response construction entirely for maximum speed.
+    pub fn send_batch_raw(
+        &self,
+        py: Python<'_>,
+        requests: &[(reqwest::Method, String, Option<Vec<(String, String)>>, Option<Vec<u8>>, Option<f64>)],
+        max_concurrency: usize,
+    ) -> PyResult<Py<pyo3::types::PyList>> {
+
+        let mut built_requests = Vec::with_capacity(requests.len());
+        for (method, url, headers, body, timeout) in requests {
+            let parsed_url = reqwest::Url::parse(url).map_err(|e| {
+                crate::exceptions::InvalidURL::new_err(format!("Invalid URL: {}", e))
+            })?;
+            let mut req_builder = self.client.request(method.clone(), parsed_url);
+            if let Some(hdrs) = headers {
+                for (k, v) in hdrs {
+                    req_builder = req_builder.header(k.as_str(), v.as_str());
+                }
+            }
+            if let Some(b) = body {
+                req_builder = req_builder.body(b.clone());
+            }
+            if let Some(t) = timeout {
+                req_builder = req_builder.timeout(std::time::Duration::from_secs_f64(*t));
+            }
+            let built = req_builder.build().map_err(|e| {
+                pyo3::exceptions::PyRuntimeError::new_err(format!("Failed to build request: {}", e))
+            })?;
+            built_requests.push(built);
+        }
+
+        let client = self.client.clone();
+        let results: Vec<Result<(u16, Vec<(String, Vec<u8>)>, Vec<u8>), String>> = py
+            .detach(move || {
+                self.handle.block_on(async {
+                    let semaphore = std::sync::Arc::new(tokio::sync::Semaphore::new(max_concurrency));
+                    let mut handles = Vec::with_capacity(built_requests.len());
+
+                    for built_request in built_requests {
+                        let client = client.clone();
+                        let sem = semaphore.clone();
+                        handles.push(tokio::spawn(async move {
+                            let _permit = sem.acquire().await.unwrap();
+                            let response = client.execute(built_request).await
+                                .map_err(|e| format!("{}", e))?;
+                            let status = response.status().as_u16();
+                            let owned_hdrs: Vec<(String, Vec<u8>)> = response
+                                .headers()
+                                .iter()
+                                .map(|(k, v)| (k.as_str().to_owned(), v.as_bytes().to_vec()))
+                                .collect();
+                            let body = response.bytes().await
+                                .map_err(|e| format!("{}", e))?;
+                            Ok::<_, String>((status, owned_hdrs, Vec::from(body)))
+                        }));
+                    }
+
+                    let mut results = Vec::with_capacity(handles.len());
+                    for handle in handles {
+                        match handle.await {
+                            Ok(result) => results.push(result),
+                            Err(e) => results.push(Err(format!("Task panicked: {}", e))),
+                        }
+                    }
+                    results
+                })
+            });
+
+        let py_list = raw_results_to_pylist(py, results)?;
+        Ok(py_list)
     }
 }
 

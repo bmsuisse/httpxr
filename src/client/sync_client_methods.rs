@@ -128,3 +128,56 @@ sync_raw_with_body!(put_raw, reqwest::Method::PUT);
 sync_raw_with_body!(patch_raw, reqwest::Method::PATCH);
 sync_raw_no_body!(delete_raw, reqwest::Method::DELETE);
 sync_raw_no_body!(head_raw, reqwest::Method::HEAD);
+
+// ---------------------------------------------------------------------------
+// Paginate convenience methods (paginate_get, paginate_post)
+// ---------------------------------------------------------------------------
+
+macro_rules! sync_paginate_method {
+    ($name:ident, $method:expr) => {
+        #[pymethods]
+        impl Client {
+            #[pyo3(signature = (url, *, next_url=None, next_header=None, next_func=None, max_pages=100, params=None, headers=None, cookies=None, timeout=None, extensions=None, **kwargs))]
+            fn $name(
+                slf: &Bound<'_, Self>,
+                url: &Bound<'_, PyAny>,
+                next_url: Option<&str>,
+                next_header: Option<&str>,
+                next_func: Option<&Bound<'_, PyAny>>,
+                max_pages: usize,
+                params: Option<&Bound<'_, PyAny>>,
+                headers: Option<&Bound<'_, PyAny>>,
+                cookies: Option<&Bound<'_, PyAny>>,
+                timeout: Option<&Bound<'_, PyAny>>,
+                extensions: Option<&Bound<'_, PyAny>>,
+                kwargs: Option<&Bound<'_, PyDict>>,
+            ) -> PyResult<Py<PyAny>> {
+                let py = slf.py();
+                let mut kw = Vec::new();
+                if let Some(v) = next_url   { kw.push(("next_url", v.into_pyobject(py)?.into_any().unbind())); }
+                if let Some(v) = next_header{ kw.push(("next_header", v.into_pyobject(py)?.into_any().unbind())); }
+                if let Some(v) = next_func  { kw.push(("next_func", v.clone().unbind())); }
+                kw.push(("max_pages", max_pages.into_pyobject(py)?.into_any().unbind()));
+                if let Some(v) = params     { kw.push(("params", v.clone().unbind())); }
+                if let Some(v) = headers    { kw.push(("headers", v.clone().unbind())); }
+                if let Some(v) = cookies    { kw.push(("cookies", v.clone().unbind())); }
+                if let Some(v) = timeout    { kw.push(("timeout", v.clone().unbind())); }
+                if let Some(v) = extensions { kw.push(("extensions", v.clone().unbind())); }
+
+                let kwargs_dict = PyDict::new(py);
+                for (k, v) in &kw {
+                    kwargs_dict.set_item(k, v)?;
+                }
+                if let Some(extra) = kwargs {
+                    kwargs_dict.update(extra.as_mapping())?;
+                }
+
+                slf.call_method("paginate", ($method, url), Some(&kwargs_dict))
+                    .map(|r| r.unbind())
+            }
+        }
+    };
+}
+
+sync_paginate_method!(paginate_get, "GET");
+sync_paginate_method!(paginate_post, "POST");

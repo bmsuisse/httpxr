@@ -373,6 +373,104 @@ _gather_coro = asyncio.gather(
         })
     }
 
+    /// Dispatch multiple raw requests concurrently.
+    /// Returns a list of (status, headers_dict, body_bytes) tuples.
+    /// Skips Response construction entirely for maximum speed.
+    /// This is an httpxr extension — not available in httpx.
+    #[pyo3(signature = (requests, *, max_concurrency=10))]
+    fn gather_raw<'py>(
+        &self,
+        py: Python<'py>,
+        requests: Vec<Py<Request>>,
+        max_concurrency: usize,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        if self.is_closed {
+            return Err(pyo3::exceptions::PyRuntimeError::new_err(
+                "Cannot send requests, as the client has been closed.",
+            ));
+        }
+
+        let transport = self.transport.clone_ref(py);
+
+        // Extract request data under GIL
+        let mut prepared: Vec<(String, String, Vec<(Vec<u8>, Vec<u8>)>, Option<Vec<u8>>, Option<std::time::Duration>)> = Vec::with_capacity(requests.len());
+        for req_py in &requests {
+            let req = req_py.bind(py).borrow();
+            let url_str = req.url.to_string();
+            let method_str = req.method.clone();
+            let raw_headers = req.headers.bind(py).borrow().get_raw_items_owned();
+            let body = req.content_body.clone();
+
+            let (connect_t, read_t, write_t, _pool_t) =
+                crate::transports::helpers::extract_timeout_from_extensions(py, &req.extensions);
+            let timeout_val = crate::transports::helpers::compute_effective_timeout(connect_t, read_t, write_t);
+
+            prepared.push((url_str, method_str, raw_headers, body, timeout_val));
+        }
+
+        pyo3_async_runtimes::tokio::future_into_py(py, async move {
+            // Get client from transport
+            let client = Python::attach(|py| -> PyResult<reqwest::Client> {
+                let t_bound = transport.bind(py);
+                let async_transport = t_bound
+                    .cast::<crate::transports::default::AsyncHTTPTransport>()
+                    .map_err(|_| {
+                        pyo3::exceptions::PyRuntimeError::new_err(
+                            "gather_raw requires the default AsyncHTTPTransport",
+                        )
+                    })?;
+                Ok(async_transport.borrow().get_client())
+            })?;
+
+            let semaphore = std::sync::Arc::new(tokio::sync::Semaphore::new(max_concurrency));
+            let mut handles = Vec::with_capacity(prepared.len());
+
+            for (url_str, method_str, raw_headers, body, timeout_val) in prepared {
+                let client = client.clone();
+                let sem = semaphore.clone();
+                handles.push(tokio::spawn(async move {
+                    let _permit = sem.acquire().await.unwrap();
+
+                    let method = crate::transports::helpers::parse_method(method_str.as_str())
+                        .map_err(|e| format!("{}", e))?;
+
+                    let mut req_builder = client.request(method, &url_str);
+                    for (key, value) in &raw_headers {
+                        req_builder = req_builder.header(key.as_slice(), value.as_slice());
+                    }
+                    if let Some(b) = body {
+                        req_builder = req_builder.body(b);
+                    }
+                    if let Some(t) = timeout_val {
+                        req_builder = req_builder.timeout(t);
+                    }
+
+                    let response = req_builder.send().await.map_err(|e| format!("{}", e))?;
+                    let status = response.status().as_u16();
+                    let owned_hdrs: Vec<(String, Vec<u8>)> = response
+                        .headers()
+                        .iter()
+                        .map(|(k, v)| (k.as_str().to_owned(), v.as_bytes().to_vec()))
+                        .collect();
+                    let bytes = response.bytes().await.map_err(|e| format!("{}", e))?;
+                    Ok::<_, String>((status, owned_hdrs, Vec::from(bytes)))
+                }));
+            }
+
+            let mut raw_results = Vec::with_capacity(handles.len());
+            for handle in handles {
+                match handle.await {
+                    Ok(result) => raw_results.push(result),
+                    Err(e) => raw_results.push(Err(format!("Task panicked: {}", e))),
+                }
+            }
+
+            Python::attach(|py| {
+                crate::transports::helpers::raw_results_to_pylist(py, raw_results)
+            })
+        })
+    }
+
     /// Auto-follow pagination links, returning an async iterator.
     /// Each iteration fetches the next page — memory-efficient for large result sets.
     /// Supports JSON key extraction, Link header parsing, and custom callables.
@@ -694,6 +792,54 @@ _paginator = _AsyncPageIter()
     }
 }
 
+// ---------------------------------------------------------------------------
+// Paginate convenience methods (paginate_get, paginate_post)
+// ---------------------------------------------------------------------------
+
+macro_rules! async_paginate_method {
+    ($name:ident, $method:expr) => {
+        #[pymethods]
+        impl AsyncClient {
+            #[pyo3(signature = (url, *, next_url=None, next_header=None, next_func=None, max_pages=100, params=None, headers=None, cookies=None, timeout=None, extensions=None, **kwargs))]
+            #[allow(clippy::too_many_arguments)]
+            fn $name<'py>(
+                slf: &Bound<'py, Self>,
+                py: Python<'py>,
+                url: &Bound<'py, PyAny>,
+                next_url: Option<String>,
+                next_header: Option<String>,
+                next_func: Option<Py<PyAny>>,
+                max_pages: usize,
+                params: Option<Py<PyAny>>,
+                headers: Option<Py<PyAny>>,
+                cookies: Option<Py<PyAny>>,
+                timeout: Option<Py<PyAny>>,
+                extensions: Option<Py<PyAny>>,
+                kwargs: Option<Py<PyDict>>,
+            ) -> PyResult<Bound<'py, PyAny>> {
+                let kwargs_dict = PyDict::new(py);
+                if let Some(v) = next_url    { kwargs_dict.set_item("next_url", v)?; }
+                if let Some(v) = next_header { kwargs_dict.set_item("next_header", v)?; }
+                if let Some(v) = next_func   { kwargs_dict.set_item("next_func", v)?; }
+                kwargs_dict.set_item("max_pages", max_pages)?;
+                if let Some(v) = params      { kwargs_dict.set_item("params", v)?; }
+                if let Some(v) = headers     { kwargs_dict.set_item("headers", v)?; }
+                if let Some(v) = cookies     { kwargs_dict.set_item("cookies", v)?; }
+                if let Some(v) = timeout     { kwargs_dict.set_item("timeout", v)?; }
+                if let Some(v) = extensions  { kwargs_dict.set_item("extensions", v)?; }
+                if let Some(extra) = kwargs {
+                    kwargs_dict.update(extra.bind(py).as_mapping())?;
+                }
+
+                slf.call_method("paginate", ($method, url), Some(&kwargs_dict))
+            }
+        }
+    };
+}
+
+async_paginate_method!(paginate_get, "GET");
+async_paginate_method!(paginate_post, "POST");
+
 #[allow(dead_code)]
 struct ReleaseGuard {
     pub stream: Option<Py<PyAny>>,
@@ -705,4 +851,3 @@ impl Drop for ReleaseGuard {
         }
     }
 }
-
