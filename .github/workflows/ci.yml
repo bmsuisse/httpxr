@@ -210,6 +210,9 @@ jobs:
       attestations: write
       packages: write
     steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
       - uses: actions/download-artifact@v7
       - name: Generate artifact attestation
         uses: actions/attest-build-provenance@v3
@@ -219,6 +222,14 @@ jobs:
         run: |
           mkdir -p dist
           cp wheels-*/* dist/
+      - name: Generate changelog
+        id: changelog
+        uses: orhun/git-cliff-action@v4
+        with:
+          config: cliff.toml
+          args: --latest --strip header
+        env:
+          OUTPUT: CHANGES.md
       - name: Publish to PyPI
         if: ${{ startsWith(github.ref, 'refs/tags/') }}
         uses: pypa/gh-action-pypi-publish@release/v1
@@ -229,7 +240,6 @@ jobs:
         if: ${{ startsWith(github.ref, 'refs/tags/') }}
         uses: softprops/action-gh-release@v2
         with:
+          body_path: CHANGES.md
           files: |
-            wheels-*/*
             dist/*
-          generate_release_notes: true
