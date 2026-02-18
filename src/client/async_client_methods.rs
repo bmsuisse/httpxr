@@ -783,6 +783,54 @@ _paginator = _AsyncPageIter()
         })
     }
 
+    /// Get the client-level retry configuration.
+    #[getter(retry)]
+    fn get_retry(&self) -> Option<crate::config::RetryConfig> {
+        self.retry.clone()
+    }
+
+    /// Set the client-level retry configuration.
+    #[setter(retry)]
+    fn set_retry(&mut self, value: Option<crate::config::RetryConfig>) {
+        self.retry = value;
+    }
+
+    /// Get the client-level rate limit configuration.
+    #[getter(rate_limit)]
+    fn get_rate_limit(&self) -> Option<crate::config::RateLimit> {
+        self.rate_limit.clone()
+    }
+
+    /// Set the client-level rate limit configuration.
+    #[setter(rate_limit)]
+    fn set_rate_limit(&mut self, value: Option<crate::config::RateLimit>) {
+        self.rate_limit = value;
+    }
+
+    /// Return connection pool status.
+    /// Returns a dict with pool statistics.
+    /// This is an httpxr extension — not available in httpx.
+    fn pool_status<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyDict>> {
+        let d = PyDict::new(py);
+        let transport = self.transport.bind(py);
+        if let Ok(pool_size) = transport.getattr("_pool_connections") {
+            if let Ok(size) = pool_size.extract::<u32>() {
+                d.set_item("max_connections", size)?;
+            }
+        }
+        if let Ok(pool_size) = transport.getattr("_pool_maxsize") {
+            if let Ok(size) = pool_size.extract::<u32>() {
+                d.set_item("max_keepalive", size)?;
+            }
+        }
+        if d.is_empty() {
+            d.set_item("max_connections", py.None())?;
+            d.set_item("max_keepalive", py.None())?;
+        }
+        d.set_item("is_closed", self.is_closed)?;
+        Ok(d)
+    }
+
     fn __repr__(&self) -> String {
         if self.is_closed {
             "<AsyncClient [closed]>".to_string()

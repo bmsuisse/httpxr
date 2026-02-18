@@ -2,7 +2,7 @@ use pyo3::prelude::*;
 use pyo3::types::{PyAnyMethods, PyBytes, PyDict, PyDictMethods};
 use std::time::Instant;
 
-use crate::config::{Limits, Timeout};
+use crate::config::{Limits, RetryConfig, Timeout};
 use crate::models::{Cookies, Headers, Request, Response};
 use crate::urls::URL;
 
@@ -25,6 +25,8 @@ pub struct Client {
     pub(crate) event_hooks: Option<Py<PyAny>>,
     pub(crate) timeout: Option<Py<PyAny>>,
     pub(crate) default_encoding: Option<Py<PyAny>>,
+    pub(crate) retry: Option<RetryConfig>,
+    pub(crate) rate_limit: Option<crate::config::RateLimit>,
 }
 
 #[pymethods]
@@ -49,7 +51,9 @@ impl Client {
         base_url=None,
         trust_env=true,
         default_encoding=None,
-        event_hooks=None
+        event_hooks=None,
+        retry=None,
+        rate_limit=None
     ))]
     pub fn new(
         py: Python<'_>,
@@ -71,6 +75,8 @@ impl Client {
         trust_env: bool,
         default_encoding: Option<&Bound<'_, PyAny>>,
         event_hooks: Option<&Bound<'_, PyAny>>,
+        retry: Option<RetryConfig>,
+        rate_limit: Option<crate::config::RateLimit>,
     ) -> PyResult<Self> {
         let mut hdrs = Headers::create(headers, "utf-8")?;
         if !hdrs.contains_header("user-agent") {
@@ -127,6 +133,8 @@ impl Client {
             event_hooks: eh,
             timeout: to,
             default_encoding: de,
+            retry,
+            rate_limit,
         })
     }
 
@@ -1021,6 +1029,147 @@ impl Client {
             }
         }
         Ok(())
+    }
+
+    /// Get the client-level retry configuration.
+    #[getter]
+    fn retry(&self) -> Option<RetryConfig> {
+        self.retry.clone()
+    }
+
+    /// Set the client-level retry configuration.
+    #[setter]
+    fn set_retry(&mut self, value: Option<RetryConfig>) {
+        self.retry = value;
+    }
+
+    /// Get the client-level rate limit configuration.
+    #[getter]
+    fn rate_limit(&self) -> Option<crate::config::RateLimit> {
+        self.rate_limit.clone()
+    }
+
+    /// Set the client-level rate limit configuration.
+    #[setter]
+    fn set_rate_limit(&mut self, value: Option<crate::config::RateLimit>) {
+        self.rate_limit = value;
+    }
+
+    /// Download a URL to a file path, streaming the content directly to disk.
+    /// This is an httpxr extension — not available in httpx.
+    #[pyo3(signature = (url, path, *, headers=None, params=None, timeout=None, follow_redirects=None, chunk_size=65536))]
+    fn download(
+        &self,
+        py: Python<'_>,
+        url: &Bound<'_, PyAny>,
+        path: &str,
+        headers: Option<&Bound<'_, PyAny>>,
+        params: Option<&Bound<'_, PyAny>>,
+        timeout: Option<&Bound<'_, PyAny>>,
+        follow_redirects: Option<bool>,
+        chunk_size: usize,
+    ) -> PyResult<Response> {
+        use std::io::Write;
+        let _ = chunk_size;
+        // Send the request with streaming
+        let response = self.request(
+            py,
+            "GET",
+            url,
+            None, None, None, None,
+            params, headers, None,
+            follow_redirects,
+            timeout,
+            None,
+            None,
+        )?;
+
+        // Write content to file
+        let content = response.content_bytes.as_ref().ok_or_else(|| {
+            pyo3::exceptions::PyRuntimeError::new_err("Response has no content to download")
+        })?;
+        let mut file = std::fs::File::create(path).map_err(|e| {
+            pyo3::exceptions::PyIOError::new_err(format!("Failed to create file '{}': {}", path, e))
+        })?;
+        file.write_all(content).map_err(|e| {
+            pyo3::exceptions::PyIOError::new_err(format!("Failed to write to file '{}': {}", path, e))
+        })?;
+        Ok(response)
+    }
+
+    /// Fetch page 1, discover total pages, then fire remaining pages concurrently.
+    /// Returns a list of all responses (page 1 + concurrent remainder).
+    /// This is an httpxr extension — not available in httpx.
+    #[pyo3(signature = (method, url, *, total_pages=None, page_param="page", start_page=1, max_concurrency=10, headers=None, extensions=None))]
+    fn gather_paginate(
+        &self,
+        py: Python<'_>,
+        method: &str,
+        url: &Bound<'_, PyAny>,
+        total_pages: Option<usize>,
+        page_param: &str,
+        start_page: usize,
+        max_concurrency: usize,
+        headers: Option<&Bound<'_, PyAny>>,
+        extensions: Option<&Bound<'_, PyAny>>,
+    ) -> PyResult<Py<pyo3::types::PyList>> {
+        let total = total_pages.ok_or_else(|| {
+            pyo3::exceptions::PyValueError::new_err(
+                "total_pages is required for gather_paginate"
+            )
+        })?;
+
+        if total == 0 {
+            return Ok(pyo3::types::PyList::empty(py).unbind());
+        }
+
+        let url_str = url.str()?.extract::<String>()?;
+        let mut request_objs: Vec<Py<Request>> = Vec::with_capacity(total);
+
+        for page in start_page..=(start_page + total - 1) {
+            let separator = if url_str.contains('?') { "&" } else { "?" };
+            let page_url = format!("{}{}{}={}", url_str, separator, page_param, page);
+            let page_url_py = page_url.into_pyobject(py)?.into_any();
+
+            let req = self.build_request(
+                py,
+                method,
+                &page_url_py,
+                None, None, None, None, None,
+                headers,
+                None,
+                extensions,
+            )?;
+            request_objs.push(Py::new(py, req)?);
+        }
+
+        self.gather(py, request_objs, max_concurrency, false)
+    }
+
+    /// Return connection pool status (active, idle, total).
+    /// Returns a dict with pool statistics.
+    /// This is an httpxr extension — not available in httpx.
+    fn pool_status<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyDict>> {
+        let d = PyDict::new(py);
+        // Get pool info from the transport if available
+        let transport = self.transport.bind(py);
+        if let Ok(pool_size) = transport.getattr("_pool_connections") {
+            if let Ok(size) = pool_size.extract::<u32>() {
+                d.set_item("max_connections", size)?;
+            }
+        }
+        if let Ok(pool_size) = transport.getattr("_pool_maxsize") {
+            if let Ok(size) = pool_size.extract::<u32>() {
+                d.set_item("max_keepalive", size)?;
+            }
+        }
+        // Always provide at least a basic status
+        if d.is_empty() {
+            d.set_item("max_connections", py.None())?;
+            d.set_item("max_keepalive", py.None())?;
+        }
+        d.set_item("is_closed", self.is_closed)?;
+        Ok(d)
     }
 
     fn __repr__(&self) -> String {

@@ -571,6 +571,59 @@ impl Response {
         }
     }
 
+    /// Return the raw JSON content bytes without Python string decoding.
+    /// This allows combining with orjson.loads() for maximum throughput.
+    /// This is an httpxr extension — not available in httpx.
+    fn json_bytes<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyBytes>> {
+        let content = self.content_bytes.as_ref().ok_or_else(|| {
+            crate::exceptions::ResponseNotRead::new_err(
+                "Attempted to access json_bytes, without having called `read()`.",
+            )
+        })?;
+        Ok(PyBytes::new(py, content))
+    }
+
+    /// Parse each line of the response body as JSON (NDJSON / JSON Lines).
+    /// Returns a list of parsed Python objects.
+    /// This is an httpxr extension — not available in httpx.
+    fn iter_json(&self, py: Python<'_>) -> PyResult<Py<pyo3::types::PyList>> {
+        let content = self.content_bytes.as_ref().ok_or_else(|| {
+            crate::exceptions::ResponseNotRead::new_err(
+                "Attempted to access iter_json, without having called `read()`.",
+            )
+        })?;
+        let text = String::from_utf8_lossy(content);
+        let result = pyo3::types::PyList::empty(py);
+        for line in text.lines() {
+            let trimmed = line.trim();
+            if trimmed.is_empty() {
+                continue;
+            }
+            // Skip SSE event prefixes
+            if trimmed.starts_with("event:") || trimmed.starts_with("id:") || trimmed.starts_with("retry:") {
+                continue;
+            }
+            let json_str = if let Some(stripped) = trimmed.strip_prefix("data:") {
+                stripped.trim()
+            } else {
+                trimmed
+            };
+            if json_str.is_empty() || json_str == "[DONE]" {
+                continue;
+            }
+            match serde_json::from_str::<serde_json::Value>(json_str) {
+                Ok(val) => {
+                    result.append(serde_value_to_py(py, &val)?)?;
+                }
+                Err(_) => {
+                    let json_mod = py.import("json")?;
+                    result.append(json_mod.call_method1("loads", (json_str,))?)?;
+                }
+            }
+        }
+        Ok(result.unbind())
+    }
+
     #[getter]
     fn get_request(&mut self, py: Python<'_>) -> PyResult<Request> {
         if self.request.is_none() {

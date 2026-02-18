@@ -434,11 +434,83 @@ fn rand_jitter() -> f64 {
     (nanos as f64) / 1_000_000_000.0
 }
 
+/// Rate limiting configuration.
+/// Limits the number of requests per second to avoid overwhelming APIs.
+/// Can be combined with RetryConfig for automatic 429 back-off.
+#[pyclass(from_py_object)]
+#[derive(Clone, Debug)]
+pub struct RateLimit {
+    #[pyo3(get, set)]
+    pub requests_per_second: f64,
+    #[pyo3(get, set)]
+    pub burst: u32,
+    /// Internal: tracks the last request time for simple token bucket
+    #[pyo3(get)]
+    pub _tokens: f64,
+    #[pyo3(get)]
+    pub _last_refill: f64,
+}
+
+#[pymethods]
+impl RateLimit {
+    #[new]
+    #[pyo3(signature = (requests_per_second=10.0, burst=None))]
+    fn new(requests_per_second: f64, burst: Option<u32>) -> Self {
+        let burst_val = burst.unwrap_or(requests_per_second.ceil() as u32);
+        RateLimit {
+            requests_per_second,
+            burst: burst_val,
+            _tokens: burst_val as f64,
+            _last_refill: 0.0,
+        }
+    }
+
+    fn __repr__(&self) -> String {
+        format!(
+            "RateLimit(requests_per_second={}, burst={})",
+            self.requests_per_second, self.burst
+        )
+    }
+
+    fn __eq__(&self, other: &RateLimit) -> bool {
+        self.requests_per_second == other.requests_per_second
+            && self.burst == other.burst
+    }
+
+    /// Calculate how long to wait before the next request can be sent.
+    fn wait_time(&mut self) -> f64 {
+        use std::time::SystemTime;
+        let now = SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs_f64();
+
+        if self._last_refill == 0.0 {
+            self._last_refill = now;
+            self._tokens = self.burst as f64;
+        }
+
+        // Refill tokens
+        let elapsed = now - self._last_refill;
+        self._tokens = (self._tokens + elapsed * self.requests_per_second)
+            .min(self.burst as f64);
+        self._last_refill = now;
+
+        if self._tokens >= 1.0 {
+            self._tokens -= 1.0;
+            0.0
+        } else {
+            (1.0 - self._tokens) / self.requests_per_second
+        }
+    }
+}
+
 pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<Timeout>()?;
     m.add_class::<Limits>()?;
     m.add_class::<Proxy>()?;
     m.add_class::<RetryConfig>()?;
+    m.add_class::<RateLimit>()?;
     m.add_function(wrap_pyfunction!(create_ssl_context, m)?)?;
     let py = m.py();
     let default_bound = pyo3::types::PyFloat::new(py, 5.0);

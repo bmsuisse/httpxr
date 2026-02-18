@@ -2,7 +2,7 @@ use pyo3::prelude::*;
 use pyo3::types::{PyAnyMethods, PyBytes, PyDict, PyDictMethods, PyString};
 use std::time::Instant;
 
-use crate::config::{Limits, Timeout};
+use crate::config::{Limits, RetryConfig, Timeout};
 use crate::models::{Cookies, Headers, Request, Response};
 use crate::urls::URL;
 
@@ -33,6 +33,8 @@ pub struct AsyncClient {
     pub(crate) cached_write_timeout: Option<f64>,
     pub(crate) cached_pool_timeout: Option<f64>,
     pub(crate) cached_base_url_str: Option<String>,
+    pub(crate) retry: Option<RetryConfig>,
+    pub(crate) rate_limit: Option<crate::config::RateLimit>,
 }
 
 #[pymethods]
@@ -57,7 +59,9 @@ impl AsyncClient {
         base_url=None,
         trust_env=true,
         default_encoding=None,
-        event_hooks=None
+        event_hooks=None,
+        retry=None,
+        rate_limit=None
     ))]
     fn new(
         py: Python<'_>,
@@ -79,6 +83,8 @@ impl AsyncClient {
         trust_env: bool,
         default_encoding: Option<&Bound<'_, PyAny>>,
         event_hooks: Option<&Bound<'_, PyAny>>,
+        retry: Option<RetryConfig>,
+        rate_limit: Option<crate::config::RateLimit>,
     ) -> PyResult<Self> {
         let mut hdrs = Headers::create(headers, "utf-8")?;
         if !hdrs.contains_header("user-agent") {
@@ -170,6 +176,8 @@ impl AsyncClient {
             cached_write_timeout,
             cached_pool_timeout,
             cached_base_url_str,
+            retry,
+            rate_limit,
         })
     }
 
