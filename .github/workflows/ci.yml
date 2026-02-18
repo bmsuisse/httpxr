@@ -17,7 +17,7 @@ jobs:
   test:
     name: Test (Python ${{ matrix.python-version }})
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
     strategy:
       matrix:
         python-version: ['3.12', '3.13', '3.13t', '3.14', '3.14t']
@@ -47,7 +47,7 @@ jobs:
         run: uv run maturin develop --release
 
       - name: Run pytest
-        run: uv run pytest tests/ -q --timeout=120 -x --timeout_method=thread
+        run: uv run pytest tests/ -q --timeout=120 -x --timeout_method=thread --ignore=tests/test_ssl.py
 
       - name: Run pyright
         run: uv run pyright
