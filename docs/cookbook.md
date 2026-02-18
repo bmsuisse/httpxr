@@ -383,3 +383,103 @@ with httpxr.Client(transport=transport) as client:
     r = client.get("https://api.example.com/nope")
     assert r.status_code == 404
 ```
+
+---
+
+## OpenAI Chat Streaming (SSE)
+
+Use `httpxr.sse` to stream chat completions from OpenAI or any SSE endpoint:
+
+```python
+import json
+import httpxr
+from httpxr.sse import connect_sse
+
+with httpxr.Client(timeout=60.0) as client:
+    with connect_sse(
+        client,
+        "POST",
+        "https://api.openai.com/v1/chat/completions",
+        headers={"Authorization": "Bearer YOUR_KEY"},
+        json={
+            "model": "gpt-4o",
+            "stream": True,
+            "messages": [{"role": "user", "content": "Hello!"}],
+        },
+    ) as source:
+        for event in source.iter_sse():
+            if event.data == "[DONE]":
+                break
+            chunk = json.loads(event.data)
+            delta = chunk["choices"][0]["delta"]
+            print(delta.get("content", ""), end="", flush=True)
+    print()
+```
+
+---
+
+## Download a File
+
+Use `client.download()` for a one-liner file download:
+
+```python
+import httpxr
+
+with httpxr.Client() as client:
+    resp = client.download(
+        "https://example.com/dataset.csv",
+        "/tmp/dataset.csv",
+    )
+    print(f"✓ {resp.status_code} — saved to /tmp/dataset.csv")
+```
+
+---
+
+## Fast JSON Parsing with orjson
+
+Use `response.json_bytes()` to feed raw bytes directly into
+[orjson](https://github.com/ijl/orjson) and skip the UTF-8 decode step:
+
+```python
+import orjson
+import httpxr
+
+with httpxr.Client() as client:
+    response = client.get("https://api.example.com/large-payload")
+    # Bytes → parse directly (no intermediate str)
+    data = orjson.loads(response.json_bytes())
+    print(data)
+```
+
+---
+
+## Resilient API Client
+
+Combine `RetryConfig` and `RateLimit` for a production-ready client that
+handles transient failures and respects API rate limits:
+
+```python
+import httpxr
+
+client = httpxr.Client(
+    base_url="https://api.example.com",
+    headers={"Authorization": "Bearer YOUR_TOKEN"},
+    retry=httpxr.RetryConfig(
+        max_retries=3,
+        backoff_factor=0.5,
+        retry_on_status=[429, 500, 502, 503, 504],
+        jitter=True,
+    ),
+    rate_limit=httpxr.RateLimit(
+        requests_per_second=10.0,
+        burst=20,
+    ),
+    timeout=30.0,
+)
+
+with client:
+    for item_id in range(1000):
+        r = client.get(f"/items/{item_id}")
+        r.raise_for_status()
+        print(r.json())
+```

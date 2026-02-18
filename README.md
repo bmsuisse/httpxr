@@ -127,7 +127,9 @@ asyncio.run(main())
 - `MockTransport`, `ASGITransport`, `WSGITransport` — test transports
 - Authentication flows, redirects, streaming, event hooks
 - HTTP/1.1 & HTTP/2, SOCKS proxy support
+- Server-Sent Events via `httpxr.sse` (port of [httpx-sse](https://github.com/florimondmanca/httpx-sse))
 - CLI via `httpxr` command (requires `pip install "httpxr[cli]"`)
+- Python 3.10, 3.11, 3.12, 3.13
 ---
 
 ## httpxr Extensions
@@ -175,6 +177,64 @@ pages = client.paginate("GET", url, next_func=my_extractor)
 | `max_pages` | `100` | Stop after N pages |
 
 Both methods are available on `Client` (sync) and `AsyncClient` (async). See [`examples/gather.py`](examples/gather.py) and [`examples/paginate.py`](examples/paginate.py) for full examples.
+
+### `gather_raw()` — Batch Raw Requests
+
+Like `gather()` but returns `(status, headers, body)` tuples — maximum throughput
+for high-volume workloads where you don't need full `Response` objects.
+
+### `paginate_get()` / `paginate_post()` — Convenience Wrappers
+
+Shorthand for `paginate("GET", ...)` and `paginate("POST", ...)`.
+
+### `gather_paginate()` — Concurrent Paginated Fetches
+
+Fetch all pages from multiple paginated endpoints concurrently in one call.
+
+### `download()` — Direct File Download
+
+```python
+with httpxr.Client() as client:
+    client.download("https://example.com/data.csv", "/tmp/data.csv")
+```
+
+### `response.json_bytes()` — Raw JSON Bytes
+
+Returns the response body as `bytes` without the UTF-8 decode step — feed
+directly into [orjson](https://github.com/ijl/orjson) or [msgspec](https://github.com/jcrist/msgspec).
+
+### `response.iter_json()` — NDJSON & SSE Streaming
+
+Parse NDJSON or SSE responses as a stream of Python dicts. Handles `data:` prefixes
+and `[DONE]` sentinels automatically.
+
+### `RetryConfig` — Automatic Retries
+
+```python
+with httpxr.Client(retry=httpxr.RetryConfig(max_retries=3, backoff_factor=0.5)) as client:
+    r = client.get("https://api.example.com/flaky")
+```
+
+### `RateLimit` — Request Throttling
+
+```python
+with httpxr.Client(rate_limit=httpxr.RateLimit(requests_per_second=10.0)) as client:
+    for i in range(1000):
+        client.get(f"https://api.example.com/items/{i}")  # auto-throttled
+```
+
+### `httpxr.sse` — Server-Sent Events
+
+```python
+from httpxr.sse import connect_sse
+
+with httpxr.Client() as client:
+    with connect_sse(client, "GET", "https://example.com/stream") as source:
+        for event in source.iter_sse():
+            print(event.event, event.data)
+```
+
+Port of [httpx-sse](https://github.com/florimondmanca/httpx-sse) — supports sync and async, `EventSource`, `ServerSentEvent`, and `SSEError`.
 
 ### Raw API — Maximum-Speed Dispatch
 

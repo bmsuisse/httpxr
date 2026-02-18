@@ -8,8 +8,17 @@ They leverage the Rust runtime for performance that's impossible in pure Python.
     | Need | Solution | API |
     |:---|:---|:---|
     | Fetch 100 URLs in parallel | `gather()` | Full `Response` objects |
-    | Auto-follow pagination | `paginate()` | Lazy iterator of pages |
+    | Batch raw requests (max speed) | `gather_raw()` | `(status, headers, body)` tuples |
+    | Auto-follow pagination | `paginate()` / `paginate_get()` | Lazy iterator of pages |
+    | Paginate + gather concurrently | `gather_paginate()` | All pages at once |
     | Minimum latency per request | Raw API | `(status, headers, body)` tuple |
+    | Download file to disk | `download()` | One-liner file save |
+    | Raw JSON bytes for fast parsers | `json_bytes()` | `bytes` |
+    | Parse NDJSON / SSE streams | `iter_json()` | Iterator of dicts |
+    | Server-Sent Events | `httpxr.sse` | `EventSource` |
+    | Automatic retries | `RetryConfig` | Exponential backoff |
+    | Request throttling | `RateLimit` | Token bucket |
+    | Connection pool introspection | `pool_status()` | Pool metrics dict |
     | Standard HTTP calls | `Client.get()` etc. | Full httpx API |
 
 ---
@@ -92,6 +101,32 @@ responses = client.gather(requests)
 1. **GIL release** — All HTTP work happens in Rust, so Python threads aren't blocked
 2. **Tokio runtime** — Requests use async I/O under the hood, even from sync Python
 3. **Connection pooling** — Connections are shared across concurrent requests
+
+---
+
+## gather_raw() — Concurrent Raw Requests { #gather-raw }
+
+Like `gather()`, but returns raw `(status, headers, body)` tuples instead of
+full `Response` objects. Maximum throughput for high-volume workloads.
+
+```python
+with httpxr.Client() as client:
+    requests = [
+        {"method": "GET", "url": f"https://api.example.com/items/{i}"}
+        for i in range(1000)
+    ]
+    results = client.gather_raw(requests, max_concurrency=50)
+
+    for status, headers, body in results:
+        if status == 200:
+            import json
+            data = json.loads(body)
+```
+
+!!! note "Trade-off"
+    `gather_raw()` sacrifices `Response` objects (no cookies, auth, redirects,
+    event hooks) for lower per-request overhead. Use it when throughput matters
+    more than API compatibility.
 
 ---
 
@@ -192,6 +227,41 @@ async with httpxr.AsyncClient() as client:
 !!! note "Exactly one strategy required"
     You must provide exactly one of `next_url`, `next_header`, or `next_func`.
 
+### Convenience Wrappers
+
+`paginate_get()` and `paginate_post()` are shorthand for common cases:
+
+```python
+# Equivalent to paginate("GET", url, ...)
+for page in client.paginate_get(url, next_url="@odata.nextLink"):
+    ...
+
+# POST-based pagination (e.g. GraphQL cursor)
+for page in client.paginate_post(url, json={"cursor": None}, next_func=get_cursor):
+    ...
+```
+
+---
+
+## gather_paginate() — Concurrent Paginated Fetches { #gather-paginate }
+
+Fetch all pages from multiple paginated endpoints concurrently:
+
+```python
+endpoints = [
+    {"url": "https://api.example.com/users", "next_url": "@odata.nextLink"},
+    {"url": "https://api.example.com/orders", "next_url": "@odata.nextLink"},
+    {"url": "https://api.example.com/products", "next_url": "@odata.nextLink"},
+]
+
+with httpxr.Client() as client:
+    all_results = client.gather_paginate(endpoints, max_concurrency=3)
+    # Returns list of lists — one list of pages per endpoint
+    for pages in all_results:
+        for page in pages:
+            print(page.json())
+```
+
 ---
 
 ## Raw API — Maximum-Speed Dispatch { #raw-api }
@@ -233,3 +303,140 @@ All raw methods accept:
     The raw API sacrifices httpx compatibility (no `Response` object, cookies,
     auth, redirects, or event hooks) for ~2× lower per-request latency. Use it
     only when every microsecond counts.
+
+---
+
+## download() — Direct File Download { #download }
+
+Download a URL directly to a file on disk in one line. Returns the `Response`
+for status/header inspection.
+
+```python
+with httpxr.Client() as client:
+    resp = client.download("https://example.com/data.csv", "/tmp/data.csv")
+    print(f"{resp.status_code} — {resp.headers.get('content-type')}")
+```
+
+Compared to manual streaming:
+
+```python
+# download() — one line
+client.download(url, "/tmp/file.bin")
+
+# Equivalent manual streaming
+with client.stream("GET", url) as response:
+    with open("/tmp/file.bin", "wb") as f:
+        for chunk in response.iter_bytes():
+            f.write(chunk)
+```
+
+---
+
+## response.json_bytes() — Raw JSON Bytes { #json-bytes }
+
+Returns the response body as raw `bytes` without the UTF-8 decode step.
+Feed directly into fast JSON parsers like [orjson](https://github.com/ijl/orjson)
+or [msgspec](https://github.com/jcrist/msgspec).
+
+```python
+import orjson
+import httpxr
+
+with httpxr.Client() as client:
+    response = client.get("https://api.example.com/data")
+
+    # Standard: bytes → str → parse (two copies)
+    data = response.json()
+
+    # Fast path: bytes → parse directly (one copy)
+    data = orjson.loads(response.json_bytes())
+```
+
+!!! tip "When to use"
+    `json_bytes()` is most useful when combined with a bytes-native parser like
+    `orjson` or `msgspec`. With the standard `json` module, the difference is
+    minimal since `json.loads()` accepts both `str` and `bytes`.
+
+---
+
+## response.iter_json() — NDJSON & SSE Streaming { #iter-json }
+
+Parse newline-delimited JSON (NDJSON) or Server-Sent Events (SSE) responses
+as a stream of Python objects.
+
+### NDJSON
+
+```python
+with client.stream("GET", "https://api.example.com/events") as response:
+    for obj in response.iter_json():
+        print(obj)  # each line parsed as a dict
+```
+
+### SSE / OpenAI-style streaming
+
+`iter_json()` automatically strips `data:` prefixes and skips `[DONE]` sentinels:
+
+```python
+with client.stream("POST", "https://api.openai.com/v1/chat/completions",
+                   json={"model": "gpt-4o", "stream": True, ...}) as response:
+    for chunk in response.iter_json():
+        delta = chunk["choices"][0]["delta"]
+        print(delta.get("content", ""), end="", flush=True)
+```
+
+!!! note "Full SSE support"
+    For complete SSE support including `event`, `id`, and `retry` fields,
+    use [`httpxr.sse`](sse.md) instead.
+
+---
+
+## pool_status() — Connection Pool Introspection { #pool-status }
+
+Inspect the current state of the connection pool:
+
+```python
+with httpxr.Client() as client:
+    # Make some requests...
+    client.get("https://api.example.com/a")
+    client.get("https://api.example.com/b")
+
+    status = client.pool_status()
+    print(status)
+    # {
+    #   "idle_connections": 2,
+    #   "active_connections": 0,
+    #   "max_connections": 100,
+    # }
+```
+
+Useful for debugging connection exhaustion or verifying pool configuration.
+
+---
+
+## RetryConfig & RateLimit { #resilience }
+
+Built-in retry and rate-limiting without external dependencies.
+
+```python
+client = httpxr.Client(
+    retry=httpxr.RetryConfig(max_retries=3, backoff_factor=0.5),
+    rate_limit=httpxr.RateLimit(requests_per_second=10.0, burst=20),
+)
+```
+
+See the full [Resilience guide](resilience.md) for all options and patterns.
+
+---
+
+## Server-Sent Events { #sse }
+
+```python
+from httpxr.sse import connect_sse
+
+with httpxr.Client() as client:
+    with connect_sse(client, "GET", "https://example.com/stream") as source:
+        for event in source.iter_sse():
+            print(event.event, event.data)
+```
+
+See the full [SSE guide](sse.md) for async support, OpenAI streaming, and more.

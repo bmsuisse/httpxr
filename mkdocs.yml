@@ -64,6 +64,8 @@ nav:
     - Cookbook: cookbook.md
   - Extensions:
     - Overview: extensions.md
+    - Server-Sent Events: sse.md
+    - Resilience (Retry & Rate Limit): resilience.md
   - Reference:
     - CLI: cli.md
     - Testing: testing.md
