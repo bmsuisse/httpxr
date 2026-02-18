@@ -5,30 +5,14 @@ use pyo3::Python;
 use crate::models::{Headers, Request, Response};
 use std::io::Read;
 
-/// Type alias for the hyper-util pooled HTTP client.
-/// Uses hyper-rustls for TLS and http-body-util for body types.
-type HyperClient = hyper_util::client::legacy::Client<
-    hyper_rustls::HttpsConnector<hyper_util::client::legacy::connect::HttpConnector>,
-    http_body_util::Empty<bytes::Bytes>,
->;
-
 /// Synchronous HTTP Transport backed by reqwest with a persistent tokio runtime.
 ///
 /// Uses async `reqwest::Client` driven by a shared single-threaded tokio runtime.
 /// The runtime is created once during `create()` and reused for all requests,
 /// avoiding the ~300μs overhead of per-request runtime creation.
-///
-/// For the ultra-fast path, a direct `hyper-util` pooled client is also created
-/// to bypass reqwest's middleware overhead (redirect policy, cookie jar, proxy
-/// resolution, response wrapper types).
 #[pyclass]
 pub struct HTTPTransport {
     pub(crate) client: reqwest::Client,
-    /// Direct hyper client for the ultra-fast path — skips all reqwest middleware.
-    /// None when custom certs/proxy are configured (to avoid interfering with reqwest's TLS).
-    pub(crate) hyper_client: Option<HyperClient>,
-    /// Whether to use the hyper fast path (false when custom certs/proxy configured).
-    pub(crate) use_hyper_fast_path: bool,
     /// Kept alive for RAII — the `handle` references this runtime.
     _rt: tokio::runtime::Runtime,
     pub(crate) handle: tokio::runtime::Handle,
@@ -43,7 +27,6 @@ impl HTTPTransport {
         _limits: Option<&crate::config::Limits>,
         proxy: Option<&crate::config::Proxy>,
         _retries: u32,
-        has_custom_ssl_context: bool,
     ) -> PyResult<Self> {
         let mut builder = reqwest::Client::builder()
             .danger_accept_invalid_certs(!verify)
@@ -82,8 +65,6 @@ impl HTTPTransport {
             pyo3::exceptions::PyRuntimeError::new_err(format!("Failed to create client: {}", e))
         })?;
 
-        let use_hyper_fast_path = proxy.is_none() && root_cert_path.is_none() && !has_custom_ssl_context;
-
         let rt = tokio::runtime::Builder::new_multi_thread()
             .worker_threads(1)
             .enable_all()
@@ -95,78 +76,14 @@ impl HTTPTransport {
                 ))
             })?;
 
-        let hyper_client = if use_hyper_fast_path {
-            let make_http_connector = || {
-                let mut c = hyper_util::client::legacy::connect::HttpConnector::new();
-                c.enforce_http(false);
-                c.set_nodelay(true);
-                c.set_keepalive(Some(std::time::Duration::from_secs(60)));
-                c
-            };
-
-            let provider = std::sync::Arc::new(rustls::crypto::ring::default_provider());
-
-            let https_connector = if verify {
-                let root_store = rustls::RootCertStore::from_iter(
-                    webpki_roots::TLS_SERVER_ROOTS.iter().cloned(),
-                );
-                let tls_config = rustls::ClientConfig::builder_with_provider(provider)
-                    .with_safe_default_protocol_versions()
-                    .map_err(|e| {
-                        pyo3::exceptions::PyRuntimeError::new_err(format!(
-                            "Failed to configure TLS: {}", e
-                        ))
-                    })?
-                    .with_root_certificates(root_store)
-                    .with_no_client_auth();
-                hyper_rustls::HttpsConnectorBuilder::new()
-                    .with_tls_config(tls_config)
-                    .https_or_http()
-                    .enable_http1()
-                    .wrap_connector(make_http_connector())
-            } else {
-                let tls_config = rustls::ClientConfig::builder_with_provider(provider)
-                    .with_safe_default_protocol_versions()
-                    .map_err(|e| {
-                        pyo3::exceptions::PyRuntimeError::new_err(format!(
-                            "Failed to configure TLS: {}", e
-                        ))
-                    })?
-                    .dangerous()
-                    .with_custom_certificate_verifier(std::sync::Arc::new(NoVerifier))
-                    .with_no_client_auth();
-                hyper_rustls::HttpsConnectorBuilder::new()
-                    .with_tls_config(tls_config)
-                    .https_or_http()
-                    .enable_http1()
-                    .wrap_connector(make_http_connector())
-            };
-
-            let hc = {
-                let _guard = rt.handle().enter();
-                hyper_util::client::legacy::Client::builder(
-                    hyper_util::rt::TokioExecutor::new()
-                )
-                    .pool_idle_timeout(None)
-                    .pool_max_idle_per_host(64)
-                    .build(https_connector)
-            };
-            Some(hc)
-        } else {
-            None
-        };
-
         let proxy_url_str = proxy.map(|p| p.url.clone());
         let handle = rt.handle().clone();
         Ok(HTTPTransport {
             client,
-            hyper_client,
-            use_hyper_fast_path,
             _rt: rt,
             handle,
             proxy_url: proxy_url_str,
         })
-
     }
 
     pub fn send_request(&self, py: Python<'_>, request: &Request) -> PyResult<Response> {
@@ -587,7 +504,7 @@ impl HTTPTransport {
         } else {
             None
         };
-        Self::create(verify, cert, http2, limits, proxy_obj.as_ref(), retries, false)
+        Self::create(verify, cert, http2, limits, proxy_obj.as_ref(), retries)
     }
 
     fn handle_request(&self, py: Python<'_>, request: &Request) -> PyResult<Response> {
@@ -635,8 +552,6 @@ impl HTTPTransport {
 #[pyclass]
 pub struct AsyncHTTPTransport {
     client: reqwest::Client,
-    #[allow(dead_code)]  // Used from async_client.rs
-    hyper_client: Option<HyperClient>,
     proxy_url: Option<String>,
     pool_semaphore: Option<std::sync::Arc<tokio::sync::Semaphore>>,
 }
@@ -700,68 +615,9 @@ impl AsyncHTTPTransport {
             pyo3::exceptions::PyRuntimeError::new_err(format!("Failed to create client: {}", e))
         })?;
 
-        let hyper_client = if proxy.is_none() && root_cert_path.is_none() {
-            let make_http_connector = || {
-                let mut c = hyper_util::client::legacy::connect::HttpConnector::new();
-                c.enforce_http(false);
-                c.set_nodelay(true);
-                c.set_keepalive(Some(std::time::Duration::from_secs(60)));
-                c
-            };
-
-            let provider = std::sync::Arc::new(rustls::crypto::ring::default_provider());
-
-            let https_connector = if verify {
-                let root_store = rustls::RootCertStore::from_iter(
-                    webpki_roots::TLS_SERVER_ROOTS.iter().cloned(),
-                );
-                let tls_config = rustls::ClientConfig::builder_with_provider(provider)
-                    .with_safe_default_protocol_versions()
-                    .map_err(|e| {
-                        pyo3::exceptions::PyRuntimeError::new_err(format!(
-                            "Failed to configure TLS: {}", e
-                        ))
-                    })?
-                    .with_root_certificates(root_store)
-                    .with_no_client_auth();
-                hyper_rustls::HttpsConnectorBuilder::new()
-                    .with_tls_config(tls_config)
-                    .https_or_http()
-                    .enable_http1()
-                    .wrap_connector(make_http_connector())
-            } else {
-                let tls_config = rustls::ClientConfig::builder_with_provider(provider)
-                    .with_safe_default_protocol_versions()
-                    .map_err(|e| {
-                        pyo3::exceptions::PyRuntimeError::new_err(format!(
-                            "Failed to configure TLS: {}", e
-                        ))
-                    })?
-                    .dangerous()
-                    .with_custom_certificate_verifier(std::sync::Arc::new(NoVerifier))
-                    .with_no_client_auth();
-                hyper_rustls::HttpsConnectorBuilder::new()
-                    .with_tls_config(tls_config)
-                    .https_or_http()
-                    .enable_http1()
-                    .wrap_connector(make_http_connector())
-            };
-
-            let hc = hyper_util::client::legacy::Client::builder(
-                hyper_util::rt::TokioExecutor::new()
-            )
-                .pool_idle_timeout(None)
-                .pool_max_idle_per_host(64)
-                .build(https_connector);
-            Some(hc)
-        } else {
-            None
-        };
-
         let proxy_url_str = proxy.map(|p| p.url.clone());
         Ok(AsyncHTTPTransport {
             client,
-            hyper_client,
             proxy_url: proxy_url_str,
             pool_semaphore,
         })
@@ -772,11 +628,7 @@ impl AsyncHTTPTransport {
         self.client.clone()
     }
 
-    /// Get a reference to the hyper client for ultra-fast-path usage.
-    #[allow(dead_code)]  // Used from async_client.rs
-    pub fn get_hyper_client(&self) -> Option<&HyperClient> {
-        self.hyper_client.as_ref()
-    }
+
 
 
 
@@ -1218,46 +1070,4 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<HTTPTransport>()?;
     m.add_class::<AsyncHTTPTransport>()?;
     Ok(())
-}
-
-/// A TLS certificate verifier that accepts all certificates.
-/// Used only when `verify=false` is explicitly set.
-#[derive(Debug)]
-struct NoVerifier;
-
-impl rustls::client::danger::ServerCertVerifier for NoVerifier {
-    fn verify_server_cert(
-        &self,
-        _end_entity: &rustls::pki_types::CertificateDer<'_>,
-        _intermediates: &[rustls::pki_types::CertificateDer<'_>],
-        _server_name: &rustls::pki_types::ServerName<'_>,
-        _ocsp_response: &[u8],
-        _now: rustls::pki_types::UnixTime,
-    ) -> Result<rustls::client::danger::ServerCertVerified, rustls::Error> {
-        Ok(rustls::client::danger::ServerCertVerified::assertion())
-    }
-
-    fn verify_tls12_signature(
-        &self,
-        _message: &[u8],
-        _cert: &rustls::pki_types::CertificateDer<'_>,
-        _dss: &rustls::DigitallySignedStruct,
-    ) -> Result<rustls::client::danger::HandshakeSignatureValid, rustls::Error> {
-        Ok(rustls::client::danger::HandshakeSignatureValid::assertion())
-    }
-
-    fn verify_tls13_signature(
-        &self,
-        _message: &[u8],
-        _cert: &rustls::pki_types::CertificateDer<'_>,
-        _dss: &rustls::DigitallySignedStruct,
-    ) -> Result<rustls::client::danger::HandshakeSignatureValid, rustls::Error> {
-        Ok(rustls::client::danger::HandshakeSignatureValid::assertion())
-    }
-
-    fn supported_verify_schemes(&self) -> Vec<rustls::SignatureScheme> {
-        rustls::crypto::aws_lc_rs::default_provider()
-            .signature_verification_algorithms
-            .supported_schemes()
-    }
 }

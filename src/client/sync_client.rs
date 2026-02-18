@@ -25,15 +25,6 @@ pub struct Client {
     pub(crate) event_hooks: Option<Py<PyAny>>,
     pub(crate) timeout: Option<Py<PyAny>>,
     pub(crate) default_encoding: Option<Py<PyAny>>,
-    /// Pre-built raw header bytes — avoids cloning Headers on every request
-    pub(crate) cached_raw_headers: Vec<(Vec<u8>, Vec<u8>)>,
-    /// Pre-parsed timeout duration for the fast path
-    pub(crate) cached_timeout: Option<std::time::Duration>,
-    pub(crate) cached_connect_timeout: Option<f64>,
-    pub(crate) cached_read_timeout: Option<f64>,
-    pub(crate) cached_write_timeout: Option<f64>,
-    /// Pre-computed base URL string (trimmed of trailing /) for fast path concatenation
-    pub(crate) cached_base_url_str: Option<String>,
 }
 
 #[pymethods]
@@ -112,25 +103,6 @@ impl Client {
         let to = timeout.map(|t| t.clone().unbind());
         let de = default_encoding.map(|e| e.clone().unbind());
 
-        let cached_raw_headers = hdrs_py.bind(py).borrow().get_raw_items_owned();
-
-        let (cached_timeout, cached_connect_timeout, cached_read_timeout, cached_write_timeout) =
-            if let Some(ref t) = to {
-                if let Ok(t_val) = t.extract::<Timeout>(py) {
-                    let dur = [t_val.connect, t_val.read, t_val.write]
-                        .iter()
-                        .filter_map(|t| *t)
-                        .reduce(f64::min)
-                        .map(std::time::Duration::from_secs_f64);
-                    (dur, t_val.connect, t_val.read, t_val.write)
-                } else {
-                    (None, None, None, None)
-                }
-            } else {
-                (None, None, None, None)
-            };
-
-        let cached_base_url_str = base.as_ref().map(|b| b.to_string().trim_end_matches('/').to_string());
 
         Ok(Client {
             base_url: base,
@@ -155,12 +127,6 @@ impl Client {
             event_hooks: eh,
             timeout: to,
             default_encoding: de,
-            cached_raw_headers,
-            cached_timeout,
-            cached_connect_timeout,
-            cached_read_timeout,
-            cached_write_timeout,
-            cached_base_url_str,
         })
     }
 
@@ -199,7 +165,7 @@ impl Client {
         let has_valid_scheme = (url_str_for_check.starts_with("http://") && url_str_for_check.len() > 7)
             || (url_str_for_check.starts_with("https://") && url_str_for_check.len() > 8)
             || url_str_for_check.starts_with("/");
-        let can_fast_path = is_bodyless
+        let _can_fast_path = is_bodyless
             && has_valid_scheme
             && content.is_none()
             && data.is_none()
@@ -214,341 +180,7 @@ impl Client {
             && self.event_hooks.is_none()
             && self.mounts.is_empty();
 
-        if can_fast_path {
-            let t_bound = self.transport.bind(py);
-            if let Ok(t) = t_bound.cast::<crate::transports::default::HTTPTransport>() {
-                let transport = t.borrow();
-                if transport.use_hyper_fast_path {
 
-                let url_str = url_str_for_check;
-
-                let full_url = if let Some(ref base_str) = self.cached_base_url_str {
-                    if url_str.starts_with("http://") || url_str.starts_with("https://") {
-                        url_str
-                    } else {
-                        format!("{}{}", base_str, url_str)
-                    }
-                } else {
-                    url_str
-                };
-
-
-                let (timeout_val, _connect_timeout_val, _read_timeout_val, _write_timeout_val) =
-                    if let Some(t_arg) = timeout {
-                        if t_arg.is_none() {
-                            (None, None, None, None)
-                        } else {
-                            let t =
-                                Timeout::new(py, Some(t_arg), None, None, None, None)?;
-                            let dur = [t.connect, t.read, t.write]
-                                .iter()
-                                .filter_map(|t| *t)
-                                .reduce(f64::min)
-                                .map(std::time::Duration::from_secs_f64);
-                            (dur, t.connect, t.read, t.write)
-                        }
-                    } else {
-                        (self.cached_timeout, self.cached_connect_timeout, self.cached_read_timeout, self.cached_write_timeout)
-                    };
-
-                let raw_headers = &self.cached_raw_headers;
-
-                let extra_raw: Vec<(Vec<u8>, Vec<u8>)> = if let Some(h) = headers {
-                    let extra = Headers::create(Some(h), "utf-8")?;
-                    extra.get_raw_items_owned()
-                } else {
-                    Vec::new()
-                };
-
-                let method_reqwest = if method_bytes.eq_ignore_ascii_case(b"GET") {
-                    reqwest::Method::GET
-                } else if method_bytes.eq_ignore_ascii_case(b"HEAD") {
-                    reqwest::Method::HEAD
-                } else if method_bytes.eq_ignore_ascii_case(b"DELETE") {
-                    reqwest::Method::DELETE
-                } else {
-                    reqwest::Method::OPTIONS
-                };
-
-                let do_follow_redirects = follow_redirects.unwrap_or(self.follow_redirects);
-                let max_redirects = self.max_redirects;
-
-                let uri: hyper::Uri = full_url.parse().map_err(|e: hyper::http::uri::InvalidUri| {
-                    pyo3::exceptions::PyValueError::new_err(format!("Invalid URL: {}", e))
-                })?;
-                let method_hyper = hyper::Method::from(method_reqwest.clone());
-                let mut req = hyper::Request::builder()
-                    .method(method_hyper)
-                    .uri(&uri)
-                    .body(http_body_util::Empty::<bytes::Bytes>::new())
-                    .map_err(|e| {
-                        pyo3::exceptions::PyRuntimeError::new_err(format!("Failed to build request: {}", e))
-                    })?;
-                {
-                    let headers = req.headers_mut();
-                    for (key, value) in raw_headers {
-                        if let (Ok(name), Ok(val)) = (
-                            hyper::header::HeaderName::from_bytes(key),
-                            hyper::header::HeaderValue::from_bytes(value),
-                        ) {
-                            headers.append(name, val);
-                        }
-                    }
-                    for (key, value) in &extra_raw {
-                        if let (Ok(name), Ok(val)) = (
-                            hyper::header::HeaderName::from_bytes(key),
-                            hyper::header::HeaderValue::from_bytes(value),
-                        ) {
-                            headers.append(name, val);
-                        }
-                    }
-                }
-
-                let hyper_client = transport.hyper_client.as_ref().unwrap();
-                let reqwest_client = &transport.client;
-                let handle = &transport.handle;
-
-                type FastPathError = Box<dyn std::error::Error + Send + Sync>;
-                let result = py.detach(|| {
-                    handle.block_on(async {
-                        let response = if let Some(t) = timeout_val {
-                            match tokio::time::timeout(t, hyper_client.request(req)).await {
-                                Ok(r) => r.map_err(|e| -> FastPathError { Box::new(e) }),
-                                Err(_) => Err(Box::new(std::io::Error::new(std::io::ErrorKind::TimedOut, "request timed out")) as FastPathError),
-                            }
-                        } else {
-                            hyper_client.request(req).await.map_err(|e| -> FastPathError { Box::new(e) })
-                        }?;
-
-                        let status = response.status().as_u16();
-                        let is_redirect = do_follow_redirects && (300..400).contains(&status);
-
-                        if !is_redirect {
-                            let resp_headers: Vec<(Vec<u8>, Vec<u8>)> = response
-                                .headers()
-                                .iter()
-                                .map(|(k, v)| (k.as_str().as_bytes().to_vec(), v.as_bytes().to_vec()))
-                                .collect();
-                            let url = uri.to_string();
-                            use http_body_util::BodyExt;
-                            let body = response.into_body().collect().await
-                                .map_err(|e| -> FastPathError { Box::new(e) })?
-                                .to_bytes();
-                            Ok::<_, FastPathError>((status, resp_headers, body.to_vec(), url, Vec::new()))
-                        } else {
-
-                            let redirect_location = response.headers()
-                                .get("location")
-                                .and_then(|v| v.to_str().ok())
-                                .map(|s| s.to_string());
-                            let resp_headers: Vec<(Vec<u8>, Vec<u8>)> = response
-                                .headers()
-                                .iter()
-                                .map(|(k, v)| (k.as_str().as_bytes().to_vec(), v.as_bytes().to_vec()))
-                                .collect();
-                            let mut current_url = uri.to_string();
-                            use http_body_util::BodyExt;
-                            let body = response.into_body().collect().await
-                                .map_err(|e| -> FastPathError { Box::new(e) })?
-                                .to_bytes();
-
-                            let Some(loc) = redirect_location else {
-                                return Ok((status, resp_headers, body.to_vec(), current_url, Vec::new()));
-                            };
-
-                            let mut history: Vec<(u16, Vec<(Vec<u8>, Vec<u8>)>, Vec<u8>, String)> = Vec::new();
-                            history.push((status, resp_headers, body.to_vec(), current_url.clone()));
-                            let mut redirects_remaining = max_redirects - 1;
-
-                            current_url = if loc.starts_with("http://") || loc.starts_with("https://") {
-                                loc
-                            } else if let Ok(base) = reqwest::Url::parse(&current_url) {
-                                base.join(&loc).map(|u| u.to_string()).unwrap_or(loc)
-                            } else {
-                                loc
-                            };
-
-                            let raw_headers_owned = raw_headers.clone();
-
-                            loop {
-                                let mut rb = reqwest_client.request(method_reqwest.clone(),
-                                    reqwest::Url::parse(&current_url).unwrap());
-
-                                for (key, value) in &raw_headers_owned {
-                                    rb = rb.header(key.as_slice(), value.as_slice());
-                                }
-                                for (key, value) in &extra_raw {
-                                    rb = rb.header(key.as_slice(), value.as_slice());
-                                }
-                                if let Some(t) = timeout_val {
-                                    rb = rb.timeout(t);
-                                }
-
-                                let response = reqwest_client.execute(rb.build()?).await?;
-                                let status = response.status().as_u16();
-                                let is_redirect = (300..400).contains(&status);
-
-                                let redirect_location = if is_redirect {
-                                    response.headers()
-                                        .get("location")
-                                        .and_then(|v| v.to_str().ok())
-                                        .map(|s| s.to_string())
-                                } else {
-                                    None
-                                };
-
-                                let resp_headers: Vec<(Vec<u8>, Vec<u8>)> = response
-                                    .headers()
-                                    .iter()
-                                    .map(|(k, v)| (k.as_str().as_bytes().to_vec(), v.as_bytes().to_vec()))
-                                    .collect();
-
-                                let body = response.bytes().await?;
-
-                                if let Some(loc) = redirect_location {
-                                    if redirects_remaining == 0 {
-                                        break Ok((0u16, Vec::new(), b"too many redirects".to_vec(), current_url, history));
-                                    }
-                                    history.push((status, resp_headers, body.to_vec(), current_url.clone()));
-                                    redirects_remaining -= 1;
-                                    current_url = if loc.starts_with("http://") || loc.starts_with("https://") {
-                                        loc
-                                    } else if let Ok(base) = reqwest::Url::parse(&current_url) {
-                                        base.join(&loc).map(|u| u.to_string()).unwrap_or(loc)
-                                    } else {
-                                        loc
-                                    };
-                                    continue;
-                                }
-
-                                break Ok((status, resp_headers, body.to_vec(), current_url, history));
-                            }
-                        }
-                    })
-                }).map_err(|e: FastPathError| {
-                    let mut msg = e.to_string();
-                    let mut source = e.source();
-                    while let Some(s) = source {
-                        msg.push_str(": ");
-                        msg.push_str(&s.to_string());
-                        source = s.source();
-                    }
-                    if msg.contains("timed out") || msg.contains("deadline has elapsed") {
-                        if msg.contains("connect") {
-                            crate::exceptions::ConnectTimeout::new_err(msg)
-                        } else {
-                            crate::exceptions::ReadTimeout::new_err(msg)
-                        }
-                    } else if msg.contains("connect") || msg.contains("Connect") || msg.contains("dns") || msg.contains("resolve") || msg.contains("certificate") {
-                        crate::exceptions::ConnectError::new_err(msg)
-                    } else if msg.contains("too many redirects") {
-                        crate::exceptions::TooManyRedirects::new_err(msg)
-                    } else {
-                        crate::exceptions::NetworkError::new_err(msg)
-                    }
-                })?;
-
-
-                let (status_code, resp_headers, body_bytes, final_url, redirect_history) = result;
-
-                if status_code == 0 {
-                    return Err(crate::exceptions::TooManyRedirects::new_err(
-                        "Too many redirects".to_string(),
-                    ));
-                }
-
-                let elapsed = start.elapsed().as_secs_f64();
-
-                let reason_for = |code: u16| -> &'static str {
-                    match code {
-                        200 => "OK", 201 => "Created", 204 => "No Content",
-                        301 => "Moved Permanently", 302 => "Found", 303 => "See Other",
-                        304 => "Not Modified", 307 => "Temporary Redirect", 308 => "Permanent Redirect",
-                        400 => "Bad Request", 401 => "Unauthorized", 403 => "Forbidden",
-                        404 => "Not Found", 500 => "Internal Server Error",
-                        _ => "",
-                    }
-                };
-
-                let history_responses = if redirect_history.is_empty() {
-                    Vec::new()
-                } else {
-                    let mut hist: Vec<Response> = Vec::with_capacity(redirect_history.len());
-                    for (hist_status, hist_headers, hist_body, hist_url) in &redirect_history {
-                        let h_hdrs = Headers::from_raw_byte_pairs(hist_headers.clone());
-                        let h_ext = pyo3::types::PyDict::new(py);
-                        h_ext.set_item("http_version", PyBytes::new(py, b"HTTP/1.1"))?;
-                        let h_req_url = crate::urls::URL::create_from_str_fast(hist_url);
-                        let h_req = Request {
-                            method: method.to_uppercase(),
-                            url: h_req_url,
-                            headers: Py::new(py, Headers::empty())?,
-                            extensions: pyo3::types::PyDict::new(py).into(),
-                            content_body: None,
-                            stream: None,
-                            stream_response: false,
-                        };
-                        if log::log_enabled!(target: "httpxr", log::Level::Info) {
-                            log::info!(target: "httpxr", "HTTP Request: {} {} \"HTTP/1.1 {} {}\"", method, hist_url, hist_status, reason_for(*hist_status));
-                        }
-                        hist.push(Response {
-                            status_code: *hist_status,
-                            headers: Py::new(py, h_hdrs)?,
-                            extensions: h_ext.into(),
-                            request: Some(h_req),
-                            lazy_request_method: None,
-                            lazy_request_url: None,
-                            history: Vec::new(),
-                            content_bytes: Some(hist_body.clone()),
-                            stream: None,
-                            default_encoding: pyo3::types::PyString::intern(py, "utf-8").into_any().unbind(),
-                            default_encoding_override: None,
-                            elapsed: None,
-                            is_closed_flag: false,
-                            is_stream_consumed: false,
-                            was_streaming: false,
-                            text_accessed: std::sync::atomic::AtomicBool::new(false),
-                            num_bytes_downloaded_counter: std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0)),
-                        });
-                    }
-                    hist
-                };
-
-                let hdrs = Headers::from_raw_byte_pairs(resp_headers);
-
-                let lazy_method = method.to_uppercase();
-                let lazy_url = final_url.clone();
-
-                if log::log_enabled!(target: "httpxr", log::Level::Info) {
-                    log::info!(target: "httpxr", "HTTP Request: {} {} \"HTTP/1.1 {} {}\"", method, final_url, status_code, reason_for(status_code));
-                }
-
-                return Ok(Response {
-                    status_code,
-                    headers: Py::new(py, hdrs)?,
-                    extensions: py.None(),
-                    request: None,
-                    lazy_request_method: Some(lazy_method),
-                    lazy_request_url: Some(lazy_url),
-                    history: history_responses,
-                    content_bytes: Some(body_bytes),
-                    stream: None,
-                    default_encoding: pyo3::types::PyString::intern(py, "utf-8")
-                        .into_any()
-                        .unbind(),
-                    default_encoding_override: None,
-                    elapsed: Some(elapsed),
-                    is_closed_flag: false,
-                    is_stream_consumed: false,
-                    was_streaming: false,
-                    text_accessed: std::sync::atomic::AtomicBool::new(false),
-                    num_bytes_downloaded_counter: std::sync::Arc::new(
-                        std::sync::atomic::AtomicUsize::new(0),
-                    ),
-                });
-                } // end if transport.use_hyper_fast_path
-            }
-        }
 
         let method_upper = method.to_uppercase();
 
@@ -1494,7 +1126,6 @@ impl Client {
                         headers: None,
                     }),
                     0,
-                    false,
                 )?;
                 return Ok(Py::new(py, transport)?.into());
             }
