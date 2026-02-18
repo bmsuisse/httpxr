@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/bmsuisse/httpxr/actions/workflows/ci.yml/badge.svg)](https://github.com/bmsuisse/httpxr/actions/workflows/ci.yml)
 [![PyPI version](https://img.shields.io/pypi/v/httpxr.svg)](https://pypi.org/project/httpxr/)
-[![Python versions](https://img.shields.io/pypi/pyversions/httpxr.svg)](https://pypi.org/project/httpxr/)
+[![Python versions](https://img.shields.io/badge/python-3.10%20%7C%203.11%20%7C%203.12%20%7C%203.13-blue)](https://pypi.org/project/httpxr/)
 [![Docs](https://img.shields.io/badge/docs-online-blue?logo=materialformkdocs)](https://bmsuisse.github.io/httpxr/)
 
 A 1:1 Rust port of [httpx](https://github.com/encode/httpx) — same API, faster execution.
@@ -130,6 +130,33 @@ asyncio.run(main())
 - Server-Sent Events via `httpxr.sse` (port of [httpx-sse](https://github.com/florimondmanca/httpx-sse))
 - CLI via `httpxr` command (requires `pip install "httpxr[cli]"`)
 - Python 3.10, 3.11, 3.12, 3.13
+
+### Zero-Effort httpx Swap — `httpxr.compat`
+
+Already using `httpx` everywhere? Add **one line** to your entrypoint and every
+`import httpx` — including inside third-party libraries — will transparently use
+httpxr instead:
+
+```python
+import httpxr.compat   # add this once, e.g. in main.py / settings.py
+
+import httpx           # ← now resolves to httpxr 🚀
+```
+
+This works by registering `httpxr` as `sys.modules["httpx"]` at import time. No
+code changes required — all your existing `httpx` calls keep working at Rust speed.
+
+```python
+import os
+# Feature-flag style: switch via env var
+if os.environ.get("USE_HTTPXR"):
+    import httpxr.compat  # noqa: F401
+
+import httpx  # uses httpxr or httpx based on env var
+```
+
+> **[Full compatibility shim docs →](https://bmsuisse.github.io/httpxr/compat/)**
+
 ---
 
 ## httpxr Extensions
