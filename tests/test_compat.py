@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import importlib
 import sys
 import types
 import warnings
@@ -98,7 +97,10 @@ class TestCompatShim:
         fake_httpx.__version__ = "0.99.0"  # type: ignore[attr-defined]
         sys.modules["httpx"] = fake_httpx
 
-        _activate_shim()
+        # Suppress the expected "already imported" warning — tested separately
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            _activate_shim()
         assert compat_mod.is_active()
         assert sys.modules["httpx"] is httpxr
 

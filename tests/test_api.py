@@ -87,18 +87,3 @@ def test_get_invalid_url():
         httpxr.get("invalid://example.org")
 
 
-# check that httpcore isn't imported until we do a request
-@pytest.mark.skip(reason="httpxr uses a Rust backend (ureq), not httpcore.")
-def test_httpcore_lazy_loading(server):
-    import sys
-
-    # unload our module if it is already loaded
-    if "httpxr" in sys.modules:
-        del sys.modules["httpxr"]
-    if "httpcore" in sys.modules:
-        del sys.modules["httpcore"]
-    import httpxr
-
-    assert "httpcore" not in sys.modules
-    _response = httpxr.get(server.url)
-    assert "httpcore" in sys.modules
