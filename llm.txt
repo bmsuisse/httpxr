@@ -1,42 +1,710 @@
-# httpxr Context for LLMs
+# httpxr — LLM Context File
+# https://github.com/bmsuisse/httpxr
+# https://pypi.org/project/httpxr/
+# Docs: https://bmsuisse.github.io/httpxr/
 
 ## Project Overview
-**httpxr** is a high-performance, 1:1 Rust port of the Python `httpx` library.
-- **Goal**: Maintain 100% API compatibility with `httpx` while replacing internals with Rust for speed.
-- **Tech Stack**: Rust (Core), Python (Bindings via PyO3), Maturin (Build), uv (dependency management).
-- **Versioning**: Follows `httpx` versioning where possible.
 
-## Implementation Architecture
-The project uses `pyo3` to create a native Python extension module.
-- **Rust Entry Point**: `src/lib.rs` defines the `_httpxr` module and registers submodules.
-- **Python Entry Point**: `httpxr/__init__.py` imports symbols from the compiled `_httpxr` extension.
-- **Internal Logic**: All HTTP logic (clients, requests, responses, transports) is implemented in Rust using `reqwest` and `tokio`.
-- **Zero Dependencies**: The Python package has NO runtime dependencies (unlike `httpx` which relies on `httpcore`, `anyio`, etc.).
+**httpxr** is a high-performance, 1:1 Rust port of the Python `httpx` HTTP client.
+- **Goal**: 100% API compatibility with `httpx` — swap `import httpx` for `import httpxr`.
+- **Performance**: ~2.4× faster sequentially, ~13× faster under concurrency vs httpx.
+- **Zero Python dependencies**: Everything (HTTP, TLS, compression, SOCKS, IDNA) is native Rust.
+- **Python versions**: 3.12, 3.13, 3.14 (including free-threaded builds).
+- **License**: MIT OR Apache-2.0.
 
-## Directory Structure
-- `src/`: Rust source code.
-    - `lib.rs`: Module registration.
-    - `client.rs`: `Client` and `AsyncClient` implementations.
-    - `transports/`: Network transport layers.
-- `httpxr/`: Python package source.
-    - `__init__.py`: Exposes the public API.
-    - `_transports.py`: Python-side transport wrappers (WSGI/ASGI).
-- `tests/`: Complete `httpx` test suite, ported to validate `httpxr`.
-- `benchmarks/`: Performance comparison scripts.
+## Technology Stack
+
+| Layer              | Technology                                          |
+| :----------------- | :-------------------------------------------------- |
+| Python bindings    | PyO3 0.28                                           |
+| Async runtime      | tokio (multi-threaded)                              |
+| HTTP engine        | reqwest 0.13 (rustls + native-tls)                  |
+| JSON parsing       | serde_json + simd-json                              |
+| Compression        | gzip (flate2), brotli, zstd, deflate (all native)   |
+| Memory allocator   | mimalloc                                            |
+| Build system       | maturin                                             |
+| Dependency mgmt    | uv                                                  |
+| Docs               | mkdocs-material                                     |
+
+## Architecture
+
+The project is a native Python extension module (`_httpxr`) compiled from Rust.
+
+```
+┌─────────────────────────────────────────────────────┐
+│  Python layer (httpxr/)                             │
+│  __init__.py  ←  re-exports everything from _httpxr │
+│  _exceptions.py  ←  patches HTTPError/RequestError  │
+│  _transports/    ←  WSGITransport, ASGITransport    │
+│  _urlparse.py    ←  urlparse() compat helper        │
+│  _utils.py       ←  Python-side utilities           │
+│  cli.py          ←  CLI (optional, click-based)     │
+│  compat.py       ←  httpx shim (import httpx → httpxr) │
+│  _httpxr.pyi     ←  full type stubs for IDE support │
+└────────┬────────────────────────────────────────────┘
+         │ PyO3 FFI
+┌────────▼────────────────────────────────────────────┐
+│  Rust extension (_httpxr)                           │
+│  lib.rs          ←  module registration, mimalloc   │
+│  client/         ←  Client & AsyncClient impls      │
+│  models/         ←  Request, Response, Headers, etc │
+│  transports/     ←  HTTP transport layer (reqwest)  │
+│  api.rs          ←  top-level get/post/put/… funcs  │
+│  auth.rs         ←  BasicAuth, DigestAuth           │
+│  config.rs       ←  Timeout, Limits, Proxy, Retry   │
+│  content.rs      ←  request body encoding           │
+│  decoders.rs     ←  gzip/brotli/zstd decompression  │
+│  exceptions.rs   ←  exception hierarchy             │
+│  multipart.rs    ←  multipart form uploads          │
+│  query_params.rs ←  QueryParams type                │
+│  status_codes.rs ←  HTTP status codes enum          │
+│  urls.rs         ←  URL type (30k lines)            │
+│  urlparse.rs     ←  URL parsing utilities           │
+│  types.rs        ←  shared type helpers             │
+│  utils.rs        ←  internal utility functions      │
+│  logger.rs       ←  Python logging bridge           │
+│  stream_ctx.rs   ←  streaming context manager       │
+└─────────────────────────────────────────────────────┘
+```
+
+### Rust Source Layout (src/)
+
+```
+src/
+├── lib.rs                    # Entry point — registers all submodules, sets mimalloc allocator
+├── api.rs                    # Top-level functions: get(), post(), put(), delete(), etc.
+├── auth.rs                   # BasicAuth, DigestAuth (MD5/SHA-256, algorithm negotiation)
+├── config.rs                 # Timeout, Limits, Proxy, RetryConfig, create_ssl_context()
+├── content.rs                # Request body encoding (bytes, json, form data)
+├── decoders.rs               # Response decompression: gzip, brotli, zstd, deflate
+├── exceptions.rs             # Full httpx exception hierarchy (HTTPError → … → ReadTimeout)
+├── logger.rs                 # Bridge Rust log → Python logging module
+├── multipart.rs              # Multipart form data encoder (DataField, FileField, MultipartStream)
+├── query_params.rs           # QueryParams (immutable multidict)
+├── status_codes.rs           # HTTP status codes (IntEnum-like: codes.OK, codes.NOT_FOUND, …)
+├── stream_ctx.rs             # Streaming response context manager
+├── types.rs                  # Type conversion helpers (to_bytes, to_str, …)
+├── urlparse.rs               # URL parsing & encoding (IDNA, percent-encoding)
+├── urls.rs                   # URL class with full component access
+├── utils.rs                  # Internal utilities
+├── client/
+│   ├── mod.rs                # Module exports
+│   ├── common.rs             # Shared client logic (merging headers, auth, redirects, event hooks)
+│   ├── sync_client.rs        # Client — synchronous HTTP client
+│   ├── sync_client_methods.rs # Client HTTP method macros (get, post, put, …)
+│   ├── sync_client_send.rs   # Client.send() — request dispatch + redirect following
+│   ├── async_client.rs       # AsyncClient — async HTTP client
+│   ├── async_client_methods.rs # AsyncClient HTTP method macros
+│   └── async_client_send.rs  # AsyncClient.send() — async request dispatch
+├── models/
+│   ├── mod.rs                # Module exports
+│   ├── cookies.rs            # Cookies (domain/path-scoped jar)
+│   ├── headers.rs            # Headers (case-insensitive multidict)
+│   ├── request.rs            # Request object
+│   ├── response.rs           # Response object (core)
+│   ├── response_properties.rs # Response computed properties (is_success, links, cookies, …)
+│   └── response_streaming.rs # Response streaming (iter_bytes, iter_lines, iter_text, …)
+└── transports/
+    ├── mod.rs                # Module exports
+    ├── base.rs               # BaseTransport / AsyncBaseTransport traits
+    ├── default.rs            # Default transport (reqwest-backed, connection pooling)
+    ├── helpers.rs            # Transport helper utilities
+    └── mock.rs               # MockTransport / AsyncMockTransport for testing
+```
+
+### Python Package Layout (httpxr/)
+
+```
+httpxr/
+├── __init__.py           # Public API — re-exports from _httpxr + ASGITransport/WSGITransport
+├── __init__.pyi          # Top-level type stubs
+├── _httpxr.pyi           # Full type stubs (1157 lines) for the Rust extension
+├── _exceptions.py        # Patches HTTPError/RequestError with .request property
+├── _transports/          # Python-side transports (WSGI, ASGI)
+├── _urlparse.py          # urlparse() compatibility helper
+├── _utils.py             # Python utilities
+├── cli.py                # CLI entry point (requires `httpxr[cli]` extra)
+├── compat.py             # httpx compatibility shim (import httpx → import httpxr)
+└── py.typed              # PEP 561 marker
+```
+
+## Complete API Reference
+
+### Top-Level Functions
+
+```python
+import httpxr
+
+# One-shot requests (creates a temporary Client per call)
+response = httpxr.get(url, **kwargs)
+response = httpxr.post(url, **kwargs)
+response = httpxr.put(url, **kwargs)
+response = httpxr.patch(url, **kwargs)
+response = httpxr.delete(url, **kwargs)
+response = httpxr.head(url, **kwargs)
+response = httpxr.options(url, **kwargs)
+response = httpxr.request(method, url, **kwargs)
+response = httpxr.stream(method, url, **kwargs)
+
+# Batch concurrent requests without a Client instance
+responses = httpxr.fetch_all(
+    [{"method": "GET", "url": "https://example.com/1"}, ...],
+    max_concurrency=10,
+    return_exceptions=False,
+    headers=None,
+    timeout=None,
+    verify=True,
+)
+```
+
+### Client (Synchronous)
+
+```python
+client = httpxr.Client(
+    auth=None,              # tuple[str,str] | BasicAuth | DigestAuth | Callable
+    params=None,            # default query parameters
+    headers=None,           # default headers
+    cookies=None,           # default cookies
+    timeout=5.0,            # float | Timeout | None
+    follow_redirects=False,
+    max_redirects=20,
+    verify=True,            # bool | str (CA bundle path) | ssl context
+    cert=None,              # client certificate path
+    http2=False,
+    proxy=None,             # str | Proxy
+    limits=None,            # Limits
+    mounts=None,            # {"https://": transport, ...}
+    transport=None,         # custom BaseTransport
+    base_url=None,          # prepended to relative URLs
+    trust_env=True,
+    default_encoding="utf-8",
+    event_hooks=None,       # {"request": [...], "response": [...]}
+)
+
+# Standard HTTP methods — same signature as httpx
+response = client.get(url, *, params, headers, cookies, follow_redirects, timeout, extensions)
+response = client.post(url, *, content, data, files, json, params, headers, ...)
+response = client.put(url, ...)
+response = client.patch(url, ...)
+response = client.delete(url, ...)
+response = client.head(url, ...)
+response = client.options(url, ...)
+response = client.request(method, url, ...)
+
+# Streaming
+response = client.stream(method, url, ...)  # context manager
+
+# Low-level
+request  = client.build_request(method, url, ...)
+response = client.send(request, *, auth, follow_redirects)
+
+# httpxr Extensions
+responses = client.gather(requests, max_concurrency=10, return_exceptions=False)
+pages     = client.paginate(method, url, next_url=None, next_header=None, next_func=None, max_pages=100)
+
+# Raw API — maximum speed, returns (status: int, headers: dict, body: bytes)
+status, headers, body = client.get_raw(url, headers=None, timeout=None)
+status, headers, body = client.post_raw(url, headers=None, body=None, timeout=None)
+status, headers, body = client.put_raw(url, headers=None, body=None, timeout=None)
+status, headers, body = client.patch_raw(url, headers=None, body=None, timeout=None)
+status, headers, body = client.delete_raw(url, headers=None, timeout=None)
+status, headers, body = client.head_raw(url, headers=None, timeout=None)
+
+# Also available: gather_raw(), paginate_raw()
+
+client.close()
+# or use as context manager:
+with httpxr.Client() as client:
+    ...
+```
+
+### AsyncClient
+
+Same API as Client but all request methods are `async`. Additional differences:
+- `await client.get(url, ...)`
+- `await client.send(request, ...)`
+- `await client.gather(requests, ...)`
+- `async for page in client.paginate(...):`
+- `await client.aclose()`
+- `async with httpxr.AsyncClient() as client:`
+
+### URL
+
+```python
+url = httpxr.URL("https://user:pass@example.com:8080/path?key=val#frag")
+url.scheme        # "https"
+url.host          # "example.com"
+url.port          # 8080
+url.path          # "/path"
+url.query         # b"key=val"
+url.fragment      # "frag"
+url.authority     # "user:pass@example.com:8080"
+url.netloc        # "example.com:8080"
+url.userinfo      # "user:pass"
+url.raw_path      # b"/path?key=val"
+url.is_absolute_url  # True
+url.is_relative_url  # False
+url.params        # QueryParams({"key": "val"})
+url.raw           # dict
+
+# Immutable copy methods
+new_url = url.copy_with(scheme="http", path="/new")
+new_url = url.copy_set_param("key", "new_val")
+new_url = url.copy_add_param("key2", "val2")
+new_url = url.copy_remove_param("key")
+new_url = url.copy_merge_params({"a": "1", "b": "2"})
+joined  = url.join("/relative/path")
+```
+
+### Headers
+
+```python
+headers = httpxr.Headers({"Content-Type": "application/json", "Accept": "text/html"})
+headers = httpxr.Headers([("key", "val1"), ("key", "val2")])  # multi-valued
+
+headers["content-type"]          # case-insensitive lookup
+headers.get("x-custom", "default")
+headers.get_list("set-cookie", split_commas=False)
+headers.keys() / .values() / .items() / .multi_items()
+headers.raw                      # list[tuple[bytes, bytes]]
+headers.update({"new-header": "value"})
+headers.setdefault("accept", "application/json")
+headers.copy()
+```
+
+### QueryParams
+
+```python
+params = httpxr.QueryParams({"page": "1", "limit": "20"})
+params = httpxr.QueryParams([("tag", "a"), ("tag", "b")])  # multi-valued
+
+params["page"]                # "1"
+params.get("missing", "0")   # "0"
+params.get_list("tag")        # ["a", "b"]
+params.multi_items()          # [("tag", "a"), ("tag", "b")]
+
+# Immutable operations — return new QueryParams
+new_params = params.set("page", "2")
+new_params = params.add("tag", "c")
+new_params = params.remove("limit")
+new_params = params.merge({"sort": "name"})
+```
+
+### Cookies
+
+```python
+cookies = httpxr.Cookies({"session": "abc123"})
+cookies.set("token", "xyz", domain="example.com", path="/api")
+cookies.get("session")
+cookies.get("token", domain="example.com")
+cookies.delete("session")
+cookies.clear()
+cookies.update({"new": "cookie"})
+cookies.keys() / .values() / .items()
+cookies.extract_cookies(response)  # extract Set-Cookie from a Response
+cookies.jar  # underlying jar object
+```
+
+### Request
+
+```python
+request = httpxr.Request(
+    method="POST",
+    url="https://example.com/api",
+    params={"key": "val"},
+    headers={"Authorization": "Bearer token"},
+    content=b"raw bytes",       # or
+    data={"field": "value"},    # or
+    files=[("file", open(...))], # or
+    json={"key": "value"},
+    extensions={"timeout": {"connect": 5.0}},
+)
+request.method   # "POST"
+request.url      # URL object
+request.headers  # Headers object
+request.content  # bytes (reads body)
+request.stream   # stream object
+request.read()   # sync read
+await request.aread()  # async read
+```
+
+### Response
+
+```python
+response.status_code          # int (e.g. 200)
+response.headers              # Headers
+response.url                  # URL
+response.content              # bytes
+response.text                 # str (decoded)
+response.json()               # parsed JSON (via simd-json)
+response.encoding             # str | None (settable)
+response.charset_encoding     # from Content-Type header
+response.request              # back-reference to Request
+response.elapsed              # datetime.timedelta
+response.reason_phrase         # "OK"
+response.http_version         # "HTTP/1.1"
+response.history              # list[Response] (redirect chain)
+response.cookies              # Cookies from Set-Cookie headers
+response.links                # parsed Link headers
+response.next_request         # Request | None (pagination)
+response.extensions           # dict (e.g. reason_phrase, http_version)
+response.num_bytes_downloaded  # int
+
+# Status helpers
+response.is_informational     # 1xx
+response.is_success           # 2xx
+response.is_redirect          # 3xx
+response.is_client_error      # 4xx
+response.is_server_error      # 5xx
+response.is_error             # 4xx or 5xx
+response.has_redirect_location
+
+# Stream state
+response.is_closed
+response.is_stream_consumed
+
+# Actions
+response.raise_for_status()   # raises HTTPStatusError on 4xx/5xx
+response.read()               # sync read body
+await response.aread()        # async read body
+response.close()
+await response.aclose()
+
+# Context manager
+with response:
+    ...
+async with response:
+    ...
+```
+
+### Configuration Objects
+
+```python
+# Timeout — per-phase timeout control
+timeout = httpxr.Timeout(5.0)                          # all phases = 5s
+timeout = httpxr.Timeout(connect=5.0, read=15.0, write=10.0, pool=5.0)
+timeout.connect / timeout.read / timeout.write / timeout.pool
+
+# Limits — connection pool limits
+limits = httpxr.Limits(
+    max_connections=100,
+    max_keepalive_connections=20,
+    keepalive_expiry=5.0,
+)
+
+# Proxy
+proxy = httpxr.Proxy(
+    url="http://proxy.example.com:8080",
+    auth=("user", "pass"),
+    headers={"Proxy-Auth": "token"},
+)
+
+# RetryConfig (httpxr extension)
+retry = httpxr.RetryConfig(
+    max_retries=3,
+    backoff_factor=0.5,
+    retry_on_status=[429, 500, 502, 503],
+    jitter=True,
+)
+retry.delay_for_attempt(1)   # calculated delay
+retry.should_retry(429)      # True
+
+# Defaults
+httpxr.DEFAULT_TIMEOUT_CONFIG  # Timeout(5.0)
+httpxr.DEFAULT_LIMITS          # Limits(...)
+httpxr.DEFAULT_MAX_REDIRECTS   # 20
+```
+
+### Authentication
+
+```python
+# Basic Auth
+auth = httpxr.BasicAuth(username="user", password="pass")
+client = httpxr.Client(auth=auth)
+
+# Digest Auth (MD5, SHA-256 — full RFC 7616)
+auth = httpxr.DigestAuth(username="user", password="pass")
+
+# Tuple shorthand (converted to BasicAuth internally)
+client = httpxr.Client(auth=("user", "pass"))
+```
+
+### Transports
+
+```python
+# Mock transport — for testing
+def handler(request: httpxr.Request) -> httpxr.Response:
+    return httpxr.Response(200, json={"mock": True})
+
+transport = httpxr.MockTransport(handler)
+client = httpxr.Client(transport=transport)
+
+# ASGI transport — test ASGI apps without a server
+transport = httpxr.ASGITransport(app=my_asgi_app)
+client = httpxr.Client(transport=transport, base_url="http://testserver")
+
+# WSGI transport — test WSGI apps without a server
+transport = httpxr.WSGITransport(app=my_wsgi_app)
+client = httpxr.Client(transport=transport, base_url="http://testserver")
+
+# Transport mounts — route requests to different transports
+client = httpxr.Client(mounts={
+    "https://api.example.com": custom_transport,
+    "all://": default_transport,
+})
+
+# Base classes for custom transports
+class MyTransport(httpxr.BaseTransport):
+    def handle_request(self, request): ...
+
+class MyAsyncTransport(httpxr.AsyncBaseTransport):
+    async def handle_async_request(self, request): ...
+```
+
+### Streaming
+
+```python
+# Sync streaming
+with client.stream("GET", url) as response:
+    for chunk in response.iter_bytes(chunk_size=1024):
+        process(chunk)
+    # or
+    for line in response.iter_lines():
+        process(line)
+    # or
+    for text_chunk in response.iter_text():
+        process(text_chunk)
+
+# Async streaming
+async with await async_client.request("GET", url, stream=True) as response:
+    async for chunk in response.aiter_bytes():
+        process(chunk)
+
+# Stream types
+stream = httpxr.ByteStream(b"raw data")
+```
+
+### Exception Hierarchy
+
+```
+Exception
+├── InvalidURL
+├── CookieConflict
+└── HTTPError
+    ├── HTTPStatusError          (.response, .request)
+    └── RequestError             (.request)
+        ├── DecodingError
+        ├── TooManyRedirects
+        ├── StreamError
+        │   ├── StreamConsumed
+        │   ├── StreamClosed
+        │   ├── ResponseNotRead
+        │   └── RequestNotRead
+        └── TransportError
+            ├── TimeoutException
+            │   ├── ConnectTimeout
+            │   ├── ReadTimeout
+            │   ├── WriteTimeout
+            │   └── PoolTimeout
+            ├── NetworkError
+            │   ├── ConnectError
+            │   ├── ReadError
+            │   ├── WriteError
+            │   └── CloseError
+            ├── ProxyError
+            ├── UnsupportedProtocol
+            └── ProtocolError
+                ├── LocalProtocolError
+                └── RemoteProtocolError
+```
+
+### Status Codes
+
+```python
+httpxr.codes.OK                  # 200
+httpxr.codes.NOT_FOUND           # 404
+httpxr.codes.INTERNAL_SERVER_ERROR  # 500
+# ... all standard HTTP status codes
+
+# Helper methods on codes instances
+codes.is_informational()  # 1xx
+codes.is_success()        # 2xx
+codes.is_redirect()       # 3xx
+codes.is_client_error()   # 4xx
+codes.is_server_error()   # 5xx
+codes.is_error()          # 4xx or 5xx
+```
+
+### Utility Functions
+
+```python
+httpxr.primitive_value_to_str(value)
+httpxr.to_bytes(data)
+httpxr.to_str(data)
+httpxr.to_bytes_or_str(data)
+httpxr.unquote(data)
+httpxr.peek_filelike_length(file)
+httpxr.is_ipv4_hostname(hostname)
+httpxr.is_ipv6_hostname(hostname)
+httpxr.get_environment_proxies()
+httpxr.encode_request(content, data, files, json)
+httpxr.create_ssl_context(verify, cert, trust_env)
+```
+
+### Decoder Types
+
+```python
+decoder = httpxr.PyDecoder(encoding="utf-8")   # identity / gzip / brotli / zstd
+data = decoder.decode(compressed_bytes)
+remaining = decoder.flush()
+
+chunker = httpxr.ByteChunker(chunk_size=1024)
+chunks = chunker.decode(data)
+remaining = chunker.flush()
+
+line_decoder = httpxr.LineDecoder()
+lines = line_decoder.decode("partial text\nmore")
+remaining = line_decoder.flush()
+```
+
+### Multipart Upload
+
+```python
+stream = httpxr.MultipartStream(
+    data={"field1": "value1"},
+    files=[("file", ("report.pdf", open("report.pdf", "rb"), "application/pdf"))],
+    boundary=None,  # auto-generated
+)
+stream.content_type()      # "multipart/form-data; boundary=..."
+stream.get_content()       # full body as bytes
+stream.get_content_length()
+```
+
+## httpxr-Only Extensions (Not in httpx)
+
+1. **`gather()`** — dispatch a list of pre-built Requests concurrently via Rust's tokio runtime.
+2. **`paginate()`** — auto-follow pagination links (JSON body key, Link header, or custom function).
+3. **`*_raw()` methods** — bypass Python Request/Response construction; return `(int, dict, bytes)`.
+4. **`gather_raw()` / `paginate_raw()`** — raw versions of gather and paginate.
+5. **`fetch_all()`** — top-level concurrent batch requests without creating a Client.
+6. **`RetryConfig`** — built-in retry with exponential backoff, jitter, and status-code filtering.
+7. **`compat` module** — `httpxr.compat.install()` patches `import httpx` to resolve to `httpxr`.
+
+## httpx Compatibility Shim
+
+```python
+# Redirect all `import httpx` to `import httpxr`
+import httpxr.compat
+httpxr.compat.install()
+
+# Now any library that does `import httpx` will get httpxr
+import httpx  # → actually httpxr
+```
 
 ## Development Workflow
-- **Dependency Management**: uses `uv`.
-- **Build**: `maturin develop` compiles the Rust extension and installs it into the virtual environment.
-- **Test**: `uv run pytest` runs the test suite.
-- **Type Check**: `uv run pyright`.
-- **Lint**: `uv run ruff check .`
 
-## Key Differences from httpx
-1. **Performance**: `httpxr` is significantly faster due to Rust internals and GIL-release during I/O.
-2. **Concurrency**: `gather()` method for parallel request execution in Rust.
-3. **Raw API**: `*_raw()` methods (e.g., `get_raw`) for maximum performance, bypassing Python object overhead.
-4. **Pagination**: Built-in `paginate()` helper for auto-following API links.
+```bash
+# Clone and setup
+git clone https://github.com/bmsuisse/httpxr.git
+cd httpxr
+uv sync --group dev
+
+# Build the Rust extension
+maturin develop
+
+# Run tests (1303 tests from the full httpx suite)
+uv run pytest tests/
+
+# Type checking
+uv run pyright
+
+# Linting
+uv run ruff check .
+
+# Run benchmarks
+uv sync --group benchmark
+uv run python benchmarks/run_benchmark.py
+
+# Build docs
+uv sync --group docs
+uv run mkdocs serve
+```
+
+### Release Build Optimizations (Cargo.toml)
+
+```toml
+[profile.release]
+opt-level = 3        # maximum optimization
+codegen-units = 1    # single codegen unit for better LTO
+lto = "fat"          # full link-time optimization
+strip = true         # strip debug symbols
+panic = "abort"      # smaller binary (no unwinding)
+```
+
+### Key Rust Dependencies
+
+- **pyo3** 0.28 — Python bindings (extension-module, multiple-pymethods)
+- **pyo3-async-runtimes** 0.28 — tokio runtime integration
+- **tokio** 1 — async runtime (rt-multi-thread, macros, sync, time)
+- **reqwest** 0.13 — HTTP client (rustls, json, cookies, gzip, brotli, zstd, deflate, stream, socks)
+- **serde_json** 1.0 — JSON serialization (with raw_value)
+- **simd-json** 0.17 — SIMD-accelerated JSON parsing
+- **mimalloc** — high-performance memory allocator
+- **url** 2 — URL parsing
+- **idna** 1.1 — internationalized domain names
+- **percent-encoding** 2 — URL percent-encoding
+- **md-5**, **sha1**, **sha2** — digest auth hashing
+- **base64** 0.22 — base64 encoding
+- **futures** 0.3 — async utilities
+- **bytes** 1 — efficient byte buffers
+
+## Test Suite
+
+- **1303 tests** ported 1:1 from the httpx test suite.
+- Covers: clients, models, transports, streaming, auth flows, redirects, multipart, cookies, edge cases.
+- Test framework: pytest with pytest-timeout.
+- Test transports: MockTransport, ASGI (uvicorn), trustme (SSL).
+
+## Examples (examples/)
+
+```
+examples/
+├── async_client.py         # AsyncClient basics
+├── async_gather.py         # concurrent async requests
+├── authentication.py       # BasicAuth, DigestAuth
+├── basic_requests.py       # simple GET/POST
+├── client_usage.py         # Client lifecycle
+├── error_handling.py       # exception handling patterns
+├── gather.py               # sync concurrent requests
+├── headers_and_params.py   # headers, query params
+├── json_and_forms.py       # JSON and form data
+├── mock_transport.py       # testing with MockTransport
+├── paginate.py             # auto-pagination
+├── streaming.py            # streaming responses
+└── timeouts_and_limits.py  # timeout/limits configuration
+```
+
+## Documentation Site (docs/)
+
+Full MkDocs Material site at https://bmsuisse.github.io/httpxr/:
+
+- Quickstart, Clients, Requests & Responses
+- Headers, Params & Cookies
+- Authentication (Basic, Digest)
+- Streaming, Timeouts & Limits
+- Extensions (gather, paginate, raw API)
+- Testing (MockTransport, ASGI/WSGI)
+- CLI reference
+- Migration guide (httpx → httpxr)
+- Cookbook (common recipes)
+- Compatibility shim
+- Benchmarks (interactive Plotly charts)
+- Error handling
+- How it was built (AI development story)
 
 ## Common Tasks
-- **Adding a Feature**: Implement in Rust (`src/`), expose via PyO3, update `httpxr/__init__.py` if needed.
-- **Fixing a Bug**: Locate the standard `httpx` test in `tests/`, reproduce failure, fix in Rust.
+
+- **Adding a feature**: Implement in Rust (src/), expose via `#[pymethod]` or `#[pyfunction]`, update `_httpxr.pyi` type stubs, add test.
+- **Fixing a bug**: Find the corresponding httpx test in `tests/`, reproduce failure, fix in Rust, rebuild with `maturin develop`.
+- **Adding an example**: Create a new `.py` file in `examples/`.
+- **Adding documentation**: Create/edit `.md` files in `docs/`, update `mkdocs.yml` nav.
