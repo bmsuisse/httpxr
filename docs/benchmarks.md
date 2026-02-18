@@ -13,15 +13,21 @@ Hover over the charts for detailed statistics per library.
 
 ### Single GET
 
-<iframe src="../benchmark_single.html" width="100%" height="400" frameborder="0" scrolling="no" style="overflow:hidden"></iframe>
+<div class="benchmark-chart">
+<iframe src="../benchmark_single.html" frameborder="0" scrolling="no"></iframe>
+</div>
 
 ### 50 Sequential GETs
 
-<iframe src="../benchmark_sequential.html" width="100%" height="400" frameborder="0" scrolling="no" style="overflow:hidden"></iframe>
+<div class="benchmark-chart">
+<iframe src="../benchmark_sequential.html" frameborder="0" scrolling="no"></iframe>
+</div>
 
 ### 50 Concurrent GETs
 
-<iframe src="../benchmark_concurrent.html" width="100%" height="400" frameborder="0" scrolling="no" style="overflow:hidden"></iframe>
+<div class="benchmark-chart">
+<iframe src="../benchmark_concurrent.html" frameborder="0" scrolling="no"></iframe>
+</div>
 
 ## Key Takeaways
 

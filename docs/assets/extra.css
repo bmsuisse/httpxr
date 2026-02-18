@@ -112,19 +112,38 @@
   padding: 0.5rem 1rem;
 }
 
-/* Benchmark chart iframe */
-iframe {
-  background: #fff;
+/* Benchmark chart — responsive wrapper */
+.benchmark-chart {
+  position: relative;
+  width: 100%;
+  /* 400px tall at 960px wide ≈ 41.67% aspect ratio */
+  padding-bottom: 41.67%;
+  height: 0;
+  overflow: hidden;
   border-radius: 8px;
-  border: 1px solid var(--md-default-fg-color--lightest) !important;
+  border: 1px solid var(--md-default-fg-color--lightest);
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
   margin: 1rem 0;
+  background: #fff;
+}
+
+.benchmark-chart iframe {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  border: none !important;
+  border-radius: 8px;
   overflow: hidden;
 }
 
-[data-md-color-scheme="slate"] iframe {
+[data-md-color-scheme="slate"] .benchmark-chart {
   background: #1e1e2e;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+}
+
+[data-md-color-scheme="slate"] .benchmark-chart iframe {
   filter: invert(0.88) hue-rotate(180deg);
 }
 
