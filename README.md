@@ -1,5 +1,9 @@
 # httpxr
 
+[![CI](https://github.com/bmsuisse/httpxr/actions/workflows/ci.yml/badge.svg)](https://github.com/bmsuisse/httpxr/actions/workflows/ci.yml)
+[![PyPI version](https://img.shields.io/pypi/v/httpxr.svg)](https://pypi.org/project/httpxr/)
+[![Python versions](https://img.shields.io/pypi/pyversions/httpxr.svg)](https://pypi.org/project/httpxr/)
+
 A 1:1 Rust port of [httpx](https://github.com/encode/httpx) — same API, faster execution.
 
 [📖 **Documentation**](https://bmsuisse.github.io/httpxr) · [📦 PyPI](https://pypi.org/project/httpxr/) · [🐙 GitHub](https://github.com/bmsuisse/httpxr) · [🤖 llm.txt](https://bmsuisse.github.io/httpxr/llm.txt)
