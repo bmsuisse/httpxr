@@ -1,3 +1,7 @@
+<div align="center">
+  <img src="docs/assets/logo.svg" alt="httpxr logo" width="120" height="120">
+</div>
+
 # httpxr
 
 [![CI](https://github.com/bmsuisse/httpxr/actions/workflows/ci.yml/badge.svg)](https://github.com/bmsuisse/httpxr/actions/workflows/ci.yml)
@@ -58,9 +62,9 @@ Scenarios: **Single GET**, **50 Sequential GETs**, **50 Concurrent GETs**.
 
 | Scenario | httpxr | httpr | pyreqwest | ry | aiohttp | curl_cffi | urllib3 | rnet | httpx | niquests |
 |:---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| Single GET | **0.20** | 0.12 | 0.10 | 0.18 | 0.24 | 0.23 | 0.30 | 0.34 | 0.38 | 0.39 |
-| 50 Sequential GETs | **7.84** | 6.52 | 6.33 | 8.98 | 10.73 | 12.91 | 15.17 | 17.76 | 18.78 | 19.65 |
-| 50 Concurrent GETs | **5.23** | 7.31 | 6.56 | 6.23 | 7.85 | 12.31 | 16.26 | 10.15 | 70.23 | 21.14 |
+| Single GET | **0.37** | 0.11 | 0.10 | 0.18 | 0.24 | 0.21 | 0.30 | 0.34 | 0.37 | 0.39 |
+| 50 Sequential GETs | **16.27** | 6.50 | 6.15 | 8.20 | 10.64 | 11.90 | 15.10 | 17.58 | 18.97 | 20.15 |
+| 50 Concurrent GETs | **6.05** | 7.24 | 6.61 | 6.55 | 7.58 | 12.56 | 16.09 | 10.13 | 69.45 | 20.52 |
 
 > **Key takeaways:**
 > - **httpxr** is the **fastest full-featured httpx-compatible client** — on par with raw Rust libraries
