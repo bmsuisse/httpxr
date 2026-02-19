@@ -1,7 +1,15 @@
 from . import _exceptions  # noqa: F401
-from ._httpxr import *
-from ._transports import ASGITransport, WSGITransport
-from . import sse
+from ._httpxr import *  # noqa: F403
+from ._transports import ASGITransport, WSGITransport  # noqa: F401
+from . import extensions, sse  # noqa: F401
+from .extensions import (  # noqa: F401
+    OAuth2Auth,
+    aiter_json_bytes,
+    apaginate_to_records,
+    gather_raw_bytes,
+    iter_json_bytes,
+    paginate_to_records,
+)
 
 try:
     from .cli import main
@@ -33,6 +41,7 @@ if "sse" not in _members:
     _members.append("sse")
 if "WSGITransport" not in _members:
     _members.append("WSGITransport")
+if "extensions" not in _members:
+    _members.append("extensions")
 
 __all__ = sorted(_members, key=str.casefold)
-

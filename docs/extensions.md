@@ -9,13 +9,17 @@ They leverage the Rust runtime for performance that's impossible in pure Python.
     |:---|:---|:---|
     | Fetch 100 URLs in parallel | `gather()` | Full `Response` objects |
     | Batch raw requests (max speed) | `gather_raw()` | `(status, headers, body)` tuples |
+    | Batch requests → bytes/parsed | `gather_raw_bytes()` | `list[bytes | Any]` |
     | Auto-follow pagination | `paginate()` / `paginate_get()` | Lazy iterator of pages |
+    | Paginate + yield records | `paginate_to_records()` | Individual records, O(1) memory |
     | Paginate + gather concurrently | `gather_paginate()` | All pages at once |
     | Minimum latency per request | Raw API | `(status, headers, body)` tuple |
     | Download file to disk | `download()` | One-liner file save |
     | Raw JSON bytes for fast parsers | `json_bytes()` | `bytes` |
     | Parse NDJSON / SSE streams | `iter_json()` | Iterator of dicts |
+    | Stream NDJSON as raw bytes | `iter_json_bytes()` | Iterator of `bytes` |
     | Server-Sent Events | `httpxr.sse` | `EventSource` |
+    | OAuth2 client credentials | `OAuth2Auth` | Auto-refresh auth |
     | Automatic retries | `RetryConfig` | Exponential backoff |
     | Request throttling | `RateLimit` | Token bucket |
     | Connection pool introspection | `pool_status()` | Pool metrics dict |
@@ -440,3 +444,132 @@ with httpxr.Client() as client:
 ```
 
 See the full [SSE guide](sse.md) for async support, OpenAI streaming, and more.
+
+---
+
+## httpxr.extensions — Big-Data Ingestion Helpers { #extensions-module }
+
+The `httpxr.extensions` module bundles helpers designed for high-throughput,
+low-memory data ingestion pipelines such as Databricks or PySpark. All helpers
+are importable from the package root **or** from `httpxr.extensions`.
+
+```python
+from httpxr import paginate_to_records, iter_json_bytes, gather_raw_bytes, OAuth2Auth
+# or:
+import httpxr.extensions
+```
+
+### paginate_to_records() { #paginate-to-records }
+
+A lazy iterator that unwraps the records array from every page, yielding
+individual records rather than full `Response` objects.  O(1) memory.
+
+```python
+import httpxr
+from httpxr import paginate_to_records, OAuth2Auth
+
+auth = OAuth2Auth(
+    token_url="https://login.microsoftonline.com/<tenant>/oauth2/v2.0/token",
+    client_id="...", client_secret="...",
+    scope="https://graph.microsoft.com/.default",
+)
+
+with httpxr.Client(auth=auth) as client:
+    for user in paginate_to_records(
+        client, "GET",
+        "https://graph.microsoft.com/v1.0/users",
+        records_key="value",
+        next_url="@odata.nextLink",
+    ):
+        save(user)
+```
+
+| Parameter | Default | Description |
+|:---|:---|:---|
+| `records_key` | `"value"` | JSON key containing the records list. `None` = yield whole page |
+| `next_url` | — | JSON field with next-page URL (OData style) |
+| `next_header` | — | HTTP header carrying `rel="next"` link (GitHub style) |
+| `next_func` | — | Custom `(Response) → str | None` |
+| `max_pages` | `100` | Safety cap |
+
+When no pagination strategy is given, a single request is made (useful for
+paging-unaware endpoints).
+
+Async variant: `apaginate_to_records(client: AsyncClient, …)`.
+
+---
+
+### iter_json_bytes() { #iter-json-bytes }
+
+Stream an NDJSON or SSE response as **raw bytes** lines — no UTF-8 decode, no
+intermediate Python strings. Feed directly into `orjson.loads` or
+`spark.read.json()`.
+
+```python
+import orjson
+with httpxr.Client() as client:
+    with client.stream("GET", "https://api.example.com/events.ndjson") as r:
+        batch = []
+        for raw in iter_json_bytes(r):
+            batch.append(orjson.loads(raw))
+            if len(batch) >= 1000:
+                spark.createDataFrame(batch).write.saveAsTable("events")
+                batch = []
+```
+
+Handles: NDJSON, SSE `data:` prefix, `[DONE]` sentinel, `event:` / `id:` / `retry:` lines.
+
+Async variant: `aiter_json_bytes(response)`.
+
+---
+
+### gather_raw_bytes() { #gather-raw-bytes }
+
+Concurrent batch requests backed by Rust tokio, returning each response body
+as `bytes` (or a parsed object when `parser` is given).
+
+```python
+import orjson
+from httpxr import gather_raw_bytes
+
+with httpxr.Client() as client:
+    reqs = [
+        client.build_request("GET", f"https://api.example.com/item/{i}")
+        for i in range(500)
+    ]
+    records = gather_raw_bytes(client, reqs, parser=orjson.loads, max_concurrency=50)
+    df = spark.createDataFrame(records)
+```
+
+| Parameter | Default | Description |
+|:---|:---|:---|
+| `max_concurrency` | `10` | Rust-level parallel request cap |
+| `return_exceptions` | `False` | Include errors inline vs raising |
+| `parser` | `None` | Callable `(bytes) → Any`; `None` returns raw bytes |
+
+---
+
+### OAuth2Auth { #oauth2-auth }
+
+Client-credentials token with transparent refresh.  Thread-safe.
+
+```python
+from httpxr import OAuth2Auth
+auth = OAuth2Auth(
+    token_url="https://login.microsoftonline.com/<tenant>/oauth2/v2.0/token",
+    client_id="CLIENT_ID",
+    client_secret="SECRET",
+    scope="https://graph.microsoft.com/.default",
+    leeway_seconds=60,   # refresh this many seconds before actual expiry
+)
+with httpxr.Client(auth=auth) as client:
+    data = client.get("https://graph.microsoft.com/v1.0/me").json()
+```
+
+Works with `AsyncClient` too — `async_auth_flow` is implemented.
+Triggers a one-time re-fetch on a `401` response.
+
+!!! tip "Databricks examples"
+    See [`examples/databricks/`](https://github.com/bmsuisse/httpxr/tree/main/examples/databricks)
+    for full notebook-ready examples using `OAuth2Auth` + `paginate_to_records`
+    with Microsoft Graph and Salesforce APIs.
