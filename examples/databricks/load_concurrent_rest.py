@@ -73,8 +73,7 @@ def load_entities_by_id(
         for batch_start in range(0, len(entity_ids), batch_size):
             batch_ids = entity_ids[batch_start : batch_start + batch_size]
             requests = [
-                client.build_request("GET", f"{base_url}/{eid}")
-                for eid in batch_ids
+                client.build_request("GET", f"{base_url}/{eid}") for eid in batch_ids
             ]
 
             # All requests in this batch dispatched concurrently in Rust
@@ -207,9 +206,9 @@ def load_salesforce_to_delta(
             rows.append(record)
             total += 1
             if len(rows) >= batch_size:
-                spark.createDataFrame(rows).write.format("delta").mode(
-                    "append"
-                ).save(delta_path)
+                spark.createDataFrame(rows).write.format("delta").mode("append").save(
+                    delta_path
+                )
                 print(f"  Written {total} SF records…")
                 rows = []
 

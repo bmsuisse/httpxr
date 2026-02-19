@@ -95,7 +95,9 @@ def gather_mixed_methods() -> None:
         requests = [
             client.build_request("GET", "https://httpbin.org/get"),
             client.build_request(
-                "POST", "https://httpbin.org/post", json={"key": "value"},
+                "POST",
+                "https://httpbin.org/post",
+                json={"key": "value"},
             ),
             client.build_request("PUT", "https://httpbin.org/put", content=b"hello"),
             client.build_request("DELETE", "https://httpbin.org/delete"),

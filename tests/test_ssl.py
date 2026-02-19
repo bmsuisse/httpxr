@@ -145,7 +145,9 @@ async def test_async_client_https_stream(https_server, ca_cert_pem_file):
 async def test_async_client_https_redirect(https_server, ca_cert_pem_file):
     """AsyncClient follows a 301 redirect over HTTPS."""
     url = https_server.url.copy_with(path="/redirect_301")
-    async with httpxr.AsyncClient(verify=ca_cert_pem_file, follow_redirects=True) as client:
+    async with httpxr.AsyncClient(
+        verify=ca_cert_pem_file, follow_redirects=True
+    ) as client:
         response = await client.get(url)
     assert response.status_code == 200
     assert response.text == "Hello, world!"

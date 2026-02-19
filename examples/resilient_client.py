@@ -112,8 +112,7 @@ def dynamic_config() -> None:
         # Add rate limit dynamically
         client.rate_limit = httpxr.RateLimit(requests_per_second=50.0)
         print(
-            f"Dynamic: rate_limit set to"
-            f" {client.rate_limit.requests_per_second} req/s"
+            f"Dynamic: rate_limit set to {client.rate_limit.requests_per_second} req/s"
         )
 
         # Remove them

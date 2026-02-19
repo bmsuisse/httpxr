@@ -85,5 +85,3 @@ def test_stream(server):
 def test_get_invalid_url():
     with pytest.raises(httpxr.UnsupportedProtocol):
         httpxr.get("invalid://example.org")
-
-

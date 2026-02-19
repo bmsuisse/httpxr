@@ -135,9 +135,7 @@ def print_response_rich(
         content_type = headers.get("content-type", "")
 
         if is_binary_content_type(content_type) or is_binary_content(content):
-            console.print(
-                f"[dim]<{len(content)} bytes of binary data>[/dim]"
-            )
+            console.print(f"[dim]<{len(content)} bytes of binary data>[/dim]")
         elif "application/json" in content_type and text:
             try:
                 data = json.loads(text)
@@ -176,9 +174,7 @@ def parse_header(header: str) -> tuple[str, str]:
 @click.option(
     "-c", "--content", default=None, help="Content to send in the request body."
 )
-@click.option(
-    "-j", "--json-data", "json_body", default=None, help="JSON data to send."
-)
+@click.option("-j", "--json-data", "json_body", default=None, help="JSON data to send.")
 @click.option("-v", "--verbose", is_flag=True, default=False, help="Verbose output.")
 @click.option(
     "--follow-redirects", is_flag=True, default=False, help="Follow redirects."
@@ -195,9 +191,7 @@ def parse_header(header: str) -> tuple[str, str]:
 @click.option(
     "--timing", is_flag=True, default=False, help="Show request timing breakdown."
 )
-@click.option(
-    "--no-color", is_flag=True, default=False, help="Disable colored output."
-)
+@click.option("--no-color", is_flag=True, default=False, help="Disable colored output.")
 def main(
     url: str,
     method: str,
@@ -280,9 +274,7 @@ def main(
                         )
                     else:
                         console.print()
-                        console.print(
-                            f"[dim]⏱  Total: {elapsed_ms:.1f}ms[/dim]"
-                        )
+                        console.print(f"[dim]⏱  Total: {elapsed_ms:.1f}ms[/dim]")
             else:
                 # Plain text output
                 for hist_resp in getattr(response, "history", []):

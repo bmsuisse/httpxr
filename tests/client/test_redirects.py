@@ -7,7 +7,9 @@ import httpxr
 
 def redirects(request: httpxr.Request) -> httpxr.Response:
     if request.url.scheme not in ("http", "https"):
-        raise httpxr.UnsupportedProtocol(f"Scheme {request.url.scheme!r} not supported.")
+        raise httpxr.UnsupportedProtocol(
+            f"Scheme {request.url.scheme!r} not supported."
+        )
 
     if request.url.path == "/redirect_301":
         status_code = httpxr.codes.MOVED_PERMANENTLY

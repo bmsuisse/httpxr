@@ -323,14 +323,7 @@ class TestEventSource:
         assert events[2].retry is None
 
     def test_iter_sse_whatwg_example3(self) -> None:
-        response = _make_sse_response(
-            "data\n"
-            "\n"
-            "data\n"
-            "data\n"
-            "\n"
-            "data:\n"
-        )
+        response = _make_sse_response("data\n\ndata\ndata\n\ndata:\n")
 
         events = list(EventSource(response).iter_sse())
         assert len(events) == 2
@@ -346,12 +339,7 @@ class TestEventSource:
         assert events[1].retry is None
 
     def test_iter_sse_whatwg_example4(self) -> None:
-        response = _make_sse_response(
-            "data:test\n"
-            "\n"
-            "data: test\n"
-            "\n"
-        )
+        response = _make_sse_response("data:test\n\ndata: test\n\n")
 
         events = list(EventSource(response).iter_sse())
         assert len(events) == 2
@@ -367,9 +355,7 @@ class TestEventSource:
         assert events[1].retry is None
 
     def test_iter_sse_event(self) -> None:
-        response = _make_sse_response(
-            "event: logline\ndata: New user connected\n\n"
-        )
+        response = _make_sse_response("event: logline\ndata: New user connected\n\n")
 
         events = list(EventSource(response).iter_sse())
         assert len(events) == 1

@@ -279,7 +279,9 @@ async def test_client_closed_state_using_implicit_open():
 
 @pytest.mark.anyio
 async def test_client_closed_state_using_with_block():
-    async with httpxr.AsyncClient(transport=httpxr.MockTransport(hello_world)) as client:
+    async with httpxr.AsyncClient(
+        transport=httpxr.MockTransport(hello_world)
+    ) as client:
         assert not client.is_closed
         await client.get("http://example.com")
 

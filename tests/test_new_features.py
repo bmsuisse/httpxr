@@ -7,6 +7,7 @@
 - Client-level RetryConfig
 - Client-level RateLimit
 """
+
 from __future__ import annotations
 
 import json
@@ -117,10 +118,10 @@ class TestIterJson:
         """iter_json() handles SSE (Server-Sent Events) format."""
         content = (
             "event: message\n"
-            "data: {\"id\": 1}\n"
+            'data: {"id": 1}\n'
             "\n"
             "event: message\n"
-            "data: {\"id\": 2}\n"
+            'data: {"id": 2}\n'
             "\n"
             "data: [DONE]\n"
         ).encode("utf-8")
@@ -193,6 +194,7 @@ class TestDownload:
 
     def test_download_returns_response(self) -> None:
         """download() returns the Response object for inspection."""
+
         def serve_json(request: httpxr.Request) -> httpxr.Response:
             return httpxr.Response(
                 200,
@@ -236,6 +238,7 @@ class TestGatherPaginate:
 
     def test_gather_paginate_custom_page_param(self) -> None:
         """gather_paginate() supports custom page parameter name."""
+
         def page_handler_offset(request: httpxr.Request) -> httpxr.Response:
             url = str(request.url)
             offset = 0

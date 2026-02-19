@@ -118,9 +118,7 @@ class TestCompatShim:
             _activate_shim()
 
         # Check that a warning was issued
-        httpx_warnings = [
-            x for x in w if "already imported" in str(x.message)
-        ]
+        httpx_warnings = [x for x in w if "already imported" in str(x.message)]
         assert len(httpx_warnings) >= 1
 
     def test_is_active_reflects_state(self) -> None:

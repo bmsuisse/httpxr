@@ -131,7 +131,9 @@ def test_ignore_transfer_encoding_header_if_content_length_exists():
     data = streaming_body(b"abcd")
 
     headers = {"Content-Length": "4"}
-    request = httpxr.Request("POST", "http://example.org", content=data, headers=headers)
+    request = httpxr.Request(
+        "POST", "http://example.org", content=data, headers=headers
+    )
     assert "Transfer-Encoding" not in request.headers
     assert request.headers["Content-Length"] == "4"
 
@@ -157,7 +159,9 @@ def test_override_content_length_header():
     data = streaming_body(b"test 123")
     headers = {"Content-Length": "8"}
 
-    request = httpxr.Request("POST", "http://example.org", content=data, headers=headers)
+    request = httpxr.Request(
+        "POST", "http://example.org", content=data, headers=headers
+    )
     assert request.headers["Content-Length"] == "8"
 
 

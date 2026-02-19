@@ -530,9 +530,7 @@ class OAuth2Auth(httpxr.Auth):
         assert self._token is not None
         return self._token
 
-    def auth_flow(
-        self, request: httpxr.Request
-    ) -> Iterator[httpxr.Request]:
+    def auth_flow(self, request: httpxr.Request) -> Iterator[httpxr.Request]:
         token = self._get_token_sync()
         request.headers["Authorization"] = f"Bearer {token}"
         response = yield request

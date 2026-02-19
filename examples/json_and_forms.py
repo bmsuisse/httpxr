@@ -40,7 +40,9 @@ def main() -> None:
     # ── Multipart file upload (in-memory) ────────────────────────────────
     response = httpxr.post(
         "https://httpbin.org/post",
-        files={"upload": ("hello.txt", io.BytesIO(b"Hello from httpxr!"), "text/plain")},
+        files={
+            "upload": ("hello.txt", io.BytesIO(b"Hello from httpxr!"), "text/plain")
+        },
     )
     print("Multipart upload (in-memory):")
     print(f"  Files echoed: {response.json()['files']}")

@@ -132,8 +132,7 @@ class TestSyncGather:
         """Concurrency limit is respected (still returns all results)."""
         client = httpxr.Client(transport=httpxr.MockTransport(echo_url))
         requests = [
-            client.build_request("GET", f"http://example.com/{i}")
-            for i in range(10)
+            client.build_request("GET", f"http://example.com/{i}") for i in range(10)
         ]
         results = client.gather(requests, max_concurrency=2)
 
@@ -346,9 +345,7 @@ class TestSyncPaginate:
         client.close()
 
         with pytest.raises(RuntimeError):
-            client.paginate(
-                "GET", "http://example.com", next_url="next"
-            )
+            client.paginate("GET", "http://example.com", next_url="next")
 
 
 # ===========================================================================

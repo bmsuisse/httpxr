@@ -209,7 +209,7 @@ class TestIterJsonBytes:
         assert len(lines) == 2
 
     def test_skips_sse_event_id_retry_lines(self) -> None:
-        body = b"event: message\ndata: {\"x\": 1}\nid: 1\nretry: 1000\n\n"
+        body = b'event: message\ndata: {"x": 1}\nid: 1\nretry: 1000\n\n'
         r = httpxr.Response(200, content=body)
         lines = list(iter_json_bytes(r))
         assert len(lines) == 1
@@ -399,7 +399,9 @@ class TestOAuth2Auth:
 
     def test_scope_in_token_data(self) -> None:
         auth = OAuth2Auth(
-            "http://auth/token", "cid", "csec",
+            "http://auth/token",
+            "cid",
+            "csec",
             scope="https://graph.microsoft.com/.default",
         )
         data = auth._build_token_data()
@@ -408,7 +410,9 @@ class TestOAuth2Auth:
 
     def test_extra_params_merged(self) -> None:
         auth = OAuth2Auth(
-            "http://auth/token", "cid", "csec",
+            "http://auth/token",
+            "cid",
+            "csec",
             extra_params={"resource": "https://management.azure.com/"},
         )
         data = auth._build_token_data()

@@ -16,7 +16,9 @@ class EventSource:
         self._response = response
 
     def _check_content_type(self) -> None:
-        content_type = (self._response.headers.get("content-type") or "").partition(";")[0]
+        content_type = (self._response.headers.get("content-type") or "").partition(
+            ";"
+        )[0]
         if "text/event-stream" not in content_type:
             raise SSEError(
                 "Expected response header Content-Type to contain 'text/event-stream', "

@@ -91,12 +91,7 @@ class Headers:
 
     def __init__(
         self,
-        headers: (
-            Mapping[str, str]
-            | Sequence[tuple[str, str]]
-            | Headers
-            | None
-        ) = ...,
+        headers: (Mapping[str, str] | Sequence[tuple[str, str]] | Headers | None) = ...,
         encoding: str = ...,
     ) -> None: ...
     @property
@@ -105,20 +100,11 @@ class Headers:
     def values(self) -> list[str]: ...
     def items(self) -> list[tuple[str, str]]: ...
     def multi_items(self) -> list[tuple[str, str]]: ...
-    def get(
-        self, key: str, default: str | None = ...
-    ) -> str | None: ...
-    def get_list(
-        self, key: str, split_commas: bool = ...
-    ) -> list[str]: ...
+    def get(self, key: str, default: str | None = ...) -> str | None: ...
+    def get_list(self, key: str, split_commas: bool = ...) -> list[str]: ...
     def update(
         self,
-        headers: (
-            Mapping[str, str]
-            | Sequence[tuple[str, str]]
-            | Headers
-            | None
-        ) = ...,
+        headers: (Mapping[str, str] | Sequence[tuple[str, str]] | Headers | None) = ...,
     ) -> None: ...
     def copy(self) -> Headers: ...
     def setdefault(self, key: str, default: str) -> str: ...
@@ -137,14 +123,20 @@ class Headers:
 # ---------------------------------------------------------------------------
 
 class Cookies:
-    def __init__(
-        self, cookies: Mapping[str, str] | Cookies | None = ...
+    def __init__(self, cookies: Mapping[str, str] | Cookies | None = ...) -> None: ...
+    def set(
+        self, name: str, value: str, domain: str | None = ..., path: str | None = ...
     ) -> None: ...
-    def set(self, name: str, value: str, domain: str | None = ..., path: str | None = ...) -> None: ...
     def get(
-        self, name: str, default: str | None = ..., domain: str | None = ..., path: str | None = ...
+        self,
+        name: str,
+        default: str | None = ...,
+        domain: str | None = ...,
+        path: str | None = ...,
     ) -> str | None: ...
-    def delete(self, name: str, domain: str | None = ..., path: str | None = ...) -> None: ...
+    def delete(
+        self, name: str, domain: str | None = ..., path: str | None = ...
+    ) -> None: ...
     def clear(self, domain: str | None = ..., path: str | None = ...) -> None: ...
     def update(self, other: Mapping[str, str] | Cookies | None = ...) -> None: ...
     def keys(self) -> list[str]: ...
@@ -273,7 +265,9 @@ class Response:
     def next_request(self) -> Request | None: ...
     @property
     def default_encoding(self) -> str: ...
-    async def aiter_bytes(self, chunk_size: int | None = ...) -> AsyncIterator[bytes]: ...
+    async def aiter_bytes(
+        self, chunk_size: int | None = ...
+    ) -> AsyncIterator[bytes]: ...
     def iter_bytes(self, chunk_size: int | None = ...) -> Iterator[bytes]: ...
     def iter_text(self, chunk_size: int | None = ...) -> Iterator[str]: ...
     async def aiter_text(self, chunk_size: int | None = ...) -> AsyncIterator[str]: ...
@@ -287,9 +281,19 @@ class Response:
     def raise_for_status(self) -> Response: ...
     def __eq__(self, other: object) -> bool: ...
     def __enter__(self) -> Response: ...
-    def __exit__(self, exc_type: type | None = ..., exc_val: BaseException | None = ..., exc_tb: Any | None = ...) -> None: ...
+    def __exit__(
+        self,
+        exc_type: type | None = ...,
+        exc_val: BaseException | None = ...,
+        exc_tb: Any | None = ...,
+    ) -> None: ...
     async def __aenter__(self) -> Response: ...
-    async def __aexit__(self, exc_type: type | None = ..., exc_val: BaseException | None = ..., exc_tb: Any | None = ...) -> None: ...
+    async def __aexit__(
+        self,
+        exc_type: type | None = ...,
+        exc_val: BaseException | None = ...,
+        exc_tb: Any | None = ...,
+    ) -> None: ...
 
 # ---------------------------------------------------------------------------
 # Config
@@ -378,6 +382,7 @@ def create_ssl_context(
 
 class Auth:
     """Base class for authentication."""
+
     ...
 
 class BasicAuth:
@@ -418,7 +423,9 @@ class Client:
     @property
     def headers(self) -> Headers: ...
     @headers.setter
-    def headers(self, value: Mapping[str, str] | Sequence[tuple[str, str]] | Headers) -> None: ...
+    def headers(
+        self, value: Mapping[str, str] | Sequence[tuple[str, str]] | Headers
+    ) -> None: ...
     @property
     def base_url(self) -> URL: ...
     @base_url.setter
@@ -426,7 +433,9 @@ class Client:
     @property
     def auth(self) -> Any | None: ...
     @auth.setter
-    def auth(self, value: tuple[str, str] | Auth | Callable[..., Any] | None) -> None: ...
+    def auth(
+        self, value: tuple[str, str] | Auth | Callable[..., Any] | None
+    ) -> None: ...
     @property
     def cookies(self) -> Cookies: ...
     @cookies.setter
@@ -466,7 +475,6 @@ class Client:
         extensions: dict[str, Any] | None = ...,
         **kwargs: Any,
     ) -> Response: ...
-
     def get(
         self,
         url: str | URL,
@@ -479,7 +487,6 @@ class Client:
         extensions: dict[str, Any] | None = ...,
         **kwargs: Any,
     ) -> Response: ...
-
     def head(
         self,
         url: str | URL,
@@ -492,7 +499,6 @@ class Client:
         extensions: dict[str, Any] | None = ...,
         **kwargs: Any,
     ) -> Response: ...
-
     def options(
         self,
         url: str | URL,
@@ -505,7 +511,6 @@ class Client:
         extensions: dict[str, Any] | None = ...,
         **kwargs: Any,
     ) -> Response: ...
-
     def delete(
         self,
         url: str | URL,
@@ -518,7 +523,6 @@ class Client:
         extensions: dict[str, Any] | None = ...,
         **kwargs: Any,
     ) -> Response: ...
-
     def post(
         self,
         url: str | URL,
@@ -535,7 +539,6 @@ class Client:
         extensions: dict[str, Any] | None = ...,
         **kwargs: Any,
     ) -> Response: ...
-
     def put(
         self,
         url: str | URL,
@@ -552,7 +555,6 @@ class Client:
         extensions: dict[str, Any] | None = ...,
         **kwargs: Any,
     ) -> Response: ...
-
     def patch(
         self,
         url: str | URL,
@@ -569,7 +571,6 @@ class Client:
         extensions: dict[str, Any] | None = ...,
         **kwargs: Any,
     ) -> Response: ...
-
     def stream(
         self,
         method: str,
@@ -587,7 +588,6 @@ class Client:
         extensions: dict[str, Any] | None = ...,
         **kwargs: Any,
     ) -> Response: ...
-
     def build_request(
         self,
         method: str,
@@ -602,7 +602,6 @@ class Client:
         cookies: Mapping[str, str] | Cookies | None = ...,
         extensions: dict[str, Any] | None = ...,
     ) -> Request: ...
-
     def send(
         self,
         request: Request,
@@ -610,7 +609,6 @@ class Client:
         auth: Any | None = ...,
         follow_redirects: bool | None = ...,
     ) -> Response: ...
-
     def gather(
         self,
         requests: list[Request],
@@ -618,7 +616,6 @@ class Client:
         max_concurrency: int = ...,
         return_exceptions: bool = ...,
     ) -> list[Response | Exception]: ...
-
     def paginate(
         self,
         method: str,
@@ -637,16 +634,59 @@ class Client:
     ) -> Iterator[Response]: ...
 
     # Raw methods (httpxr extension)
-    def get_raw(self, url: str, *, headers: dict[str, str] | None = ..., timeout: float | None = ...) -> Any: ...
-    def post_raw(self, url: str, *, headers: dict[str, str] | None = ..., body: bytes | None = ..., timeout: float | None = ...) -> Any: ...
-    def put_raw(self, url: str, *, headers: dict[str, str] | None = ..., body: bytes | None = ..., timeout: float | None = ...) -> Any: ...
-    def patch_raw(self, url: str, *, headers: dict[str, str] | None = ..., body: bytes | None = ..., timeout: float | None = ...) -> Any: ...
-    def delete_raw(self, url: str, *, headers: dict[str, str] | None = ..., timeout: float | None = ...) -> Any: ...
-    def head_raw(self, url: str, *, headers: dict[str, str] | None = ..., timeout: float | None = ...) -> Any: ...
-
+    def get_raw(
+        self,
+        url: str,
+        *,
+        headers: dict[str, str] | None = ...,
+        timeout: float | None = ...,
+    ) -> Any: ...
+    def post_raw(
+        self,
+        url: str,
+        *,
+        headers: dict[str, str] | None = ...,
+        body: bytes | None = ...,
+        timeout: float | None = ...,
+    ) -> Any: ...
+    def put_raw(
+        self,
+        url: str,
+        *,
+        headers: dict[str, str] | None = ...,
+        body: bytes | None = ...,
+        timeout: float | None = ...,
+    ) -> Any: ...
+    def patch_raw(
+        self,
+        url: str,
+        *,
+        headers: dict[str, str] | None = ...,
+        body: bytes | None = ...,
+        timeout: float | None = ...,
+    ) -> Any: ...
+    def delete_raw(
+        self,
+        url: str,
+        *,
+        headers: dict[str, str] | None = ...,
+        timeout: float | None = ...,
+    ) -> Any: ...
+    def head_raw(
+        self,
+        url: str,
+        *,
+        headers: dict[str, str] | None = ...,
+        timeout: float | None = ...,
+    ) -> Any: ...
     def close(self) -> None: ...
     def __enter__(self) -> Client: ...
-    def __exit__(self, exc_type: type | None = ..., exc_val: BaseException | None = ..., exc_tb: Any | None = ...) -> None: ...
+    def __exit__(
+        self,
+        exc_type: type | None = ...,
+        exc_val: BaseException | None = ...,
+        exc_tb: Any | None = ...,
+    ) -> None: ...
 
 # ---------------------------------------------------------------------------
 # AsyncClient
@@ -680,7 +720,9 @@ class AsyncClient:
     @property
     def headers(self) -> Headers: ...
     @headers.setter
-    def headers(self, value: Mapping[str, str] | Sequence[tuple[str, str]] | Headers) -> None: ...
+    def headers(
+        self, value: Mapping[str, str] | Sequence[tuple[str, str]] | Headers
+    ) -> None: ...
     @property
     def base_url(self) -> URL: ...
     @base_url.setter
@@ -688,7 +730,9 @@ class AsyncClient:
     @property
     def auth(self) -> Any | None: ...
     @auth.setter
-    def auth(self, value: tuple[str, str] | Auth | Callable[..., Any] | None) -> None: ...
+    def auth(
+        self, value: tuple[str, str] | Auth | Callable[..., Any] | None
+    ) -> None: ...
     @property
     def cookies(self) -> Cookies: ...
     @cookies.setter
@@ -723,7 +767,6 @@ class AsyncClient:
         stream: bool = ...,
         **kwargs: Any,
     ) -> Response: ...
-
     async def get(
         self,
         url: str | URL,
@@ -736,7 +779,6 @@ class AsyncClient:
         extensions: dict[str, Any] | None = ...,
         **kwargs: Any,
     ) -> Response: ...
-
     async def head(
         self,
         url: str | URL,
@@ -749,7 +791,6 @@ class AsyncClient:
         extensions: dict[str, Any] | None = ...,
         **kwargs: Any,
     ) -> Response: ...
-
     async def options(
         self,
         url: str | URL,
@@ -762,7 +803,6 @@ class AsyncClient:
         extensions: dict[str, Any] | None = ...,
         **kwargs: Any,
     ) -> Response: ...
-
     async def delete(
         self,
         url: str | URL,
@@ -775,7 +815,6 @@ class AsyncClient:
         extensions: dict[str, Any] | None = ...,
         **kwargs: Any,
     ) -> Response: ...
-
     async def post(
         self,
         url: str | URL,
@@ -792,7 +831,6 @@ class AsyncClient:
         extensions: dict[str, Any] | None = ...,
         **kwargs: Any,
     ) -> Response: ...
-
     async def put(
         self,
         url: str | URL,
@@ -809,7 +847,6 @@ class AsyncClient:
         extensions: dict[str, Any] | None = ...,
         **kwargs: Any,
     ) -> Response: ...
-
     async def patch(
         self,
         url: str | URL,
@@ -826,7 +863,6 @@ class AsyncClient:
         extensions: dict[str, Any] | None = ...,
         **kwargs: Any,
     ) -> Response: ...
-
     def build_request(
         self,
         method: str,
@@ -840,7 +876,6 @@ class AsyncClient:
         headers: Mapping[str, str] | None = ...,
         extensions: dict[str, Any] | None = ...,
     ) -> Request: ...
-
     async def send(
         self,
         request: Request,
@@ -849,7 +884,6 @@ class AsyncClient:
         auth: Any | None = ...,
         follow_redirects: bool | None = ...,
     ) -> Response: ...
-
     async def gather(
         self,
         requests: list[Request],
@@ -857,7 +891,6 @@ class AsyncClient:
         max_concurrency: int = ...,
         return_exceptions: bool = ...,
     ) -> list[Response | Exception]: ...
-
     async def paginate(
         self,
         method: str,
@@ -874,11 +907,15 @@ class AsyncClient:
         extensions: dict[str, Any] | None = ...,
         **kwargs: Any,
     ) -> AsyncIterator[Response]: ...
-
     async def aclose(self) -> None: ...
     def close(self) -> None: ...
     async def __aenter__(self) -> AsyncClient: ...
-    async def __aexit__(self, exc_type: type | None = ..., exc_val: BaseException | None = ..., exc_tb: Any | None = ...) -> None: ...
+    async def __aexit__(
+        self,
+        exc_type: type | None = ...,
+        exc_val: BaseException | None = ...,
+        exc_tb: Any | None = ...,
+    ) -> None: ...
 
 # ---------------------------------------------------------------------------
 # Transports
@@ -889,14 +926,24 @@ class BaseTransport:
     def handle_request(self, request: Request) -> Response: ...
     def close(self) -> None: ...
     def __enter__(self) -> BaseTransport: ...
-    def __exit__(self, exc_type: type | None = ..., exc_val: BaseException | None = ..., exc_tb: Any | None = ...) -> None: ...
+    def __exit__(
+        self,
+        exc_type: type | None = ...,
+        exc_val: BaseException | None = ...,
+        exc_tb: Any | None = ...,
+    ) -> None: ...
 
 class AsyncBaseTransport:
     def __init__(self, *args: Any, **kwargs: Any) -> None: ...
     async def handle_async_request(self, request: Request) -> Response: ...
     async def aclose(self) -> None: ...
     async def __aenter__(self) -> AsyncBaseTransport: ...
-    async def __aexit__(self, exc_type: type | None = ..., exc_val: BaseException | None = ..., exc_tb: Any | None = ...) -> None: ...
+    async def __aexit__(
+        self,
+        exc_type: type | None = ...,
+        exc_val: BaseException | None = ...,
+        exc_tb: Any | None = ...,
+    ) -> None: ...
 
 class MockTransport(BaseTransport):
     handler: Any
@@ -937,7 +984,6 @@ def request(
     verify: bool | str | Any | None = ...,
     timeout: float | Timeout | None = ...,
 ) -> Response: ...
-
 def get(url: str | URL, **kwargs: Any) -> Response: ...
 def post(url: str | URL, **kwargs: Any) -> Response: ...
 def put(url: str | URL, **kwargs: Any) -> Response: ...
@@ -945,13 +991,11 @@ def patch(url: str | URL, **kwargs: Any) -> Response: ...
 def delete(url: str | URL, **kwargs: Any) -> Response: ...
 def head(url: str | URL, **kwargs: Any) -> Response: ...
 def options(url: str | URL, **kwargs: Any) -> Response: ...
-
 def stream(
     method: str,
     url: str | URL,
     **kwargs: Any,
 ) -> Response: ...
-
 def fetch_all(
     requests: list[dict[str, Any]],
     *,
@@ -1008,7 +1052,10 @@ class FileField:
 
 class MultipartStream:
     def __init__(
-        self, data: Any | None = ..., files: Any | None = ..., boundary: str | None = ...
+        self,
+        data: Any | None = ...,
+        files: Any | None = ...,
+        boundary: str | None = ...,
     ) -> None: ...
     def content_type(self) -> str: ...
     def get_content(self) -> bytes: ...
@@ -1150,9 +1197,11 @@ class LocalProtocolError(ProtocolError): ...
 class RemoteProtocolError(ProtocolError): ...
 class DecodingError(RequestError): ...
 class TooManyRedirects(RequestError): ...
+
 class HTTPStatusError(HTTPError):
     response: Response
     request: Request
+
 class StreamError(RequestError): ...
 class StreamConsumed(StreamError): ...
 class StreamClosed(StreamError): ...
