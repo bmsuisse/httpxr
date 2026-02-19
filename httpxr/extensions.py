@@ -25,7 +25,7 @@ from __future__ import annotations
 import json as _json
 import threading
 import time
-from collections.abc import AsyncIterator, Callable, Iterator
+from collections.abc import AsyncGenerator, Callable, Iterator
 from typing import Any
 
 import httpxr  # noqa: TCH002
@@ -117,6 +117,23 @@ def paginate_to_records(
     ...     ):
     ...         upsert_to_delta(record)
     """
+    _has_strategy = (
+        next_url is not None or next_header is not None or next_func is not None
+    )
+    if not _has_strategy:
+        # No pagination strategy — single request, extract records, done.
+        resp = client.request(
+            method, url, params=params, headers=headers, timeout=timeout, **kwargs
+        )
+        resp.raise_for_status()
+        body = resp.json()
+        if records_key is None:
+            yield body
+            return
+        records = body[records_key] if isinstance(body, dict) else body
+        yield from (records if isinstance(records, list) else [records])
+        return
+
     page_iter = client.paginate(
         method,
         url,
@@ -156,8 +173,26 @@ async def apaginate_to_records(
     headers: dict[str, str] | None = None,
     timeout: float | httpxr.Timeout | None = None,
     **kwargs: Any,
-) -> AsyncIterator[Any]:
+) -> AsyncGenerator[Any, None]:
     """Async version of :func:`paginate_to_records`."""
+    _has_strategy = (
+        next_url is not None or next_header is not None or next_func is not None
+    )
+    if not _has_strategy:
+        resp = await client.request(
+            method, url, params=params, headers=headers, timeout=timeout, **kwargs
+        )
+        resp.raise_for_status()
+        body = resp.json()
+        if records_key is None:
+            yield body
+            return
+        records = body[records_key] if isinstance(body, dict) else body
+        items = records if isinstance(records, list) else [records]
+        for record in items:
+            yield record
+        return
+
     page_iter = client.paginate(
         method,
         url,
@@ -258,13 +293,13 @@ def iter_json_bytes(
 
 async def aiter_json_bytes(
     response: httpxr.Response,
-) -> AsyncIterator[bytes]:
+) -> AsyncGenerator[bytes, None]:
     """Async version of :func:`iter_json_bytes`.
 
     Streams NDJSON / SSE response bytes without UTF-8 decoding.
     """
     buf = b""
-    async for chunk in response.aiter_bytes():
+    async for chunk in response.aiter_bytes():  # type: ignore[union-attr]
         buf += chunk
         while b"\n" in buf:
             raw_line, buf = buf.split(b"\n", 1)
@@ -347,18 +382,18 @@ def gather_raw_bytes(
     if not requests:
         return []
 
-    raw_results = client.gather_raw(
+    responses = client.gather(
         requests,
         max_concurrency=max_concurrency,
         return_exceptions=return_exceptions,
     )
 
     out: list[Any] = []
-    for item in raw_results:
+    for item in responses:
         if isinstance(item, Exception):
             out.append(item)
             continue
-        _status, _headers, body = item
+        body: bytes = item.content
         if parser is None:
             out.append(body)
         else:
@@ -527,7 +562,7 @@ class OAuth2Auth(httpxr.Auth):
 
     async def async_auth_flow(
         self, request: httpxr.Request
-    ) -> AsyncIterator[httpxr.Request]:
+    ) -> AsyncGenerator[httpxr.Request, None]:
         token = await self._get_token_async()
         request.headers["Authorization"] = f"Bearer {token}"
         response = yield request

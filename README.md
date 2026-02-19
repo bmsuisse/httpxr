@@ -5,7 +5,7 @@
 [![Python versions](https://img.shields.io/badge/python-3.10%20%7C%203.11%20%7C%203.12%20%7C%203.13-blue)](https://pypi.org/project/httpxr/)
 [![Docs](https://img.shields.io/badge/docs-online-blue?logo=materialformkdocs)](https://bmsuisse.github.io/httpxr/)
 
-A 1:1 Rust port of [httpx](https://github.com/encode/httpx) — same API, faster execution.
+A Rust-powered HTTP client built on the [httpx](https://github.com/encode/httpx) API — same interface, faster execution, and a growing set of high-performance extensions for data ingestion.
 
 [📖 **Documentation**](https://bmsuisse.github.io/httpxr) · [📦 PyPI](https://pypi.org/project/httpxr/) · [🐙 GitHub](https://github.com/bmsuisse/httpxr) · [🤖 llm.txt](https://bmsuisse.github.io/httpxr/llm.txt)
 
@@ -16,7 +16,18 @@ A 1:1 Rust port of [httpx](https://github.com/encode/httpx) — same API, faster
 
 ## What is httpxr?
 
-`httpxr` is a **faithful port** of the [httpx](https://github.com/encode/httpx) HTTP client with one goal: **make it faster by replacing the Python internals with Rust**. The Python API stays identical — swap `import httpx` for `import httpxr` and everything just works, but with the performance benefits of native Rust networking, TLS, and compression.
+`httpxr` started as a **faithful port** of [httpx](https://github.com/encode/httpx) — swap `import httpx` for `import httpxr` and everything just works, but faster thanks to native Rust networking, TLS, and compression.
+
+It has since grown beyond a 1:1 port. The bundled [`httpxr.extensions`](https://bmsuisse.github.io/httpxr/extensions/) module adds high-performance helpers designed for **big-data ingestion pipelines** (Databricks, PySpark, NDJSON streams) that go well beyond what plain httpx provides:
+
+| Feature | Purpose |
+| :--- | :--- |
+| `paginate_to_records()` | Lazy record iterator over paginated APIs — O(1) memory |
+| `iter_json_bytes()` | Stream NDJSON/SSE as raw bytes — zero UTF-8 decode overhead |
+| `gather_raw_bytes()` | Concurrent batch requests → bytes/parsed, powered by Rust concurrency |
+| `OAuth2Auth` | Client-credentials auth with automatic token refresh |
+
+
 
 The networking layer is reimplemented in Rust:
 

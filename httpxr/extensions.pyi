@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator, Callable, Iterator
+from collections.abc import AsyncGenerator, Callable, Iterator
 from threading import Lock
 from typing import Any
 
@@ -44,7 +44,7 @@ async def apaginate_to_records(
     headers: dict[str, str] | None = ...,
     timeout: float | httpxr.Timeout | None = ...,
     **kwargs: Any,
-) -> AsyncIterator[Any]:
+) -> AsyncGenerator[Any, None]:
     """Lazily yield individual records from a paginated JSON API (async)."""
     ...
 
@@ -64,7 +64,7 @@ def iter_json_bytes(
 
 async def aiter_json_bytes(
     response: httpxr.Response,
-) -> AsyncIterator[bytes]:
+) -> AsyncGenerator[bytes, None]:
     """Async streaming NDJSON / SSE response as raw bytes lines."""
     ...
 
@@ -128,4 +128,4 @@ class OAuth2Auth(httpxr.Auth):
     async def _get_token_async(self) -> str: ...
     async def async_auth_flow(
         self, request: httpxr.Request
-    ) -> AsyncIterator[httpxr.Request]: ...
+    ) -> AsyncGenerator[httpxr.Request, None]: ...
