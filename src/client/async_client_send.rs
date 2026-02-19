@@ -103,7 +103,7 @@ impl AsyncClient {
                     }
                 }
 
-                let ext = resp.extensions.bind(py);
+                let ext = resp.extensions.as_ref().unwrap().bind(py);
                 if let Ok(d) = ext.cast::<PyDict>() {
                     if !d.contains("http_version")? {
                         d.set_item("http_version", PyBytes::new(py, b"HTTP/1.1"))?;
@@ -212,7 +212,7 @@ impl AsyncClient {
                 resp.default_encoding = de.clone_ref(py);
             }
 
-            let ext = resp.extensions.bind(py);
+            let ext = resp.extensions.as_ref().unwrap().bind(py);
             if let Ok(d) = ext.cast::<PyDict>() {
                 if !d.contains("http_version")? {
                     d.set_item("http_version", PyBytes::new(py, b"HTTP/1.1"))?;
@@ -231,12 +231,12 @@ impl AsyncClient {
                     .map(|r| r.url.to_string())
                     .unwrap_or_default();
                 let http_version = {
-                    let ext = resp.extensions.bind(py);
+                    let ext = resp.extensions.as_ref().unwrap().bind(py);
                     if let Ok(d) = ext.cast::<PyDict>() {
                         d.get_item("http_version")
                             .ok()
                             .flatten()
-                            .and_then(|v| v.extract::<Vec<u8>>().ok())
+                            .and_then(|v: pyo3::Bound<'_, pyo3::PyAny>| v.extract::<Vec<u8>>().ok())
                             .map(|b| String::from_utf8_lossy(&b).to_string())
                             .unwrap_or_else(|| "HTTP/1.1".to_string())
                     } else {
@@ -303,8 +303,181 @@ impl AsyncClient {
             ));
         }
         let _files = files;
+        let method_bytes = method.as_bytes();
+        let is_bodyless = method_bytes.eq_ignore_ascii_case(b"GET")
+            || method_bytes.eq_ignore_ascii_case(b"HEAD")
+            || method_bytes.eq_ignore_ascii_case(b"DELETE")
+            || method_bytes.eq_ignore_ascii_case(b"OPTIONS");
         let method_str = method.to_uppercase();
         let url_str = url.str()?.extract::<String>()?;
+        let url_str_for_check = url_str.clone();
+
+        let has_valid_scheme = (url_str_for_check.starts_with("http://") && url_str_for_check.len() > 7)
+            || (url_str_for_check.starts_with("https://") && url_str_for_check.len() > 8)
+            || url_str_for_check.starts_with("/");
+
+        let should_follow = follow_redirects.unwrap_or(self.follow_redirects);
+
+        let _can_fast_path = is_bodyless
+            && has_valid_scheme
+            && content.is_none()
+            && data.is_none()
+            && files.is_none()
+            && json.is_none()
+            && params.is_none()
+            && cookies.is_none()
+            && extensions.is_none()
+            && kwargs.map(|k| k.is_empty()).unwrap_or(true)
+            && self.auth.is_none()
+            && self.params.is_none()
+            && self.event_hooks.is_none()
+            && self.mounts.bind(py).is_empty()
+            && !stream
+            && !should_follow;
+
+        if _can_fast_path {
+            let t_bound = self.transport.bind(py);
+            if let Ok(transport_ref) = t_bound.cast::<crate::transports::default::AsyncHTTPTransport>() {
+                if let Ok(method_reqwest) = reqwest::Method::from_bytes(method_bytes) {
+                    let transport_borrow = transport_ref.borrow();
+                    let client = transport_borrow.get_client();
+                    let pool_sem = transport_borrow.get_pool_semaphore();
+
+                    let target_url_str = if let Some(ref base) = self.base_url {
+                        base.join_relative(&url_str_for_check).map(|u| u.to_string()).unwrap_or(url_str_for_check.clone())
+                    } else {
+                        url_str_for_check.clone()
+                    };
+
+                    let mut fast_headers: Vec<(String, String)> = Vec::new();
+                    let def_hdrs = self.default_headers.bind(py).borrow();
+                    let is_host_present = def_hdrs.contains_header("host");
+                    for (k, v) in def_hdrs.iter_all() {
+                        fast_headers.push((k.to_string(), v.to_string()));
+                    }
+                    if !is_host_present {
+                        if let Ok(u) = reqwest::Url::parse(&target_url_str) {
+                            if let Some(h) = u.host_str() {
+                                fast_headers.push(("host".to_string(), h.to_string()));
+                            }
+                        }
+                    }
+                    drop(def_hdrs);
+
+                    let uses_jar = !self.cookies.jar.bind(py).is_none();
+                    if uses_jar {
+                        let mut merged_headers = self.default_headers.bind(py).borrow().clone();
+                        if apply_cookies(py, &self.cookies, None, &mut merged_headers).is_ok() {
+                            fast_headers.clear();
+                            for (k, v) in merged_headers.iter_all() {
+                                fast_headers.push((k.to_string(), v.to_string()));
+                            }
+                        }
+                    }
+
+                    let (timeout_val, connect_timeout_val, read_timeout_val, write_timeout_val, pool_timeout_val) = if let Some(t_arg) = timeout {
+                        if t_arg.is_none() {
+                            (None, None, None, None, None)
+                        } else {
+                            if let Ok(t) = crate::config::Timeout::new(py, Some(t_arg), None, None, None, None) {
+                                let dur = [t.connect, t.read, t.write]
+                                    .iter()
+                                    .filter_map(|t| *t)
+                                    .reduce(f64::min)
+                                    .map(std::time::Duration::from_secs_f64);
+                                (dur, t.connect, t.read, t.write, t.pool)
+                            } else {
+                                (self.cached_timeout, self.cached_connect_timeout, self.cached_read_timeout, self.cached_write_timeout, self.cached_pool_timeout)
+                            }
+                        }
+                    } else {
+                        (self.cached_timeout, self.cached_connect_timeout, self.cached_read_timeout, self.cached_write_timeout, self.cached_pool_timeout)
+                    };
+                    
+                    let default_encoding = self.default_encoding.as_ref().map(|de| de.clone_ref(py));
+                    let original_method = method.to_string();
+                    let jar_cookie: Option<Py<PyAny>> = if uses_jar { Some(self.cookies.jar.clone_ref(py)) } else { None };
+
+                    return pyo3_async_runtimes::tokio::future_into_py(py, async move {
+                        let start = std::time::Instant::now();
+                        let _pool_permit = if let Some(ref sem) = pool_sem {
+                            let pool_dur = pool_timeout_val
+                                .map(std::time::Duration::from_secs_f64)
+                                .unwrap_or(std::time::Duration::from_secs(30));
+                            match tokio::time::timeout(pool_dur, sem.clone().acquire_owned()).await {
+                                Ok(Ok(permit)) => Some(permit),
+                                Ok(Err(_)) => {
+                                    return Err(crate::exceptions::PoolTimeout::new_err(
+                                        "Connection pool is closed".to_string(),
+                                    ));
+                                }
+                                Err(_) => {
+                                    return Err(crate::exceptions::PoolTimeout::new_err(
+                                        "Timed out waiting for a connection from the pool".to_string(),
+                                    ));
+                                }
+                            }
+                        } else {
+                            None
+                        };
+
+                        let mut req_builder = client.request(method_reqwest.clone(), &target_url_str);
+                        for (key, value) in &fast_headers {
+                            req_builder = req_builder.header(key.as_str(), value.as_str());
+                        }
+                        if let Some(t) = timeout_val {
+                            req_builder = req_builder.timeout(t);
+                        }
+
+                        let response = req_builder.send().await.map_err(|e| {
+                            if e.is_timeout() {
+                                if e.is_connect()
+                                    || (connect_timeout_val.is_some()
+                                        && read_timeout_val.is_none()
+                                        && write_timeout_val.is_none())
+                                {
+                                    crate::exceptions::ConnectTimeout::new_err(format!("{}", e))
+                                } else {
+                                    crate::exceptions::ReadTimeout::new_err(format!("{}", e))
+                                }
+                            } else if e.is_connect() {
+                                crate::exceptions::ConnectError::new_err(format!("{}", e))
+                            } else {
+                                crate::exceptions::NetworkError::new_err(format!("{}", e))
+                            }
+                        })?;
+
+                        let status = response.status().as_u16();
+                        let headers_owned: Vec<(Vec<u8>, Vec<u8>)> = response
+                            .headers()
+                            .iter()
+                            .map(|(k, v)| (k.as_str().as_bytes().to_vec(), v.as_bytes().to_vec()))
+                            .collect();
+                        let bytes = response.bytes().await.map_err(|e| {
+                            crate::exceptions::ReadError::new_err(format!("{}", e))
+                        })?;
+                        
+                        Python::attach(|py| {
+                            let mut res = crate::transports::helpers::build_default_response(py, status, headers_owned, bytes.to_vec())?;
+                            res.elapsed = Some(start.elapsed().as_secs_f64());
+                            res.lazy_request_method = Some(original_method.to_uppercase());
+                            res.lazy_request_url = Some(target_url_str.clone());
+                            if let Some(ref de) = default_encoding {
+                                res.default_encoding = de.clone_ref(py);
+                            }
+                            if let Some(jar) = jar_cookie {
+                                let _ = extract_cookies_to_jar(py, &mut res, jar.bind(py));
+                            }
+                            log::info!(target: "httpxr", "HTTP Request: {} {} \"HTTP/1.1 {} {}\"", 
+                                res.lazy_request_method.as_ref().unwrap(), res.lazy_request_url.as_ref().unwrap(), status, res.reason_phrase());
+                            
+                            let py_res = Py::new(py, res)?;
+                            Ok(py_res.into_any().into_bound(py).unbind())
+                        })
+                    });
+                }
+            }
+        }
 
         let mut target_url = match resolve_url(&self.base_url, &url_str) {
             Ok(u) => u,
@@ -735,26 +908,14 @@ impl AsyncClient {
                                 let h_hdrs = crate::models::Headers::from_raw_byte_pairs(hist_headers.clone());
                                 let h_ext = PyDict::new(py);
                                 h_ext.set_item("http_version", PyBytes::new(py, b"HTTP/1.1"))?;
-                                let h_req_url = crate::urls::URL::create_from_str_fast(hist_url);
-                                let h_req = crate::models::Request {
-                                    method: "GET".to_string(),
-                                    url: h_req_url,
-                                    headers: Py::new(py, crate::models::Headers::empty())?,
-                                    extensions: PyDict::new(py).into(),
-                                    content_body: None,
-                                    stream: None,
-                                    stream_response: false,
-                                };
-                                if log::log_enabled!(target: "httpxr", log::Level::Info) {
-                                    log::info!(target: "httpxr", "HTTP Request: GET {} \"HTTP/1.1 {} {}\"", hist_url, hist_status, reason_for(*hist_status));
-                                }
                                 history_responses.push(crate::models::Response {
                                     status_code: *hist_status,
-                                    headers: Py::new(py, h_hdrs)?,
-                                    extensions: h_ext.into(),
-                                    request: Some(h_req),
-                                    lazy_request_method: None,
-                                    lazy_request_url: None,
+                                    headers: Some(Py::new(py, h_hdrs)?),
+                                    lazy_headers: None,
+                                    extensions: Some(h_ext.into()),
+                                    request: None,
+                                    lazy_request_method: Some("GET".to_string()),
+                                    lazy_request_url: Some(hist_url.clone()),
                                     history: Vec::new(),
                                     content_bytes: Some(hist_body.clone()),
                                     stream: None,
@@ -771,17 +932,6 @@ impl AsyncClient {
 
                             let headers_obj = crate::models::Headers::from_raw_byte_pairs(final_headers_raw);
 
-                            let req_url = crate::urls::URL::create_from_str_fast(&final_url);
-                            let request_obj = crate::models::Request {
-                                method: "GET".to_string(),
-                                url: req_url,
-                                headers: Py::new(py, crate::models::Headers::empty())?,
-                                extensions: PyDict::new(py).into(),
-                                content_body: None,
-                                stream: None,
-                                stream_response: false,
-                            };
-
                             if log::log_enabled!(target: "httpxr", log::Level::Info) {
                                 log::info!(target: "httpxr", "HTTP Request: GET {} \"HTTP/1.1 {} {}\"", final_url, final_status, reason_for(final_status));
                             }
@@ -791,7 +941,8 @@ impl AsyncClient {
 
                             let response = crate::models::Response {
                                 status_code: final_status,
-                                headers: Py::new(py, headers_obj)?,
+                                headers: Some(Py::new(py, headers_obj)?),
+                                lazy_headers: None,
                                 stream: None,
                                 content_bytes: Some(final_body),
                                 is_stream_consumed: false,
@@ -802,11 +953,11 @@ impl AsyncClient {
                                     .unbind(),
                                 default_encoding_override: None,
                                 text_accessed: std::sync::atomic::AtomicBool::new(false),
-                                request: Some(request_obj),
-                                lazy_request_method: None,
-                                lazy_request_url: None,
+                                request: None,
+                                lazy_request_method: Some("GET".to_string()),
+                                lazy_request_url: Some(final_url.clone()),
                                 elapsed: Some(elapsed),
-                                extensions: ext.into(),
+                                extensions: Some(ext.into()),
                                 history: history_responses,
                                 num_bytes_downloaded_counter: std::sync::Arc::new(
                                     std::sync::atomic::AtomicUsize::new(0),

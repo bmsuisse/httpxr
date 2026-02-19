@@ -562,11 +562,11 @@ pub fn fire_sync_event_hooks(
 /// Extract set-cookie headers from a response and add them to a cookie jar.
 pub fn extract_cookies_to_jar(
     py: Python<'_>,
-    response: &Response,
+    response: &mut Response,
     jar: &Bound<'_, PyAny>,
 ) -> PyResult<()> {
     let mut cookie_list = Vec::new();
-    for (k, v) in response.headers.bind(py).borrow().get_multi_items() {
+    for (k, v) in response.headers(py).unwrap().bind(py).borrow().get_multi_items() {
         if k.to_lowercase() == "set-cookie" {
             cookie_list.push(v);
         }

@@ -160,8 +160,9 @@ impl HTTPTransport {
             let py_iter = Py::new(py, blocking_iter)?.into_any();
             Ok(Response {
                 status_code,
-                headers: Py::new(py, hdrs)?,
-                extensions: ext.into(),
+                headers: Some(Py::new(py, hdrs)?),
+                    lazy_headers: None,
+                extensions: Some(ext.into()),
                 request: None,
                 lazy_request_method: None,
                 lazy_request_url: None,
@@ -245,7 +246,8 @@ impl HTTPTransport {
         let dict = PyDict::new(py);
         for (k, v) in &resp_headers {
             let val_str = std::str::from_utf8(v).unwrap_or("");
-            dict.set_item(k.as_str(), val_str)?;
+            let key_intern = crate::utils::intern_header_key(py, k.as_str());
+            dict.set_item(key_intern.as_any(), val_str)?;
         }
         let body_py = PyBytes::new(py, &body_bytes);
         let tuple = PyTuple::new(py, &[
@@ -254,6 +256,64 @@ impl HTTPTransport {
             body_py.as_any().as_borrowed(),
         ])?;
         Ok(tuple.unbind().into())
+    }
+
+    /// Fast-path returning an actual `Response`, avoiding Python `Request` tracking overhead
+    pub fn send_fast(
+        &self,
+        py: Python<'_>,
+        method: reqwest::Method,
+        url: &str,
+        headers: Vec<(String, String)>,
+        timeout_secs: Option<f64>,
+    ) -> PyResult<Response> {
+        let parsed_url = reqwest::Url::parse(url).map_err(|e| {
+            crate::exceptions::InvalidURL::new_err(format!("Invalid URL: {}", e))
+        })?;
+
+        let mut req_builder = self.client.request(method, parsed_url);
+        for (k, v) in headers {
+            req_builder = req_builder.header(k, v);
+        }
+        if let Some(t) = timeout_secs {
+            req_builder = req_builder.timeout(std::time::Duration::from_secs_f64(t));
+        }
+
+        let built_request = req_builder.build().map_err(|e| {
+            pyo3::exceptions::PyRuntimeError::new_err(format!("Failed to build request: {}", e))
+        })?;
+
+        let handle = self.handle.clone();
+        let client = self.client.clone();
+        
+        let (status_code, resp_headers, body_bytes_result) = py
+            .detach(move || {
+                handle.block_on(async {
+                    let response = client.execute(built_request).await?;
+                    let status = response.status().as_u16();
+                    let headers = response.headers();
+                    let mut resp_headers: Vec<(Vec<u8>, Vec<u8>)> =
+                        Vec::with_capacity(headers.len());
+                    for (k, v) in headers.iter() {
+                        resp_headers.push((
+                            k.as_str().as_bytes().to_vec(),
+                            v.as_bytes().to_vec(),
+                        ));
+                    }
+                    let bytes = response.bytes().await?;
+                    Ok::<_, reqwest::Error>((status, resp_headers, bytes.to_vec()))
+                })
+            })
+            .map_err(|e: reqwest::Error| map_reqwest_error_simple(e))?;
+
+        let res = build_default_response(py, status_code, resp_headers, body_bytes_result)?;
+        let ext = res.extensions.as_ref().unwrap().bind(py);
+        if let Ok(d) = ext.cast::<pyo3::types::PyDict>() {
+            if !d.contains("http_version")? {
+                d.set_item("http_version", pyo3::types::PyBytes::new(py, b"HTTP/1.1"))?;
+            }
+        }
+        Ok(res)
     }
 }
 
@@ -727,8 +787,9 @@ impl AsyncHTTPTransport {
 
                 Ok(Response {
                     status_code,
-                    headers: Py::new(py, hdrs)?,
-                    extensions: ext.into(),
+                    lazy_headers: None,
+                    headers: Some(Py::new(py, hdrs)?),
+                    extensions: Some(ext.into()),
                     request: None,
                     lazy_request_method: None,
                     lazy_request_url: None,
@@ -847,7 +908,7 @@ impl AsyncHTTPTransport {
                     match result {
                         Ok((status_code, resp_headers, body_bytes)) => {
                             let mut response = build_default_response(py, status_code, resp_headers, body_bytes)?;
-                            if let Ok(ext) = response.extensions.bind(py).cast::<PyDict>() {
+                            if let Ok(ext) = response.extensions.as_ref().unwrap().bind(py).cast::<PyDict>() {
                                 ext.set_item("http_version", pyo3::types::PyBytes::new(py, b"HTTP/1.1"))?;
                             }
                             let req_ref = requests[i].bind(py).borrow();
