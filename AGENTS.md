@@ -16,6 +16,10 @@ httpxr is a 1:1 Rust port of httpx for performance. It uses:
 - Type checking: `uv run pyright`
 - Smoke test: `uv run python -c "import httpxr; print(httpxr.__version__)"`
 
+### Always Use `ruff format`
+- **All Python code MUST be formatted with `ruff` before committing**
+- Command: `uv run ruff format .`
+
 ### Build Workflow
 1. `cargo check` — fast compilation check
 2. `maturin develop --release` — build optimized `.so`
