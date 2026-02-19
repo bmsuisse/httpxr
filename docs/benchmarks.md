@@ -33,9 +33,9 @@ Hover over the charts for detailed statistics per library.
 
 | Scenario | httpxr vs httpx |
 |:---|:---|
-| Single GET | ~2× faster |
-| 50 Sequential GETs | ~2.4× faster |
-| 50 Concurrent GETs | ~13× faster (GIL-free Rust) |
+| Single GET | ~1.9× faster |
+| 50 Sequential GETs | ~2.3× faster |
+| 50 Concurrent GETs | ~12× faster (GIL-free Rust) |
 
 !!! info "Reproduce locally"
     ```bash

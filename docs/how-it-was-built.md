@@ -133,8 +133,8 @@ Key optimizations the agent discovered and applied:
 After dozens of iterations across both phases, httpxr achieved both goals:
 
 - ✅ **1303/1303 httpx tests passing** — full API compatibility
-- ✅ **2.4× faster** than httpx for sequential workloads
-- ✅ **13× faster** than httpx under concurrency
+- ✅ **2.3× faster** than httpx for sequential workloads
+- ✅ **12× faster** than httpx under concurrency
 - ✅ **#1 fastest** HTTP client under concurrency across all 10 libraries tested
 - ✅ **Zero Python dependencies** — HTTP, TLS, compression, SOCKS, IDNA all in Rust
 

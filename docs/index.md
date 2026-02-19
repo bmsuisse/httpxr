@@ -29,7 +29,7 @@ with the performance of native Rust networking.
 
 ### :material-lightning-bolt: Blazing Fast
 
-2.4× faster than httpx sequentially, **13× faster** under concurrency.
+2.3× faster than httpx sequentially, **12× faster** under concurrency.
 The Rust transport layer releases the GIL for true parallel HTTP.
 
 </div>
@@ -142,8 +142,8 @@ All benchmarks run against **10 HTTP libraries** on a local ASGI server, 100 rou
 
 !!! tip "Key takeaways"
     - **#1 under concurrency** — faster than all other libraries
-    - **~2.4× faster** than httpx for sequential workloads
-    - **~13× faster** than httpx under concurrency (GIL-free Rust)
+    - **~2.3× faster** than httpx for sequential workloads
+    - **~12× faster** than httpx under concurrency (GIL-free Rust)
     - Competitive with bare-metal libraries while offering the full httpx API
 
 ---

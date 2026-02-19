@@ -61,7 +61,7 @@ nav:
     - Streaming: streaming.md
     - Timeouts & Limits: timeouts-limits.md
     - Error Handling: error-handling.md
-    - Cookbook: cookbook.md
+    - Cookbook: cookbook.ipynb
   - Extensions:
     - Overview: extensions.md
     - Server-Sent Events: sse.md
@@ -100,6 +100,10 @@ markdown_extensions:
 
 plugins:
   - search
+  - mkdocs-jupyter:
+      execute: false
+      include_source: true
+      theme: dark
 
 extra:
   social:

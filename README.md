@@ -62,20 +62,20 @@ Scenarios: **Single GET**, **50 Sequential GETs**, **50 Concurrent GETs**.
 
 | Scenario | httpxr | httpr | pyreqwest | ry | aiohttp | curl_cffi | urllib3 | rnet | httpx | niquests |
 |:---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| Single GET | **0.24** | 0.11 | 0.10 | 0.19 | 0.23 | 0.22 | 0.30 | 0.34 | 0.38 | 0.38 |
-| 50 Sequential GETs | **7.85** | 6.39 | 6.24 | 8.74 | 10.56 | 12.62 | 14.92 | 17.58 | 18.58 | 18.76 |
-| 50 Concurrent GETs | **5.06** | 7.20 | 6.42 | 6.06 | 7.36 | 12.07 | 16.28 | 9.99 | 65.83 | 19.90 |
+| Single GET | **0.20** | 0.19 | 0.17 | 0.18 | 0.27 | 0.27 | 0.29 | 0.39 | 0.38 | 0.40 |
+| 50 Sequential GETs | **8.12** | 6.53 | 6.17 | 9.19 | 11.16 | 11.84 | 15.51 | 26.97 | 19.03 | 20.58 |
+| 50 Concurrent GETs | **5.61** | 7.72 | 6.45 | 6.53 | 8.40 | 11.34 | 16.50 | 12.68 | 68.85 | 21.89 |
 
 > **Key takeaways:**
 > - **httpxr** is the **fastest full-featured httpx-compatible client** — on par with raw Rust libraries
 > - **#1 under concurrency** — faster than all other libraries including httpr, pyreqwest, and ry
-> - **~2.4× faster** than httpx for sequential workloads
-> - **~13× faster** than httpx under concurrency (GIL-free Rust)
+> - **~2.3× faster** than httpx for sequential workloads
+> - **~12× faster** than httpx under concurrency (GIL-free Rust)
 > - Competitive with bare-metal libraries (pyreqwest, ry) while offering the full httpx API
 
 ### Why httpxr is slightly slower on Single GET
 
-Libraries like `httpr` and `pyreqwest` achieve lower single-request latency (~0.10-0.12ms) because they return **minimal response objects** — essentially just status + bytes + a headers dict. They are **not** full httpx drop-in replacements.
+Libraries like `httpr` and `pyreqwest` achieve lower single-request latency (~0.17-0.19ms) because they return **minimal response objects** — essentially just status + bytes + a headers dict. They are **not** full httpx drop-in replacements.
 
 **httpxr** returns full httpx-compatible `Response` objects with:
 - Parsed `URL` with scheme/host/path/query components
@@ -362,7 +362,7 @@ The complete httpx test suite (1300+ tests) served as the specification. The age
 
 With correctness locked in, the agent ran benchmarks against 9 other HTTP libraries, profiled the hot path, and optimized: releasing the GIL during I/O, minimizing Python ↔ Rust boundary crossings, batching header construction, reusing connections and the tokio runtime. Each cycle was followed by a test run to ensure nothing regressed.
 
-The iterative loop — **correctness first, performance second, verify both continuously** — produced a client that is fully compatible with httpx while being **2.4× faster** sequentially and **13× faster** under concurrency.
+The iterative loop — **correctness first, performance second, verify both continuously** — produced a client that is fully compatible with httpx while being **2.3× faster** sequentially and **12× faster** under concurrency.
 
 > 📖 **[Full development story →](https://bmsuisse.github.io/httpxr/how-it-was-built/)**
 
