@@ -62,9 +62,9 @@ Scenarios: **Single GET**, **50 Sequential GETs**, **50 Concurrent GETs**.
 
 | Scenario | httpxr | httpr | pyreqwest | ry | aiohttp | curl_cffi | urllib3 | rnet | httpx | niquests |
 |:---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| Single GET | **0.37** | 0.11 | 0.10 | 0.18 | 0.24 | 0.21 | 0.30 | 0.34 | 0.37 | 0.39 |
-| 50 Sequential GETs | **16.27** | 6.50 | 6.15 | 8.20 | 10.64 | 11.90 | 15.10 | 17.58 | 18.97 | 20.15 |
-| 50 Concurrent GETs | **6.05** | 7.24 | 6.61 | 6.55 | 7.58 | 12.56 | 16.09 | 10.13 | 69.45 | 20.52 |
+| Single GET | **0.24** | 0.11 | 0.10 | 0.19 | 0.23 | 0.22 | 0.30 | 0.34 | 0.38 | 0.38 |
+| 50 Sequential GETs | **7.85** | 6.39 | 6.24 | 8.74 | 10.56 | 12.62 | 14.92 | 17.58 | 18.58 | 18.76 |
+| 50 Concurrent GETs | **5.06** | 7.20 | 6.42 | 6.06 | 7.36 | 12.07 | 16.28 | 9.99 | 65.83 | 19.90 |
 
 > **Key takeaways:**
 > - **httpxr** is the **fastest full-featured httpx-compatible client** — on par with raw Rust libraries
