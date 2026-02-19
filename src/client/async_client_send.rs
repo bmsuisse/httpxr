@@ -103,7 +103,7 @@ impl AsyncClient {
                     }
                 }
 
-                let ext = resp.extensions.as_ref().unwrap().bind(py);
+                let ext = resp.ensure_extensions(py).bind(py);
                 if let Ok(d) = ext.cast::<PyDict>() {
                     if !d.contains("http_version")? {
                         d.set_item("http_version", PyBytes::new(py, b"HTTP/1.1"))?;
@@ -212,7 +212,7 @@ impl AsyncClient {
                 resp.default_encoding = de.clone_ref(py);
             }
 
-            let ext = resp.extensions.as_ref().unwrap().bind(py);
+            let ext = resp.ensure_extensions(py).bind(py);
             if let Ok(d) = ext.cast::<PyDict>() {
                 if !d.contains("http_version")? {
                     d.set_item("http_version", PyBytes::new(py, b"HTTP/1.1"))?;
@@ -231,7 +231,7 @@ impl AsyncClient {
                     .map(|r| r.url.to_string())
                     .unwrap_or_default();
                 let http_version = {
-                    let ext = resp.extensions.as_ref().unwrap().bind(py);
+                    let ext = resp.ensure_extensions(py).bind(py);
                     if let Ok(d) = ext.cast::<PyDict>() {
                         d.get_item("http_version")
                             .ok()

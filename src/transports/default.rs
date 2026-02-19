@@ -5,7 +5,7 @@ use pyo3::Python;
 use crate::models::{Headers, Request, Response};
 use super::helpers::{
     parse_method, extract_timeout_from_extensions, compute_effective_timeout,
-    map_reqwest_error, map_reqwest_error_simple, build_default_response, http_version_str,
+    map_reqwest_error, map_reqwest_error_simple, build_default_response,
     raw_results_to_pylist,
 };
 use std::io::Read;
@@ -161,7 +161,7 @@ impl HTTPTransport {
             Ok(Response {
                 status_code,
                 headers: Some(Py::new(py, hdrs)?),
-                    lazy_headers: None,
+                lazy_headers: None,
                 extensions: Some(ext.into()),
                 request: None,
                 lazy_request_method: None,
@@ -306,14 +306,7 @@ impl HTTPTransport {
             })
             .map_err(|e: reqwest::Error| map_reqwest_error_simple(e))?;
 
-        let res = build_default_response(py, status_code, resp_headers, body_bytes_result)?;
-        let ext = res.extensions.as_ref().unwrap().bind(py);
-        if let Ok(d) = ext.cast::<pyo3::types::PyDict>() {
-            if !d.contains("http_version")? {
-                d.set_item("http_version", pyo3::types::PyBytes::new(py, b"HTTP/1.1"))?;
-            }
-        }
-        Ok(res)
+        build_default_response(py, status_code, resp_headers, body_bytes_result)
     }
 }
 
@@ -734,7 +727,6 @@ impl AsyncHTTPTransport {
             })?;
 
             let status_code = response.status().as_u16();
-            let version = response.version();
             let headers = response.headers();
             let mut resp_headers: Vec<(Vec<u8>, Vec<u8>)> =
                 Vec::with_capacity(headers.len());
@@ -766,10 +758,6 @@ impl AsyncHTTPTransport {
             };
 
             pyo3::Python::attach(|py| {
-                let hdrs = Headers::from_raw_byte_pairs(resp_headers);
-                let ext = PyDict::new(py);
-                ext.set_item("http_version", http_version_str(version).as_bytes())?;
-
                 let (content_bytes, stream_obj) = match body_val {
                     BodyType::Bytes(b) => (Some(b), None),
                     BodyType::Stream(s) => {
@@ -784,12 +772,13 @@ impl AsyncHTTPTransport {
                 };
 
                 let has_stream = stream_obj.is_some();
+                let initial_downloaded = content_bytes.as_ref().map(|c| c.len()).unwrap_or(0);
 
                 Ok(Response {
                     status_code,
-                    lazy_headers: None,
-                    headers: Some(Py::new(py, hdrs)?),
-                    extensions: Some(ext.into()),
+                    headers: None,
+                    lazy_headers: Some(resp_headers),
+                    extensions: None,
                     request: None,
                     lazy_request_method: None,
                     lazy_request_url: None,
@@ -799,12 +788,12 @@ impl AsyncHTTPTransport {
                     default_encoding: PyString::intern(py, "utf-8").into_any().unbind(),
                     default_encoding_override: None,
                     elapsed: None,
-                    is_closed_flag: false,
-                    is_stream_consumed: false,
+                    is_closed_flag: !has_stream,
+                    is_stream_consumed: !has_stream,
                     was_streaming: has_stream,
                     text_accessed: std::sync::atomic::AtomicBool::new(false),
                     num_bytes_downloaded_counter: std::sync::Arc::new(
-                        std::sync::atomic::AtomicUsize::new(0),
+                        std::sync::atomic::AtomicUsize::new(initial_downloaded),
                     ),
                 })
             })
@@ -908,9 +897,6 @@ impl AsyncHTTPTransport {
                     match result {
                         Ok((status_code, resp_headers, body_bytes)) => {
                             let mut response = build_default_response(py, status_code, resp_headers, body_bytes)?;
-                            if let Ok(ext) = response.extensions.as_ref().unwrap().bind(py).cast::<PyDict>() {
-                                ext.set_item("http_version", pyo3::types::PyBytes::new(py, b"HTTP/1.1"))?;
-                            }
                             let req_ref = requests[i].bind(py).borrow();
                             response.request = Some(req_ref.clone());
                             py_list.append(Py::new(py, response)?)?;
