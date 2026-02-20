@@ -11,6 +11,7 @@ NOTE: Where httpxr's actual behaviour differs from the httpx ABI (even if the
 stub says otherwise), the test documents the REAL behaviour with a comment, so
 it acts as a regression guard AND as documentation of the variance.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -25,6 +26,7 @@ import httpxr
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _handler(request: httpxr.Request) -> httpxr.Response:
     """Minimal mock handler that echoes method and path in JSON."""
@@ -42,6 +44,7 @@ def _make_client(**kwargs: Any) -> httpxr.Client:
 # ---------------------------------------------------------------------------
 # URL
 # ---------------------------------------------------------------------------
+
 
 class TestURL:
     def test_construct_from_str(self):
@@ -150,6 +153,7 @@ class TestURL:
 # QueryParams
 # ---------------------------------------------------------------------------
 
+
 class TestQueryParams:
     def test_construct_from_dict(self):
         p = httpxr.QueryParams({"a": "1", "b": "2"})
@@ -223,6 +227,7 @@ class TestQueryParams:
 # ---------------------------------------------------------------------------
 # Headers
 # ---------------------------------------------------------------------------
+
 
 class TestHeaders:
     def test_construct_dict(self):
@@ -313,6 +318,7 @@ class TestHeaders:
 # Cookies
 # ---------------------------------------------------------------------------
 
+
 class TestCookies:
     def test_construct_dict(self):
         c = httpxr.Cookies({"session": "abc"})
@@ -372,6 +378,7 @@ class TestCookies:
 # ---------------------------------------------------------------------------
 # Request
 # ---------------------------------------------------------------------------
+
 
 class TestRequest:
     def test_basic_construct(self):
@@ -436,6 +443,7 @@ class TestRequest:
 # ---------------------------------------------------------------------------
 # Response
 # ---------------------------------------------------------------------------
+
 
 class TestResponse:
     def _make_complete(self, status_code: int = 200, **kwargs: Any) -> httpxr.Response:
@@ -612,6 +620,7 @@ class TestResponse:
 # Timeout and Limits
 # ---------------------------------------------------------------------------
 
+
 class TestConfig:
     def test_timeout_from_float(self):
         t = httpxr.Timeout(5.0)
@@ -642,7 +651,9 @@ class TestConfig:
         assert lim.max_connections is None or isinstance(lim.max_connections, int)
 
     def test_limits_custom(self):
-        lim = httpxr.Limits(max_connections=10, max_keepalive_connections=5, keepalive_expiry=30.0)
+        lim = httpxr.Limits(
+            max_connections=10, max_keepalive_connections=5, keepalive_expiry=30.0
+        )
         assert lim.max_connections == 10
         assert lim.max_keepalive_connections == 5
         assert lim.keepalive_expiry == 30.0
@@ -668,6 +679,7 @@ class TestConfig:
 # ---------------------------------------------------------------------------
 # Auth
 # ---------------------------------------------------------------------------
+
 
 class TestAuth:
     def test_basic_auth_str(self):
@@ -703,6 +715,7 @@ class TestAuth:
 # Client — constructor params
 # ---------------------------------------------------------------------------
 
+
 class TestClientInit:
     def test_default_construct(self):
         c = httpxr.Client(transport=httpxr.MockTransport(_handler))
@@ -715,12 +728,16 @@ class TestClientInit:
         c.close()
 
     def test_headers_param(self):
-        c = httpxr.Client(headers={"X-Init": "yes"}, transport=httpxr.MockTransport(_handler))
+        c = httpxr.Client(
+            headers={"X-Init": "yes"}, transport=httpxr.MockTransport(_handler)
+        )
         assert "x-init" in c.headers
         c.close()
 
     def test_cookies_param(self):
-        c = httpxr.Client(cookies={"session": "abc"}, transport=httpxr.MockTransport(_handler))
+        c = httpxr.Client(
+            cookies={"session": "abc"}, transport=httpxr.MockTransport(_handler)
+        )
         assert "session" in c.cookies
         c.close()
 
@@ -729,11 +746,16 @@ class TestClientInit:
         c.close()
 
     def test_follow_redirects_param(self):
-        c = httpxr.Client(follow_redirects=True, transport=httpxr.MockTransport(_handler))
+        c = httpxr.Client(
+            follow_redirects=True, transport=httpxr.MockTransport(_handler)
+        )
         c.close()
 
     def test_base_url_param(self):
-        c = httpxr.Client(base_url="https://api.example.com/", transport=httpxr.MockTransport(_handler))
+        c = httpxr.Client(
+            base_url="https://api.example.com/",
+            transport=httpxr.MockTransport(_handler),
+        )
         assert "api.example.com" in str(c.base_url)
         c.close()
 
@@ -744,8 +766,10 @@ class TestClientInit:
 
     def test_event_hooks_param(self):
         calls: list[str] = []
+
         def hook(r: Any) -> None:
             calls.append("called")
+
         hooks = {"request": [hook], "response": []}
         c = httpxr.Client(event_hooks=hooks, transport=httpxr.MockTransport(_handler))
         assert "request" in c.event_hooks
@@ -761,7 +785,9 @@ class TestClientInit:
         c.close()
 
     def test_default_encoding_str(self):
-        c = httpxr.Client(default_encoding="latin-1", transport=httpxr.MockTransport(_handler))
+        c = httpxr.Client(
+            default_encoding="latin-1", transport=httpxr.MockTransport(_handler)
+        )
         c.close()
 
     def test_context_manager(self):
@@ -777,6 +803,7 @@ class TestClientInit:
 # ---------------------------------------------------------------------------
 # Client — properties and mutability
 # ---------------------------------------------------------------------------
+
 
 class TestClientProperties:
     def setup_method(self):
@@ -820,6 +847,7 @@ class TestClientProperties:
 # ---------------------------------------------------------------------------
 # Client — HTTP methods
 # ---------------------------------------------------------------------------
+
 
 class TestClientMethods:
     def setup_method(self):
@@ -910,6 +938,7 @@ class TestClientMethods:
 # Client — build_request (all kwargs — this was the missed OpenAI SDK bug)
 # ---------------------------------------------------------------------------
 
+
 class TestClientBuildRequest:
     def setup_method(self):
         self.client = httpxr.Client(transport=httpxr.MockTransport(_handler))
@@ -931,15 +960,21 @@ class TestClientBuildRequest:
         assert b"f=v" in req.content
 
     def test_build_post_content(self):
-        req = self.client.build_request("POST", "http://example.com/", content=b"raw bytes")
+        req = self.client.build_request(
+            "POST", "http://example.com/", content=b"raw bytes"
+        )
         assert req.content == b"raw bytes"
 
     def test_build_with_headers(self):
-        req = self.client.build_request("GET", "http://example.com/", headers={"X-A": "1"})
+        req = self.client.build_request(
+            "GET", "http://example.com/", headers={"X-A": "1"}
+        )
         assert req.headers["x-a"] == "1"
 
     def test_build_with_cookies(self):
-        req = self.client.build_request("GET", "http://example.com/", cookies={"c": "1"})
+        req = self.client.build_request(
+            "GET", "http://example.com/", cookies={"c": "1"}
+        )
         assert req.method == "GET"
 
     def test_build_with_timeout_float(self):
@@ -959,12 +994,15 @@ class TestClientBuildRequest:
         assert "timeout" in req.extensions
 
     def test_build_with_extensions(self):
-        req = self.client.build_request("GET", "http://example.com/", extensions={"trace": "xyz"})
+        req = self.client.build_request(
+            "GET", "http://example.com/", extensions={"trace": "xyz"}
+        )
         assert req.extensions.get("trace") == "xyz"
 
     def test_build_with_timeout_and_extensions(self):
         req = self.client.build_request(
-            "POST", "http://example.com/",
+            "POST",
+            "http://example.com/",
             timeout=10.0,
             extensions={"trace": "abc"},
         )
@@ -975,6 +1013,7 @@ class TestClientBuildRequest:
 # ---------------------------------------------------------------------------
 # AsyncClient
 # ---------------------------------------------------------------------------
+
 
 class TestAsyncClient:
     def test_construct(self):
@@ -1045,7 +1084,9 @@ class TestAsyncClient:
     async def test_put_patch_delete_head_options(self):
         async with httpxr.AsyncClient(transport=httpxr.MockTransport(_handler)) as c:
             assert (await c.put("http://example.com/", content=b"x")).status_code == 200
-            assert (await c.patch("http://example.com/", content=b"x")).status_code == 200
+            assert (
+                await c.patch("http://example.com/", content=b"x")
+            ).status_code == 200
             assert (await c.delete("http://example.com/")).status_code == 200
             assert (await c.head("http://example.com/")).status_code == 200
             assert (await c.options("http://example.com/")).status_code == 200
@@ -1060,6 +1101,7 @@ class TestAsyncClient:
 # ---------------------------------------------------------------------------
 # Transports
 # ---------------------------------------------------------------------------
+
 
 class TestTransports:
     def test_mock_transport(self):
@@ -1091,7 +1133,9 @@ class TestTransports:
     @pytest.mark.anyio
     async def test_async_base_transport_subclass(self):
         class MyAsyncTransport(httpxr.AsyncBaseTransport):
-            async def handle_async_request(self, request: httpxr.Request) -> httpxr.Response:
+            async def handle_async_request(
+                self, request: httpxr.Request
+            ) -> httpxr.Response:
                 return httpxr.Response(202)
 
         async with httpxr.AsyncClient(transport=MyAsyncTransport()) as c:
@@ -1102,6 +1146,7 @@ class TestTransports:
 # ---------------------------------------------------------------------------
 # Exceptions — all must be importable and form the correct hierarchy
 # ---------------------------------------------------------------------------
+
 
 class TestExceptions:
     def test_hierarchy(self):
@@ -1157,6 +1202,7 @@ class TestExceptions:
 # codes
 # ---------------------------------------------------------------------------
 
+
 class TestCodes:
     def test_2xx(self):
         assert httpxr.codes.OK == 200
@@ -1181,6 +1227,7 @@ class TestCodes:
 # ByteStream
 # ---------------------------------------------------------------------------
 
+
 class TestByteStream:
     def test_byte_stream_sync_iter(self):
         bs = httpxr.ByteStream(b"hello")
@@ -1196,6 +1243,7 @@ class TestByteStream:
 # ---------------------------------------------------------------------------
 # Decoders
 # ---------------------------------------------------------------------------
+
 
 class TestDecoders:
     def test_line_decoder(self):
@@ -1226,6 +1274,7 @@ class TestDecoders:
 # ---------------------------------------------------------------------------
 # Utilities
 # ---------------------------------------------------------------------------
+
 
 class TestUtils:
     def test_is_ipv4_hostname(self):

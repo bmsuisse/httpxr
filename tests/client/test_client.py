@@ -110,7 +110,6 @@ def test_build_request_with_timeout_and_extensions():
     assert request.extensions.get("trace") == "abc"
 
 
-
 def test_post(server):
     with httpxr.Client() as client:
         response = client.post(server.url, content=b"Hello, world!")
