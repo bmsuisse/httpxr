@@ -258,13 +258,14 @@ impl HTTPTransport {
         Ok(tuple.unbind().into())
     }
 
-    /// Fast-path returning an actual `Response`, avoiding Python `Request` tracking overhead
-    pub fn send_fast(
+    /// Fast-path returning an actual `Response`, avoiding Python `Request` tracking overhead.
+    /// Takes raw byte header pairs to avoid String allocations.
+    pub fn send_fast_raw(
         &self,
         py: Python<'_>,
         method: reqwest::Method,
         url: &str,
-        headers: Vec<(String, String)>,
+        raw_headers: &[(Vec<u8>, Vec<u8>)],
         timeout_secs: Option<f64>,
     ) -> PyResult<Response> {
         let parsed_url = reqwest::Url::parse(url).map_err(|e| {
@@ -272,8 +273,8 @@ impl HTTPTransport {
         })?;
 
         let mut req_builder = self.client.request(method, parsed_url);
-        for (k, v) in headers {
-            req_builder = req_builder.header(k, v);
+        for (k, v) in raw_headers {
+            req_builder = req_builder.header(k.as_slice(), v.as_slice());
         }
         if let Some(t) = timeout_secs {
             req_builder = req_builder.timeout(std::time::Duration::from_secs_f64(t));
@@ -306,8 +307,29 @@ impl HTTPTransport {
             })
             .map_err(|e: reqwest::Error| map_reqwest_error_simple(e))?;
 
-        let res = build_default_response(py, status_code, resp_headers, body_bytes_result)?;
-        Ok(res)
+        let body_len = body_bytes_result.len();
+        Ok(crate::models::Response {
+            status_code,
+            headers: None,
+            lazy_headers: Some(resp_headers),
+            extensions: None,
+            request: None,
+            lazy_request_method: None,
+            lazy_request_url: None,
+            history: Vec::new(),
+            content_bytes: Some(body_bytes_result),
+            stream: None,
+            default_encoding: pyo3::types::PyString::intern(py, "utf-8").into_any().unbind(),
+            default_encoding_override: None,
+            elapsed: None,
+            is_closed_flag: true,
+            is_stream_consumed: true,
+            was_streaming: false,
+            text_accessed: std::sync::atomic::AtomicBool::new(false),
+            num_bytes_downloaded_counter: std::sync::Arc::new(
+                std::sync::atomic::AtomicUsize::new(body_len),
+            ),
+        })
     }
 }
 

@@ -1,5 +1,5 @@
 use pyo3::prelude::*;
-use pyo3::types::{PyAnyMethods, PyBytes, PyDict, PyDictMethods, PyString};
+use pyo3::types::{PyAnyMethods, PyDict, PyDictMethods, PyString};
 use std::time::Instant;
 
 use crate::config::{Limits, RetryConfig, Timeout};

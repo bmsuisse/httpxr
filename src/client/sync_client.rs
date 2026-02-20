@@ -204,44 +204,18 @@ impl Client {
                         url_str_for_check.clone()
                     };
 
-                    let mut fast_headers: Vec<(String, String)> = Vec::new();
+                    // Pass raw byte headers directly — no String allocations
                     let def_hdrs = self.default_headers.bind(py).borrow();
-                    let is_host_present = def_hdrs.contains_header("host");
-                    for (k, v) in def_hdrs.iter_all() {
-                        fast_headers.push((k.to_string(), v.to_string()));
-                    }
-                    if !is_host_present {
-                        if let Ok(u) = reqwest::Url::parse(&target_url_str) {
-                            if let Some(h) = u.host_str() {
-                                fast_headers.push(("host".to_string(), h.to_string()));
-                            }
-                        }
-                    }
-                    drop(def_hdrs);
+                    let raw_headers = &def_hdrs.raw;
 
-                    let uses_jar = !self.cookies.jar.bind(py).is_none();
-                    if uses_jar {
-                        let mut merged_headers = self.default_headers.bind(py).borrow().clone();
-                        if apply_cookies(py, &self.cookies, None, &mut merged_headers).is_ok() {
-                            fast_headers.clear();
-                            for (k, v) in merged_headers.iter_all() {
-                                fast_headers.push((k.to_string(), v.to_string()));
-                            }
-                        }
-                    }
-
-                    match transport.borrow().send_fast(py, method_reqwest, &target_url_str, fast_headers, None) {
+                    match transport.borrow().send_fast_raw(py, method_reqwest, &target_url_str, raw_headers, None) {
                         Ok(mut response) => {
                             response.elapsed = Some(start.elapsed().as_secs_f64());
                             response.lazy_request_method = Some(method.to_uppercase());
-                            response.lazy_request_url = Some(target_url_str.clone());
+                            response.lazy_request_url = Some(target_url_str);
+
                             if let Some(ref de) = self.default_encoding {
                                 response.default_encoding = de.clone_ref(py);
-                            }
-                            
-                            // Handle cookies if necessary
-                            if uses_jar {
-                                let _ = extract_cookies_to_jar(py, &mut response, self.cookies.jar.bind(py));
                             }
 
                             if log::log_enabled!(log::Level::Info) {
