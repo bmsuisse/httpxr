@@ -1,18 +1,7 @@
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyString};
 
-use crate::models::Response;
-
-/// Process-global interned Python string for "utf-8".
-/// Initialized once on first use; zero-allocation on subsequent calls.
-static UTF8_PYSTR: std::sync::OnceLock<Py<PyString>> = std::sync::OnceLock::new();
-
-#[inline]
-pub fn intern_utf8(py: Python<'_>) -> Py<PyString> {
-    UTF8_PYSTR
-        .get_or_init(|| PyString::intern(py, "utf-8").into())
-        .clone_ref(py)
-}
+use crate::models::{Headers, Response};
 
 /// Parse an HTTP method string into a `reqwest::Method`.
 ///
@@ -41,14 +30,8 @@ pub fn extract_timeout_from_extensions(
     py: Python<'_>,
     extensions: &Py<PyAny>,
 ) -> (Option<f64>, Option<f64>, Option<f64>, Option<f64>) {
-    let ext_bound = extensions.bind(py);
-    // Fast path: if the extensions is an empty dict (common case, no timeout set),
-    // skip the expensive cast + item lookup entirely.
-    if let Ok(d) = ext_bound.cast::<PyDict>() {
-        if d.is_empty() {
-            return (None, None, None, None);
-        }
-        if let Some(timeout_obj) = d.get_item("timeout").ok().flatten() {
+    if let Ok(ext) = extensions.bind(py).cast::<PyDict>() {
+        if let Some(timeout_obj) = ext.get_item("timeout").ok().flatten() {
             if let Ok(t) = timeout_obj.extract::<crate::config::Timeout>() {
                 return (t.connect, t.read, t.write, t.pool);
             }
@@ -145,31 +128,43 @@ pub fn build_default_response(
     resp_headers: Vec<(Vec<u8>, Vec<u8>)>,
     body_bytes: Vec<u8>,
 ) -> PyResult<Response> {
-    let body_len = body_bytes.len();
+    let hdrs = Headers::from_raw_byte_pairs(resp_headers);
+    let ext = PyDict::new(py);
+
     Ok(Response {
         status_code,
-        headers: None,
-        lazy_headers: Some(resp_headers),
-        extensions: None,
+        headers: Py::new(py, hdrs)?,
+        extensions: ext.into(),
         request: None,
         lazy_request_method: None,
         lazy_request_url: None,
         history: Vec::new(),
         content_bytes: Some(body_bytes),
         stream: None,
-        default_encoding: intern_utf8(py).into_any(),
+        default_encoding: PyString::intern(py, "utf-8").into_any().unbind(),
         default_encoding_override: None,
         elapsed: None,
-        is_closed_flag: true,
-        is_stream_consumed: true,
+        is_closed_flag: false,
+        is_stream_consumed: false,
         was_streaming: false,
         text_accessed: std::sync::atomic::AtomicBool::new(false),
         num_bytes_downloaded_counter: std::sync::Arc::new(
-            std::sync::atomic::AtomicUsize::new(body_len),
+            std::sync::atomic::AtomicUsize::new(0),
         ),
     })
 }
 
+/// Convert an HTTP version enum value to its string representation.
+pub fn http_version_str(version: reqwest::Version) -> &'static str {
+    match version {
+        reqwest::Version::HTTP_09 => "HTTP/0.9",
+        reqwest::Version::HTTP_10 => "HTTP/1.0",
+        reqwest::Version::HTTP_11 => "HTTP/1.1",
+        reqwest::Version::HTTP_2 => "HTTP/2",
+        reqwest::Version::HTTP_3 => "HTTP/3",
+        _ => "HTTP/1.1",
+    }
+}
 
 /// Convert a vector of raw results into a Python list of `(status, headers_dict, body)` tuples.
 ///
@@ -189,8 +184,7 @@ pub fn raw_results_to_pylist(
                 let dict = PyDict::new(py);
                 for (k, v) in &resp_headers {
                     let val_str = std::str::from_utf8(v).unwrap_or("");
-                    let key_intern = crate::utils::intern_header_key(py, k.as_str());
-                    dict.set_item(key_intern.as_any(), val_str)?;
+                    dict.set_item(k.as_str(), val_str)?;
                 }
                 let body_py = PyBytes::new(py, &body_bytes);
                 let tuple = PyTuple::new(py, &[

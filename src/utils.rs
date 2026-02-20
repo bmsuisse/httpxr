@@ -150,31 +150,6 @@ pub fn get_environment_proxies(py: Python<'_>) -> PyResult<Py<PyAny>> {
     Ok(dict.into())
 }
 
-
-#[inline]
-pub fn intern_header_key<'py>(py: Python<'py>, key: &str) -> pyo3::Bound<'py, pyo3::types::PyString> {
-    match key {
-        "content-type" => pyo3::intern!(py, "content-type").clone(),
-        "content-length" => pyo3::intern!(py, "content-length").clone(),
-        "server" => pyo3::intern!(py, "server").clone(),
-        "date" => pyo3::intern!(py, "date").clone(),
-        "connection" => pyo3::intern!(py, "connection").clone(),
-        "transfer-encoding" => pyo3::intern!(py, "transfer-encoding").clone(),
-        "location" => pyo3::intern!(py, "location").clone(),
-        "cache-control" => pyo3::intern!(py, "cache-control").clone(),
-        "set-cookie" => pyo3::intern!(py, "set-cookie").clone(),
-        "x-ratelimit-limit" => pyo3::intern!(py, "x-ratelimit-limit").clone(),
-        "x-ratelimit-remaining" => pyo3::intern!(py, "x-ratelimit-remaining").clone(),
-        "x-ratelimit-reset" => pyo3::intern!(py, "x-ratelimit-reset").clone(),
-        "accept" => pyo3::intern!(py, "accept").clone(),
-        "accept-encoding" => pyo3::intern!(py, "accept-encoding").clone(),
-        "user-agent" => pyo3::intern!(py, "user-agent").clone(),
-        "host" => pyo3::intern!(py, "host").clone(),
-        "authorization" => pyo3::intern!(py, "authorization").clone(),
-        _ => pyo3::types::PyString::new(py, key),
-    }
-}
-
 pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(primitive_value_to_str, m)?)?;
     m.add_function(wrap_pyfunction!(to_bytes, m)?)?;

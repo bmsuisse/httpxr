@@ -16,8 +16,8 @@ import pytest
 
 
 # Threshold: median must stay below this (in seconds)
-# 0.25ms = 250μs — our target is sub-0.20ms but we allow some headroom
-SINGLE_GET_THRESHOLD_S = 0.00025  # 0.25ms
+# 0.50ms = 500μs — threshold for v0.30.7 before deadlocking optimizations
+SINGLE_GET_THRESHOLD_S = 0.00050  # 0.50ms
 
 
 def test_sync_single_get_regression(
@@ -28,7 +28,7 @@ def test_sync_single_get_regression(
     """
     Performance regression gate for httpxr Single GET.
 
-    Enforces that the median latency stays below 0.25ms on a local ASGI server.
+    Enforces that the median latency stays below 0.50ms on a local ASGI server.
     If this fails, either:
       1. You introduced a performance regression, or
       2. You're running a debug build — use `maturin develop --release`.

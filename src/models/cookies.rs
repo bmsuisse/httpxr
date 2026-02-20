@@ -191,8 +191,8 @@ impl Cookies {
         Ok(())
     }
 
-    fn extract_cookies(&self, py: Python<'_>, response: &mut Response) -> PyResult<()> {
-        let headers_py = response.headers(py).unwrap(); let headers = headers_py.bind(py).borrow();
+    fn extract_cookies(&self, py: Python<'_>, response: &Response) -> PyResult<()> {
+        let headers = response.headers.bind(py).borrow();
         for (k, v) in headers.get_multi_items() {
             if k == "set-cookie" {
                 if let Some(pos) = v.find('=') {

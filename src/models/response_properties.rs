@@ -8,25 +8,6 @@ use super::response::Response;
 
 #[pymethods]
 impl Response {
-
-    #[getter]
-    pub(crate) fn headers(&mut self, py: Python<'_>) -> PyResult<Py<Headers>> {
-        if self.headers.is_none() {
-            if let Some(lazy) = self.lazy_headers.take() {
-                self.headers = Some(Py::new(py, Headers::from_raw_byte_pairs(lazy))?);
-            } else {
-                self.headers = Some(Py::new(py, Headers::empty())?);
-            }
-        }
-        Ok(self.headers.as_ref().unwrap().clone_ref(py))
-    }
-
-    #[setter]
-    fn set_headers(&mut self, value: Py<Headers>) {
-        self.headers = Some(value);
-        self.lazy_headers = None;
-    }
-
     #[getter]
     fn is_informational(&self) -> bool {
         (100..200).contains(&self.status_code)
@@ -52,16 +33,16 @@ impl Response {
         (400..600).contains(&self.status_code)
     }
     #[getter]
-    fn has_redirect_location(&mut self, py: Python<'_>) -> bool {
-        self.is_redirect() && self.headers(py).unwrap().bind(py).borrow().contains_header("location")
+    fn has_redirect_location(&self, py: Python<'_>) -> bool {
+        self.is_redirect() && self.headers.bind(py).borrow().contains_header("location")
     }
 
     #[getter]
-    fn next_request<'py>(&mut self, py: Python<'py>) -> PyResult<Option<Request>> {
+    fn next_request<'py>(&self, py: Python<'py>) -> PyResult<Option<Request>> {
         if !self.is_redirect() {
             return Ok(None);
         }
-        let location = if let Some(loc) = self.headers(py).unwrap().bind(py).borrow().get_first_value("location")
+        let location = if let Some(loc) = self.headers.bind(py).borrow().get_first_value("location")
         {
             loc
         } else {
@@ -136,12 +117,17 @@ impl Response {
 
     #[getter]
     fn extensions(&mut self, py: Python<'_>) -> Py<PyAny> {
-        self.ensure_extensions(py).clone_ref(py)
+        if self.extensions.is_none(py) {
+            let ext = PyDict::new(py);
+            let _ = ext.set_item("http_version", PyBytes::new(py, b"HTTP/1.1"));
+            self.extensions = ext.into_any().unbind();
+        }
+        self.extensions.clone_ref(py)
     }
 
     #[setter]
     fn set_extensions(&mut self, value: Py<PyAny>) {
-        self.extensions = Some(value);
+        self.extensions = value;
     }
     #[getter]
     fn is_stream_consumed_prop(&self) -> bool {
@@ -154,9 +140,9 @@ impl Response {
     }
 
     #[getter]
-    fn cookies(&mut self, py: Python<'_>) -> PyResult<Cookies> {
+    fn cookies(&self, py: Python<'_>) -> PyResult<Cookies> {
         let mut cookie_list = Vec::new();
-        for (k, v) in self.headers(py).unwrap().bind(py).borrow().get_multi_items() {
+        for (k, v) in self.headers.bind(py).borrow().get_multi_items() {
             if k == "set-cookie" {
                 cookie_list.push(v);
             }
@@ -181,7 +167,6 @@ impl Response {
         let py = slf.py();
         {
             let mut self_mut = slf.borrow_mut();
-            let _ = self_mut.headers(py);
             if self_mut.request.is_none() {
                 if let (Some(method), Some(url_str)) = (self_mut.lazy_request_method.take(), self_mut.lazy_request_url.take()) {
                     let req_url = crate::urls::URL::create_from_str_fast(&url_str);
@@ -242,7 +227,7 @@ impl Response {
                 "Redirect response {} for url '{}'",
                 status_with_reason, url_str
             );
-            if let Some(loc) = self_.headers.as_ref().unwrap().bind(py).borrow().get_first_value("location") {
+            if let Some(loc) = self_.headers.bind(py).borrow().get_first_value("location") {
                 msg.push_str(&format!("\nRedirect location: '{}'", loc));
             }
             msg.push_str(&format!("\nFor more information check: {}", mdn_url));
@@ -291,12 +276,12 @@ impl Response {
     }
 
     #[getter]
-    fn encoding(&mut self, py: Python<'_>) -> Option<String> {
+    fn encoding(&self, py: Python<'_>) -> Option<String> {
         if let Some(ref enc) = self.default_encoding_override {
             return Some(enc.clone());
         }
         if let Some(ct) = self
-            .headers(py).unwrap()
+            .headers
             .bind(py)
             .borrow()
             .get_first_value("content-type")
@@ -352,9 +337,9 @@ impl Response {
     }
 
     #[getter]
-    fn charset_encoding(&mut self, py: Python<'_>) -> Option<String> {
+    fn charset_encoding(&self, py: Python<'_>) -> Option<String> {
         if let Some(ct) = self
-            .headers(py).unwrap()
+            .headers
             .bind(py)
             .borrow()
             .get_first_value("content-type")
@@ -384,9 +369,9 @@ impl Response {
     }
 
     #[getter]
-    fn links(&mut self, py: Python<'_>) -> PyResult<Py<PyAny>> {
+    fn links(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
         let dict = PyDict::new(py);
-        if let Some(link_header) = self.headers(py).unwrap().bind(py).borrow().get_first_value("link") {
+        if let Some(link_header) = self.headers.bind(py).borrow().get_first_value("link") {
             for part in link_header.split(',') {
                 let part = part.trim();
                 if let Some(url_end) = part.find('>') {
@@ -460,7 +445,7 @@ impl Response {
 
     /// Resolve the actual encoding to use for text decoding.
     /// Uses the encoding property but validates the result.
-    pub(crate) fn resolve_encoding(&mut self, py: Python<'_>) -> String {
+    pub(crate) fn resolve_encoding(&self, py: Python<'_>) -> String {
         if let Some(enc) = self.encoding(py) {
             if let Ok(codecs) = py.import("codecs") {
                 if codecs.call_method1("lookup", (enc.as_str(),)).is_ok() {
@@ -534,8 +519,8 @@ impl Response {
                     }
                 }
                 let hdrs_ref = {
-                    let mut response = slf.borrow_mut(py);
-                    response.headers(py).unwrap().clone_ref(py)
+                    let response = slf.borrow(py);
+                    response.headers.clone_ref(py)
                 };
                 let hdrs_borrowed = hdrs_ref.borrow(py);
                 let buf = Response::decompress_content(py, &buf, &hdrs_borrowed)?;
@@ -611,8 +596,7 @@ async def _aread_impl(resp):
 
     /// Helper for Python-based aread: store the read result and apply decompression
     fn _set_aread_result(&mut self, py: Python<'_>, data: Vec<u8>) -> PyResult<Vec<u8>> {
-        let hdrs_py = self.headers(py).unwrap();
-        let hdrs_ref = hdrs_py.borrow(py);
+        let hdrs_ref = self.headers.borrow(py);
         let decompressed = Response::decompress_content(py, &data, &hdrs_ref)?;
         self.content_bytes = Some(decompressed.clone());
         self.is_stream_consumed = true;

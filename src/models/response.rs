@@ -9,9 +9,9 @@ use super::request::Request;
 pub struct Response {
     #[pyo3(get, set)]
     pub status_code: u16,
-    pub headers: Option<Py<Headers>>,
-    pub lazy_headers: Option<Vec<(Vec<u8>, Vec<u8>)>>,
-    pub extensions: Option<Py<PyAny>>,
+    #[pyo3(get, set)]
+    pub headers: Py<Headers>,
+    pub extensions: Py<PyAny>,
     pub request: Option<Request>,
     /// Lazy request fields — set by the fast path to defer Request construction.
     /// When set, the Request is materialized on first `.request` property access.
@@ -35,9 +35,8 @@ impl Clone for Response {
     fn clone(&self) -> Self {
         Python::attach(|py| Response {
             status_code: self.status_code,
-            headers: self.headers.as_ref().map(|h| h.clone_ref(py)),
-            lazy_headers: self.lazy_headers.clone(),
-            extensions: self.extensions.as_ref().map(|e| e.clone_ref(py)),
+            headers: self.headers.clone_ref(py),
+            extensions: self.extensions.clone_ref(py),
             request: self.request.clone(),
             lazy_request_method: self.lazy_request_method.clone(),
             lazy_request_url: self.lazy_request_url.clone(),
@@ -63,25 +62,9 @@ impl Clone for Response {
 }
 
 impl Response {
-    /// Ensure extensions dict exists, creating it lazily if needed.
-    /// Returns a reference to the extensions PyAny (always a PyDict).
-    pub fn ensure_extensions(&mut self, py: Python<'_>) -> &Py<PyAny> {
-        if self.extensions.is_none() {
-            let ext = PyDict::new(py);
-            let _ = ext.set_item("http_version", PyBytes::new(py, b"HTTP/1.1"));
-            self.extensions = Some(ext.into_any().unbind());
-        }
-        self.extensions.as_ref().unwrap()
-    }
-
-    pub fn has_redirect_check(&mut self, py: Python<'_>) -> bool {
+    pub fn has_redirect_check(&self, py: Python<'_>) -> bool {
         (300..400).contains(&self.status_code)
-            && self
-                .headers(py)
-                .unwrap()
-                .bind(py)
-                .borrow()
-                .contains_header("location")
+            && self.headers.bind(py).borrow().contains_header("location")
     }
 
     /// Get method string for comparison — works with both eager and lazy request fields.
@@ -104,15 +87,14 @@ impl Response {
 
     pub fn create(
         status_code: u16,
-        headers: Option<Py<Headers>>,
-        extensions: Option<Py<PyAny>>,
+        headers: Py<Headers>,
+        extensions: Py<PyAny>,
         request: Option<Request>,
         content_bytes: Option<Vec<u8>>,
     ) -> Self {
         Python::attach(|py| Response {
             status_code,
             headers,
-            lazy_headers: None,
             extensions,
             request,
             lazy_request_method: None,
@@ -261,21 +243,23 @@ impl Response {
                     }
                     output
                 }
-                _ => result,
+                _ => {
+                    result
+                }
             };
         }
 
         Ok(result)
     }
 
-    pub(crate) fn text_impl(&mut self, py: Python<'_>) -> PyResult<String> {
+    pub(crate) fn text_impl(&self, py: Python<'_>) -> PyResult<String> {
         self.text_accessed
             .store(true, std::sync::atomic::Ordering::Relaxed);
-        let encoding_name = self.resolve_encoding(py);
         if let Some(ref c) = self.content_bytes {
             if c.is_empty() {
                 return Ok(String::new());
             }
+            let encoding_name = self.resolve_encoding(py);
             let py_bytes = PyBytes::new(py, c);
             let str_obj = py_bytes.call_method1("decode", (encoding_name, "replace"))?;
             str_obj.extract()
@@ -328,8 +312,7 @@ impl Response {
                     }
                 }
             }
-            let hdrs_py = self.headers(py)?;
-            let hdrs_ref = hdrs_py.borrow(py);
+            let hdrs_ref = self.headers.borrow(py);
             let buf = Response::decompress_content(py, &buf, &hdrs_ref)?;
             self.content_bytes = Some(buf.clone());
             self.is_stream_consumed = true;
@@ -490,9 +473,8 @@ impl Response {
 
         Ok(Response {
             status_code,
-            headers: Some(hdrs_py),
-            lazy_headers: None,
-            extensions: Some(ext),
+            headers: hdrs_py,
+            extensions: ext,
             request,
             lazy_request_method: None,
             lazy_request_url: None,
@@ -545,7 +527,7 @@ impl Response {
     }
 
     #[getter]
-    fn text(&mut self, py: Python<'_>) -> PyResult<String> {
+    fn text(&self, py: Python<'_>) -> PyResult<String> {
         self.text_impl(py)
     }
 
@@ -553,12 +535,11 @@ impl Response {
         self.status_code == other.status_code
             && self.get_method_str() == other.get_method_str()
             && self.get_url_str() == other.get_url_str()
-            && self.content_bytes.as_ref().map(|c| c.len())
-                == other.content_bytes.as_ref().map(|c| c.len())
+            && self.content_bytes.as_ref().map(|c| c.len()) == other.content_bytes.as_ref().map(|c| c.len())
     }
 
     #[pyo3(signature = (**kwargs))]
-    fn json(&mut self, py: Python<'_>, kwargs: Option<&Bound<'_, PyDict>>) -> PyResult<Py<PyAny>> {
+    fn json(&self, py: Python<'_>, kwargs: Option<&Bound<'_, PyDict>>) -> PyResult<Py<PyAny>> {
         let content = self.content_bytes.as_ref().ok_or_else(|| {
             crate::exceptions::ResponseNotRead::new_err(
                 "Attempted to access json, without having called `read()`.",
@@ -619,10 +600,7 @@ impl Response {
                 continue;
             }
             // Skip SSE event prefixes
-            if trimmed.starts_with("event:")
-                || trimmed.starts_with("id:")
-                || trimmed.starts_with("retry:")
-            {
+            if trimmed.starts_with("event:") || trimmed.starts_with("id:") || trimmed.starts_with("retry:") {
                 continue;
             }
             let json_str = if let Some(stripped) = trimmed.strip_prefix("data:") {
@@ -649,10 +627,7 @@ impl Response {
     #[getter]
     fn get_request(&mut self, py: Python<'_>) -> PyResult<Request> {
         if self.request.is_none() {
-            if let (Some(method), Some(url_str)) = (
-                self.lazy_request_method.take(),
-                self.lazy_request_url.take(),
-            ) {
+            if let (Some(method), Some(url_str)) = (self.lazy_request_method.take(), self.lazy_request_url.take()) {
                 let req_url = crate::urls::URL::create_from_str_fast(&url_str);
                 let req = Request {
                     method,
@@ -682,4 +657,5 @@ impl Response {
     fn read(&mut self, py: Python<'_>) -> PyResult<Vec<u8>> {
         self.read_impl(py)
     }
+
 }

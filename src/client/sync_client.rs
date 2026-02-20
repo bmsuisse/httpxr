@@ -173,9 +173,6 @@ impl Client {
         let has_valid_scheme = (url_str_for_check.starts_with("http://") && url_str_for_check.len() > 7)
             || (url_str_for_check.starts_with("https://") && url_str_for_check.len() > 8)
             || url_str_for_check.starts_with("/");
-
-        let should_follow = follow_redirects.unwrap_or(self.follow_redirects);
-
         let _can_fast_path = is_bodyless
             && has_valid_scheme
             && content.is_none()
@@ -185,77 +182,14 @@ impl Client {
             && params.is_none()
             && cookies.is_none()
             && extensions.is_none()
-            && kwargs.map(|k| k.is_empty()).unwrap_or(true)
+            && kwargs.is_none()
             && self.auth.is_none()
             && self.params.is_none()
             && self.event_hooks.is_none()
-            && self.mounts.is_empty()
-            && self.timeout.is_none()
-            && timeout.is_none()
-            && !should_follow;
+            && self.mounts.is_empty();
 
-        if _can_fast_path {
-            let t_bound = self.transport.bind(py);
-            if let Ok(transport) = t_bound.cast::<crate::transports::default::HTTPTransport>() {
-                if let Ok(method_reqwest) = reqwest::Method::from_bytes(method_bytes) {
-                    let target_url_str = if let Some(ref base) = self.base_url {
-                        base.join_relative(&url_str_for_check).map(|u| u.to_string()).unwrap_or(url_str_for_check.clone())
-                    } else {
-                        url_str_for_check.clone()
-                    };
 
-                    let mut fast_headers: Vec<(String, String)> = Vec::new();
-                    let def_hdrs = self.default_headers.bind(py).borrow();
-                    let is_host_present = def_hdrs.contains_header("host");
-                    for (k, v) in def_hdrs.iter_all() {
-                        fast_headers.push((k.to_string(), v.to_string()));
-                    }
-                    if !is_host_present {
-                        if let Ok(u) = reqwest::Url::parse(&target_url_str) {
-                            if let Some(h) = u.host_str() {
-                                fast_headers.push(("host".to_string(), h.to_string()));
-                            }
-                        }
-                    }
-                    drop(def_hdrs);
 
-                    let uses_jar = !self.cookies.jar.bind(py).is_none();
-                    if uses_jar {
-                        let mut merged_headers = self.default_headers.bind(py).borrow().clone();
-                        if apply_cookies(py, &self.cookies, None, &mut merged_headers).is_ok() {
-                            fast_headers.clear();
-                            for (k, v) in merged_headers.iter_all() {
-                                fast_headers.push((k.to_string(), v.to_string()));
-                            }
-                        }
-                    }
-
-                    match transport.borrow().send_fast(py, method_reqwest, &target_url_str, fast_headers, None) {
-                        Ok(mut response) => {
-                            response.elapsed = Some(start.elapsed().as_secs_f64());
-                            response.lazy_request_method = Some(method.to_uppercase());
-                            response.lazy_request_url = Some(target_url_str.clone());
-                            if let Some(ref de) = self.default_encoding {
-                                response.default_encoding = de.clone_ref(py);
-                            }
-                            
-                            // Handle cookies if necessary
-                            if uses_jar {
-                                let _ = extract_cookies_to_jar(py, &mut response, self.cookies.jar.bind(py));
-                            }
-
-                            log::info!(target: "httpxr", "HTTP Request: {} {} \"HTTP/1.1 {} {}\"", 
-                                response.lazy_request_method.as_ref().unwrap(), response.lazy_request_url.as_ref().unwrap(), response.status_code, response.reason_phrase());
-
-                            return Ok(response);
-                        },
-                        Err(_) => {
-                            // If fast path fails, naturally fall back to slow path
-                        }
-                    }
-                }
-            }
-        }
         let method_upper = method.to_uppercase();
 
         let url_str = url.str()?.extract::<String>()?;
@@ -871,7 +805,7 @@ impl Client {
             while current_response.has_redirect_check(py) && redirect_count < self.max_redirects {
                 redirect_count += 1;
                 let location = current_response
-                    .headers(py).unwrap()
+                    .headers
                     .bind(py)
                     .borrow()
                     .get_first_value("location")

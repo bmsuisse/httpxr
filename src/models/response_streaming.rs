@@ -361,7 +361,7 @@ _result = _AsyncChunkIter(_aiter_bytes_impl(), _chunk_size, _response)
     }
 
     #[pyo3(signature = (chunk_size=None))]
-    fn aiter_text(&mut self, py: Python<'_>, chunk_size: Option<usize>) -> PyResult<Py<PyAny>> {
+    fn aiter_text(&self, py: Python<'_>, chunk_size: Option<usize>) -> PyResult<Py<PyAny>> {
         let text = self.text_impl(py)?;
         if text.is_empty() {
             let iter = crate::types::ChunkedIter {
@@ -401,7 +401,7 @@ _result = _AsyncChunkIter(_aiter_bytes_impl(), _chunk_size, _response)
         }
     }
 
-    fn aiter_lines(&mut self, py: Python<'_>) -> PyResult<Py<PyAny>> {
+    fn aiter_lines(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
         let text = self.text_impl(py)?;
         let chunks: Vec<Py<PyAny>> = text
             .lines()
@@ -446,13 +446,12 @@ _result = _AsyncChunkIter(_aiter_bytes_impl(), _chunk_size, _response)
         self.is_success_impl()
     }
 
-    fn __reduce__(&mut self, py: Python<'_>) -> PyResult<Py<PyAny>> {
+    fn __reduce__(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
         let cls = py.import("httpxr")?.getattr("Response")?;
         let args =
             pyo3::types::PyTuple::new(py, &[self.status_code.into_pyobject(py)?.into_any()])?;
         let state = pyo3::types::PyDict::new(py);
-        let hdrs_py = self.headers(py).unwrap();
-        let hdrs = hdrs_py.borrow(py);
+        let hdrs = self.headers.borrow(py);
         let h_list = PyList::empty(py);
         for (k, v) in &hdrs.raw {
             let t = pyo3::types::PyTuple::new(
@@ -505,7 +504,7 @@ _result = _AsyncChunkIter(_aiter_bytes_impl(), _chunk_size, _response)
                 raw: h_list,
                 encoding: "utf-8".to_string(),
             };
-            self.headers = Some(Py::new(py, hdrs)?);
+            self.headers = Py::new(py, hdrs)?;
         }
         if let Some(consumed) = dict.get_item("is_stream_consumed")? {
             self.is_stream_consumed = consumed.extract::<bool>()?;
