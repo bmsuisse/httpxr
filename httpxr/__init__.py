@@ -1,3 +1,4 @@
+# ruff: noqa: I001
 from . import _exceptions  # noqa: F401
 from ._httpxr import *  # noqa: F403
 from ._transports import ASGITransport, WSGITransport  # noqa: F401
@@ -44,4 +45,4 @@ if "WSGITransport" not in _members:
 if "extensions" not in _members:
     _members.append("extensions")
 
-__all__ = sorted(_members, key=str.casefold)
+__all__ = sorted(_members, key=str.casefold)  # pyright: ignore[reportUnsupportedDunderAll]
