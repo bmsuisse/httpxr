@@ -1,6 +1,6 @@
 [package]
 name = "httpxr"
-version = "0.30.13"
+version = "0.30.14"
 edition = "2021"
 license = "MIT"
 authors = ["AI <ai@example.com>"]
