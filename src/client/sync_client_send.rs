@@ -46,18 +46,11 @@ impl Client {
             response.default_encoding = de.clone_ref(py);
         }
 
-        let ext = response.extensions.as_ref().unwrap().bind(py);
-        if let Ok(d) = ext.cast::<PyDict>() {
-            if !d.contains("http_version")? {
-                d.set_item("http_version", PyBytes::new(py, b"HTTP/1.1"))?;
-            }
-        }
-
-        {
+        if log::log_enabled!(log::Level::Info) {
             let method = &request.method;
             let url = request.url.to_string();
             let http_version = {
-                let ext = response.extensions.as_ref().unwrap().bind(py);
+                let ext = response.ensure_extensions(py).bind(py);
                 if let Ok(d) = ext.cast::<PyDict>() {
                     d.get_item("http_version")
                         .ok()
@@ -147,12 +140,7 @@ impl Client {
                 response.default_encoding = de.clone_ref(py);
             }
 
-            let ext = response.extensions.as_ref().unwrap().bind(py);
-            if let Ok(d) = ext.cast::<PyDict>() {
-                if !d.contains("http_version")? {
-                    d.set_item("http_version", PyBytes::new(py, b"HTTP/1.1"))?;
-                }
-            }
+            response.ensure_extensions(py);
 
             extract_cookies_to_jar(py, &mut response, self.cookies.jar.bind(py))?;
 
@@ -440,7 +428,7 @@ impl Client {
                 let method = &redirect_request.method;
                 let url = redirect_request.url.to_string();
                 let http_version = {
-                    let ext = new_response.extensions.as_ref().unwrap().bind(py);
+                    let ext = new_response.ensure_extensions(py).bind(py);
                     if let Ok(d) = ext.cast::<PyDict>() {
                         d.get_item("http_version")
                             .ok()

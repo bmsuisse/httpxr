@@ -63,6 +63,17 @@ impl Clone for Response {
 }
 
 impl Response {
+    /// Ensure extensions dict exists, creating it lazily if needed.
+    /// Returns a reference to the extensions PyAny (always a PyDict).
+    pub fn ensure_extensions(&mut self, py: Python<'_>) -> &Py<PyAny> {
+        if self.extensions.is_none() {
+            let ext = PyDict::new(py);
+            let _ = ext.set_item("http_version", PyBytes::new(py, b"HTTP/1.1"));
+            self.extensions = Some(ext.into_any().unbind());
+        }
+        self.extensions.as_ref().unwrap()
+    }
+
     pub fn has_redirect_check(&mut self, py: Python<'_>) -> bool {
         (300..400).contains(&self.status_code)
             && self

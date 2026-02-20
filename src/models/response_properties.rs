@@ -136,12 +136,7 @@ impl Response {
 
     #[getter]
     fn extensions(&mut self, py: Python<'_>) -> Py<PyAny> {
-        if self.extensions.is_none() {
-            let ext = PyDict::new(py);
-            let _ = ext.set_item("http_version", PyBytes::new(py, b"HTTP/1.1"));
-            self.extensions = Some(ext.into_any().unbind());
-        }
-        self.extensions.as_ref().unwrap().clone_ref(py)
+        self.ensure_extensions(py).clone_ref(py)
     }
 
     #[setter]
