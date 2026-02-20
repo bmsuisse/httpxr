@@ -415,14 +415,18 @@ impl Client {
                 let method = &redirect_request.method;
                 let url = redirect_request.url.to_string();
                 let http_version = {
-                    let ext = new_response.extensions.as_ref().unwrap().bind(py);
-                    if let Ok(d) = ext.cast::<PyDict>() {
-                        d.get_item("http_version")
-                            .ok()
-                            .flatten()
-                            .and_then(|v| v.extract::<Vec<u8>>().ok())
-                            .map(|b| String::from_utf8_lossy(&b).to_string())
-                            .unwrap_or_else(|| "HTTP/1.1".to_string())
+                    if let Some(ext) = new_response.extensions.as_ref() {
+                        let ext_bound = ext.bind(py);
+                        if let Ok(d) = ext_bound.cast::<PyDict>() {
+                            d.get_item("http_version")
+                                .ok()
+                                .flatten()
+                                .and_then(|v| v.extract::<Vec<u8>>().ok())
+                                .map(|b| String::from_utf8_lossy(&b).to_string())
+                                .unwrap_or_else(|| "HTTP/1.1".to_string())
+                        } else {
+                            "HTTP/1.1".to_string()
+                        }
                     } else {
                         "HTTP/1.1".to_string()
                     }
