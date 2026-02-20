@@ -53,7 +53,7 @@ impl Client {
             }
         }
 
-        {
+        if log::log_enabled!(log::Level::Info) {
             let method = &request.method;
             let url = request.url.to_string();
             let http_version = {

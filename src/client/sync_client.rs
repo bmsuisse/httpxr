@@ -244,8 +244,10 @@ impl Client {
                                 let _ = extract_cookies_to_jar(py, &mut response, self.cookies.jar.bind(py));
                             }
 
-                            log::info!(target: "httpxr", "HTTP Request: {} {} \"HTTP/1.1 {} {}\"", 
-                                response.lazy_request_method.as_ref().unwrap(), response.lazy_request_url.as_ref().unwrap(), response.status_code, response.reason_phrase());
+                            if log::log_enabled!(log::Level::Info) {
+                                log::info!(target: "httpxr", "HTTP Request: {} {} \"HTTP/1.1 {} {}\"", 
+                                    response.lazy_request_method.as_ref().unwrap(), response.lazy_request_url.as_ref().unwrap(), response.status_code, response.reason_phrase());
+                            }
 
                             return Ok(response);
                         },
