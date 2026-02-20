@@ -9,7 +9,7 @@ use crate::urls::URL;
 use super::common::*;
 
 /// Synchronous HTTP Client backed by reqwest::blocking.
-#[pyclass]
+#[pyclass(subclass, module = "httpxr._httpxr")]
 pub struct Client {
     pub(crate) base_url: Option<URL>,
     pub(crate) auth: Option<Py<PyAny>>,

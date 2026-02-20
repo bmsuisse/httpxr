@@ -9,7 +9,7 @@ use crate::urls::URL;
 use super::common::*;
 
 /// Async HTTP Client backed by reqwest + tokio.
-#[pyclass]
+#[pyclass(subclass, module = "httpxr._httpxr")]
 pub struct AsyncClient {
     pub(crate) base_url: Option<URL>,
     pub(crate) auth: Option<Py<PyAny>>,
