@@ -3,6 +3,17 @@ use pyo3::types::{PyDict, PyString};
 
 use crate::models::Response;
 
+/// Process-global interned Python string for "utf-8".
+/// Initialized once on first use; zero-allocation on subsequent calls.
+static UTF8_PYSTR: std::sync::OnceLock<Py<PyString>> = std::sync::OnceLock::new();
+
+#[inline]
+pub fn intern_utf8(py: Python<'_>) -> Py<PyString> {
+    UTF8_PYSTR
+        .get_or_init(|| PyString::intern(py, "utf-8").into())
+        .clone_ref(py)
+}
+
 /// Parse an HTTP method string into a `reqwest::Method`.
 ///
 /// This eliminates the repeated 7-arm match block that was duplicated 6+ times
@@ -30,8 +41,14 @@ pub fn extract_timeout_from_extensions(
     py: Python<'_>,
     extensions: &Py<PyAny>,
 ) -> (Option<f64>, Option<f64>, Option<f64>, Option<f64>) {
-    if let Ok(ext) = extensions.bind(py).cast::<PyDict>() {
-        if let Some(timeout_obj) = ext.get_item("timeout").ok().flatten() {
+    let ext_bound = extensions.bind(py);
+    // Fast path: if the extensions is an empty dict (common case, no timeout set),
+    // skip the expensive cast + item lookup entirely.
+    if let Ok(d) = ext_bound.cast::<PyDict>() {
+        if d.is_empty() {
+            return (None, None, None, None);
+        }
+        if let Some(timeout_obj) = d.get_item("timeout").ok().flatten() {
             if let Ok(t) = timeout_obj.extract::<crate::config::Timeout>() {
                 return (t.connect, t.read, t.write, t.pool);
             }
@@ -140,10 +157,10 @@ pub fn build_default_response(
         history: Vec::new(),
         content_bytes: Some(body_bytes),
         stream: None,
-        default_encoding: PyString::intern(py, "utf-8").into_any().unbind(),
+        default_encoding: intern_utf8(py).into_any(),
         default_encoding_override: None,
         elapsed: None,
-        is_closed_flag: true, // Non-streaming is closed by default
+        is_closed_flag: true,
         is_stream_consumed: true,
         was_streaming: false,
         text_accessed: std::sync::atomic::AtomicBool::new(false),

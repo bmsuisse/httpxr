@@ -46,19 +46,15 @@ impl Client {
             response.default_encoding = de.clone_ref(py);
         }
 
-        let ext = response.ensure_extensions(py).bind(py);
-        if let Ok(d) = ext.cast::<PyDict>() {
-            if !d.contains("http_version")? {
-                d.set_item("http_version", PyBytes::new(py, b"HTTP/1.1"))?;
-            }
-        }
-
-        {
+        if log::log_enabled!(log::Level::Info) {
             let method = &request.method;
             let url = request.url.to_string();
             let http_version = {
                 let ext = response.ensure_extensions(py).bind(py);
                 if let Ok(d) = ext.cast::<PyDict>() {
+                    if !d.contains("http_version")? {
+                        d.set_item("http_version", PyBytes::new(py, b"HTTP/1.1"))?;
+                    }
                     d.get_item("http_version")
                         .ok()
                         .flatten()
@@ -436,7 +432,7 @@ impl Client {
             new_response.request = Some(redirect_request.clone());
             new_response.history = history;
 
-            {
+            if log::log_enabled!(log::Level::Info) {
                 let method = &redirect_request.method;
                 let url = redirect_request.url.to_string();
                 let http_version = {

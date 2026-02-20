@@ -1,8 +1,8 @@
 [package]
 name = "httpxr"
-version = "0.30.8"
+version = "0.30.9"
 edition = "2021"
-license = "MIT OR Apache-2.0"
+license = "MIT"
 authors = ["AI <ai@example.com>"]
 description = "A high-performance HTTP client for Python, backed by Rust's reqwest."
 readme = "README.md"

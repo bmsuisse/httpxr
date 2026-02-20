@@ -70,8 +70,7 @@ impl HTTPTransport {
             pyo3::exceptions::PyRuntimeError::new_err(format!("Failed to create client: {}", e))
         })?;
 
-        let rt = tokio::runtime::Builder::new_multi_thread()
-            .worker_threads(1)
+        let rt = tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()
             .map_err(|e| {
@@ -144,7 +143,8 @@ impl HTTPTransport {
                     }
 
                     let bytes = response.bytes().await?;
-                    Ok((status, resp_headers, bytes.to_vec()))
+                    // Vec::from reuses the buffer when refcount=1 (zero-copy)
+                    Ok((status, resp_headers, Vec::from(bytes)))
                 })
             })
             .map_err(|e: reqwest::Error| {
@@ -301,7 +301,7 @@ impl HTTPTransport {
                         ));
                     }
                     let bytes = response.bytes().await?;
-                    Ok::<_, reqwest::Error>((status, resp_headers, bytes.to_vec()))
+                    Ok::<_, reqwest::Error>((status, resp_headers, Vec::from(bytes)))
                 })
             })
             .map_err(|e: reqwest::Error| map_reqwest_error_simple(e))?;
