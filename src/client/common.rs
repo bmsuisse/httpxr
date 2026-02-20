@@ -490,13 +490,6 @@ pub fn apply_cookies<'py>(
         }
     }
     if let Some(c) = request_cookies {
-        if !c.is_none() {
-            let warnings = py.import("warnings")?;
-            warnings.call_method1("warn", (
-                "Setting per-request cookies=<...> is being deprecated, because the expected behaviour on cookie persistence is ambiguous. Set cookies directly on a client instance instead.",
-                py.import("builtins")?.getattr("DeprecationWarning")?,
-            ))?;
-        }
         if let Ok(d) = c.cast::<PyDict>() {
             for (k, v) in d.iter() {
                 let ks: String = k.extract()?;
