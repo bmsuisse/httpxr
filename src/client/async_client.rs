@@ -425,8 +425,9 @@ impl AsyncClient {
                                     h_ext.set_item("http_version", b"HTTP/1.1")?;
                                     let h_resp = Response {
                                         status_code: *h_status,
-                                        headers: Py::new(py, h_hdrs)?,
-                                        extensions: h_ext.into(),
+                                        headers: Some(Py::new(py, h_hdrs)?),
+                                lazy_headers: None,
+                                        extensions: Some(h_ext.into()),
                                         request: Some(req.clone()),
                                         lazy_request_method: None,
                                         lazy_request_url: None,
@@ -452,8 +453,9 @@ impl AsyncClient {
 
                             let response = Response {
                                 status_code,
-                                headers: Py::new(py, hdrs)?,
-                                extensions: ext.into(),
+                                headers: Some(Py::new(py, hdrs)?),
+                            lazy_headers: None,
+                                extensions: Some(ext.into()),
                                 request: Some(req),
                                 lazy_request_method: None,
                                 lazy_request_url: None,
@@ -578,7 +580,7 @@ impl AsyncClient {
                     resp.request = Some(current_req.clone());
                     resp.elapsed = Some(start.elapsed().as_secs_f64());
 
-                    let ext = resp.extensions.bind(py);
+                    let ext = resp.extensions.as_ref().unwrap().bind(py);
                     if let Ok(d) = ext.cast::<PyDict>() {
                         if !d.contains("http_version")? {
                             d.set_item("http_version", PyBytes::new(py, b"HTTP/1.1"))?;
@@ -628,7 +630,7 @@ impl AsyncClient {
                 }
 
                 let maybe_redirect = Python::attach(|py| {
-                    if !follow_redirects || !response.bind(py).borrow().has_redirect_check(py) {
+                    if !follow_redirects || !response.bind(py).borrow_mut().has_redirect_check(py) {
                         return Ok((None, Some(response)));
                     }
 
@@ -641,8 +643,8 @@ impl AsyncClient {
 
                     let location = response
                         .bind(py)
-                        .borrow()
-                        .headers
+                        .borrow_mut()
+                        .headers(py).unwrap()
                         .bind(py)
                         .borrow()
                         .get_first_value("location")

@@ -46,7 +46,7 @@ impl Client {
             response.default_encoding = de.clone_ref(py);
         }
 
-        let ext = response.extensions.bind(py);
+        let ext = response.extensions.as_ref().unwrap().bind(py);
         if let Ok(d) = ext.cast::<PyDict>() {
             if !d.contains("http_version")? {
                 d.set_item("http_version", PyBytes::new(py, b"HTTP/1.1"))?;
@@ -57,7 +57,7 @@ impl Client {
             let method = &request.method;
             let url = request.url.to_string();
             let http_version = {
-                let ext = response.extensions.bind(py);
+                let ext = response.extensions.as_ref().unwrap().bind(py);
                 if let Ok(d) = ext.cast::<PyDict>() {
                     d.get_item("http_version")
                         .ok()
@@ -74,7 +74,7 @@ impl Client {
             log::info!(target: "httpxr", "HTTP Request: {} {} \"{} {} {}\"", method, url, http_version, status, reason);
         }
 
-        extract_cookies_to_jar(py, &response, self.cookies.jar.bind(py))?;
+        extract_cookies_to_jar(py, &mut response, self.cookies.jar.bind(py))?;
 
         let should_follow = follow_redirects.unwrap_or(self.follow_redirects);
         if should_follow {
@@ -147,14 +147,14 @@ impl Client {
                 response.default_encoding = de.clone_ref(py);
             }
 
-            let ext = response.extensions.bind(py);
+            let ext = response.extensions.as_ref().unwrap().bind(py);
             if let Ok(d) = ext.cast::<PyDict>() {
                 if !d.contains("http_version")? {
                     d.set_item("http_version", PyBytes::new(py, b"HTTP/1.1"))?;
                 }
             }
 
-            extract_cookies_to_jar(py, &response, self.cookies.jar.bind(py))?;
+            extract_cookies_to_jar(py, &mut response, self.cookies.jar.bind(py))?;
 
             let resp_body_needed = flow_bound
                 .getattr("requires_response_body")
@@ -297,7 +297,7 @@ impl Client {
         while current_response.has_redirect_check(py) && redirect_count < self.max_redirects {
             redirect_count += 1;
             let location = current_response
-                .headers
+                .headers(py).unwrap()
                 .bind(py)
                 .borrow()
                 .get_first_value("location")
@@ -334,7 +334,7 @@ impl Client {
                 current_request.content_body.clone()
             };
 
-            extract_cookies_to_jar(py, &current_response, self.cookies.jar.bind(py))?;
+            extract_cookies_to_jar(py, &mut current_response, self.cookies.jar.bind(py))?;
 
             let mut redirect_headers = current_request.headers.bind(py).borrow().clone();
             redirect_headers.remove_header("cookie");
@@ -440,7 +440,7 @@ impl Client {
                 let method = &redirect_request.method;
                 let url = redirect_request.url.to_string();
                 let http_version = {
-                    let ext = new_response.extensions.bind(py);
+                    let ext = new_response.extensions.as_ref().unwrap().bind(py);
                     if let Ok(d) = ext.cast::<PyDict>() {
                         d.get_item("http_version")
                             .ok()
@@ -525,7 +525,7 @@ impl PageIterator {
             None
         };
 
-        let response: Response = client_bound
+        let mut response: Response = client_bound
             .call_method(
                 "request",
                 (self.method.as_str(), current_url.bind(py)),
@@ -569,8 +569,8 @@ impl PageIterator {
                 None
             }
         } else if let Some(ref header_name) = self.next_header_name {
-            let hdrs = response.headers.bind(py).borrow();
-            if let Some(header_val) = hdrs.get_first_value(header_name) {
+            let hdrs = response.headers(py).unwrap().bind(py).borrow();
+            if let Some(header_val) = hdrs.get_first_value(header_name.as_str()) {
                 parse_link_next(&header_val)
             } else {
                 None

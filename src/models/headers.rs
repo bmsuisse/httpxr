@@ -319,15 +319,28 @@ impl Headers {
     }
 
     #[pyo3(name = "items")]
-    fn py_items(&self) -> Vec<(String, String)> {
-        self.keys()
-            .iter()
-            .filter_map(|k| self.get_first_value(k).map(|v| (k.clone(), v)))
-            .collect()
+    fn py_items<'py>(&self, py: Python<'py>) -> PyResult<pyo3::Bound<'py, pyo3::types::PyList>> {
+        let list = pyo3::types::PyList::empty(py);
+        for k in self.keys() {
+            if let Some(v) = self.get_first_value(&k) {
+                let k_obj = crate::utils::intern_header_key(py, &k);
+                let v_obj = pyo3::types::PyString::new(py, &v);
+                let tuple = pyo3::types::PyTuple::new(py, &[k_obj.as_any(), v_obj.as_any()])?;
+                list.append(tuple)?;
+            }
+        }
+        Ok(list)
     }
 
-    fn multi_items(&self) -> Vec<(String, String)> {
-        self.get_multi_items()
+    fn multi_items<'py>(&self, py: Python<'py>) -> PyResult<pyo3::Bound<'py, pyo3::types::PyList>> {
+        let list = pyo3::types::PyList::empty(py);
+        for (k, v) in self.get_multi_items() {
+            let k_obj = crate::utils::intern_header_key(py, &k);
+            let v_obj = pyo3::types::PyString::new(py, &v);
+            let tuple = pyo3::types::PyTuple::new(py, &[k_obj.as_any(), v_obj.as_any()])?;
+            list.append(tuple)?;
+        }
+        Ok(list)
     }
 
     #[pyo3(signature = (key, default=None))]

@@ -133,8 +133,9 @@ pub fn build_default_response(
 
     Ok(Response {
         status_code,
-        headers: Py::new(py, hdrs)?,
-        extensions: ext.into(),
+        headers: Some(Py::new(py, hdrs)?),
+        lazy_headers: None,
+        extensions: Some(ext.into()),
         request: None,
         lazy_request_method: None,
         lazy_request_url: None,
@@ -184,7 +185,8 @@ pub fn raw_results_to_pylist(
                 let dict = PyDict::new(py);
                 for (k, v) in &resp_headers {
                     let val_str = std::str::from_utf8(v).unwrap_or("");
-                    dict.set_item(k.as_str(), val_str)?;
+                    let key_intern = crate::utils::intern_header_key(py, k.as_str());
+                    dict.set_item(key_intern.as_any(), val_str)?;
                 }
                 let body_py = PyBytes::new(py, &body_bytes);
                 let tuple = PyTuple::new(py, &[
