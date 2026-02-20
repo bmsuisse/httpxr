@@ -29,7 +29,10 @@ classifiers = [
     "Programming Language :: Python :: 3.14",
     "Topic :: Internet :: WWW/HTTP",
 ]
-dependencies = []
+dependencies = [
+    "openai>=2.21.0",
+    "pydantic>=2.12.5",
+]
 dynamic = ["readme", "version"]
 
 [project.optional-dependencies]

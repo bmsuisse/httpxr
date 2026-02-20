@@ -66,6 +66,7 @@ pub struct Request {
     pub url: crate::urls::URL,
     #[pyo3(get, set)]
     pub headers: Py<Headers>,
+    #[pyo3(get, set)]
     pub extensions: Py<PyAny>,
     pub content_body: Option<Vec<u8>>,
     pub stream: Option<Py<PyAny>>,

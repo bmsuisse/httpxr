@@ -13,6 +13,10 @@ def autodetect(content):
     return chardet.detect(content).get("encoding")
 
 
+def hello_world(request):
+    return httpxr.Response(200, text="Hello, world!")
+
+
 def test_get(server):
     url = server.url
     with httpxr.Client(http2=True) as http:
@@ -73,6 +77,38 @@ def test_build_post_request(server):
 
     assert response.json()["Content-length"] == "0"
     assert response.json()["Custom-header"] == "value"
+
+
+def test_build_request_with_timeout():
+    """build_request must accept timeout= (OpenAI SDK 2.x passes it)."""
+    client = httpxr.Client(transport=httpxr.MockTransport(hello_world))
+    request = client.build_request("POST", "http://example.com/", timeout=5.0)
+    assert request.method == "POST"
+    # timeout should be stored in extensions
+    assert "timeout" in request.extensions
+
+
+def test_build_request_with_extensions():
+    """build_request must accept extensions= and merge them correctly."""
+    client = httpxr.Client(transport=httpxr.MockTransport(hello_world))
+    request = client.build_request(
+        "GET", "http://example.com/", extensions={"custom": "value"}
+    )
+    assert request.extensions.get("custom") == "value"
+
+
+def test_build_request_with_timeout_and_extensions():
+    """timeout= and extensions= must coexist without overwriting each other."""
+    client = httpxr.Client(transport=httpxr.MockTransport(hello_world))
+    request = client.build_request(
+        "GET",
+        "http://example.com/",
+        timeout=10.0,
+        extensions={"trace": "abc"},
+    )
+    assert "timeout" in request.extensions
+    assert request.extensions.get("trace") == "abc"
+
 
 
 def test_post(server):
@@ -296,10 +332,6 @@ def test_context_managed_transport_and_mount():
         "mounted.close",
         "mounted.__exit__",
     ]
-
-
-def hello_world(request):
-    return httpxr.Response(200, text="Hello, world!")
 
 
 def test_client_closed_state_using_implicit_open():

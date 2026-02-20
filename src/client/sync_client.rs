@@ -527,7 +527,7 @@ impl Client {
         self.trust_env
     }
 
-    #[pyo3(signature = (method, url, *, content=None, data=None, files=None, json=None, params=None, headers=None, cookies=None, extensions=None))]
+    #[pyo3(signature = (method, url, *, content=None, data=None, files=None, json=None, params=None, headers=None, cookies=None, extensions=None, timeout=None))]
     #[allow(unused_variables)]
     fn build_request(
         &self,
@@ -542,6 +542,7 @@ impl Client {
         headers: Option<&Bound<'_, PyAny>>,
         cookies: Option<&Bound<'_, PyAny>>,
         extensions: Option<&Bound<'_, PyAny>>,
+        timeout: Option<&Bound<'_, PyAny>>,
     ) -> PyResult<Request> {
         let url_str = url.str()?.extract::<String>()?;
         let target_url = if let Some(ref base) = self.base_url {
@@ -594,15 +595,22 @@ impl Client {
 
         let final_headers = arrange_headers_httpx_order(&merged_headers, &target_url);
 
+        let ext_dict = PyDict::new(py);
+        if let Some(t) = timeout {
+            ext_dict.set_item("timeout", t)?;
+        }
+        if let Some(e) = extensions {
+            if let Ok(d) = e.cast::<PyDict>() {
+                for (k, v) in d.iter() {
+                    ext_dict.set_item(k, v)?;
+                }
+            }
+        }
         Ok(Request {
             method: method_upper,
             url: target_url,
             headers: Py::new(py, final_headers)?,
-            extensions: if let Some(e) = extensions {
-                e.clone().unbind()
-            } else {
-                PyDict::new(py).into()
-            },
+            extensions: ext_dict.into(),
             content_body: body,
             stream: None,
             stream_response: false,
@@ -1181,6 +1189,7 @@ impl Client {
                 headers,
                 None,
                 extensions,
+                None, // timeout
             )?;
             request_objs.push(Py::new(py, req)?);
         }

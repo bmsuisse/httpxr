@@ -183,7 +183,7 @@ impl AsyncClient {
         self.trust_env
     }
 
-    #[pyo3(signature = (method, url, *, content=None, data=None, files=None, json=None, params=None, headers=None, extensions=None))]
+    #[pyo3(signature = (method, url, *, content=None, data=None, files=None, json=None, params=None, headers=None, extensions=None, timeout=None))]
     pub fn build_request(
         &self,
         py: Python<'_>,
@@ -196,6 +196,7 @@ impl AsyncClient {
         params: Option<&Bound<'_, PyAny>>,
         headers: Option<&Bound<'_, PyAny>>,
         extensions: Option<&Bound<'_, PyAny>>,
+        timeout: Option<&Bound<'_, PyAny>>,
     ) -> PyResult<Request> {
         let _ = files;
         let _ = params;
@@ -235,11 +236,22 @@ impl AsyncClient {
             None
         };
 
+        let ext_dict = PyDict::new(py);
+        if let Some(t) = timeout {
+            ext_dict.set_item("timeout", t)?;
+        }
+        if let Some(e) = extensions {
+            if let Ok(d) = e.cast::<pyo3::types::PyDict>() {
+                for (k, v) in d.iter() {
+                    ext_dict.set_item(k, v)?;
+                }
+            }
+        }
         Ok(Request {
             method: method.to_uppercase(),
             url: target_url,
             headers: Py::new(py, merged_headers)?,
-            extensions: PyDict::new(py).into(),
+            extensions: ext_dict.into(),
             content_body: body,
             stream: None,
             stream_response: false,
