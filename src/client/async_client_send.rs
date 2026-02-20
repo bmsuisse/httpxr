@@ -103,12 +103,7 @@ impl AsyncClient {
                     }
                 }
 
-                let ext = resp.extensions.as_ref().unwrap().bind(py);
-                if let Ok(d) = ext.cast::<PyDict>() {
-                    if !d.contains("http_version")? {
-                        d.set_item("http_version", PyBytes::new(py, b"HTTP/1.1"))?;
-                    }
-                }
+                // extensions initialized lazily on first access
 
                 Ok::<Response, PyErr>(resp)
             })?;
@@ -212,40 +207,12 @@ impl AsyncClient {
                 resp.default_encoding = de.clone_ref(py);
             }
 
-            let ext = resp.extensions.as_ref().unwrap().bind(py);
-            if let Ok(d) = ext.cast::<PyDict>() {
-                if !d.contains("http_version")? {
-                    d.set_item("http_version", PyBytes::new(py, b"HTTP/1.1"))?;
-                }
-            }
-
-            {
-                let method = &resp
-                    .request
-                    .as_ref()
-                    .map(|r| r.method.clone())
-                    .unwrap_or_default();
-                let url = resp
-                    .request
-                    .as_ref()
-                    .map(|r| r.url.to_string())
-                    .unwrap_or_default();
-                let http_version = {
-                    let ext = resp.extensions.as_ref().unwrap().bind(py);
-                    if let Ok(d) = ext.cast::<PyDict>() {
-                        d.get_item("http_version")
-                            .ok()
-                            .flatten()
-                            .and_then(|v: pyo3::Bound<'_, pyo3::PyAny>| v.extract::<Vec<u8>>().ok())
-                            .map(|b| String::from_utf8_lossy(&b).to_string())
-                            .unwrap_or_else(|| "HTTP/1.1".to_string())
-                    } else {
-                        "HTTP/1.1".to_string()
-                    }
-                };
+            if log::log_enabled!(log::Level::Info) {
+                let method = resp.request.as_ref().map(|r| r.method.as_str()).unwrap_or("");
+                let url = resp.request.as_ref().map(|r| r.url.to_string()).unwrap_or_default();
                 let status = resp.status_code;
                 let reason = resp.reason_phrase();
-                log::info!(target: "httpxr", "HTTP Request: {} {} \"{} {} {}\"", method, url, http_version, status, reason);
+                log::info!(target: "httpxr", "HTTP Request: {} {} \"HTTP/1.1 {} {}\"", method, url, status, reason);
             }
 
             Py::new(py, resp)

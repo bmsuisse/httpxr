@@ -63,6 +63,15 @@ impl Clone for Response {
 }
 
 impl Response {
+    /// Lazily initialize extensions dict if not already present.
+    pub fn ensure_extensions(&mut self, py: Python<'_>) -> &Py<PyAny> {
+        if self.extensions.is_none() {
+            let ext = pyo3::types::PyDict::new(py);
+            self.extensions = Some(ext.into_any().unbind());
+        }
+        self.extensions.as_ref().unwrap()
+    }
+
     pub fn has_redirect_check(&mut self, py: Python<'_>) -> bool {
         (300..400).contains(&self.status_code)
             && self

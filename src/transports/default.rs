@@ -307,12 +307,6 @@ impl HTTPTransport {
             .map_err(|e: reqwest::Error| map_reqwest_error_simple(e))?;
 
         let res = build_default_response(py, status_code, resp_headers, body_bytes_result)?;
-        let ext = res.extensions.as_ref().unwrap().bind(py);
-        if let Ok(d) = ext.cast::<pyo3::types::PyDict>() {
-            if !d.contains("http_version")? {
-                d.set_item("http_version", pyo3::types::PyBytes::new(py, b"HTTP/1.1"))?;
-            }
-        }
         Ok(res)
     }
 }
@@ -908,9 +902,6 @@ impl AsyncHTTPTransport {
                     match result {
                         Ok((status_code, resp_headers, body_bytes)) => {
                             let mut response = build_default_response(py, status_code, resp_headers, body_bytes)?;
-                            if let Ok(ext) = response.extensions.as_ref().unwrap().bind(py).cast::<PyDict>() {
-                                ext.set_item("http_version", pyo3::types::PyBytes::new(py, b"HTTP/1.1"))?;
-                            }
                             let req_ref = requests[i].bind(py).borrow();
                             response.request = Some(req_ref.clone());
                             py_list.append(Py::new(py, response)?)?;

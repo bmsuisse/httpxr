@@ -580,12 +580,7 @@ impl AsyncClient {
                     resp.request = Some(current_req.clone());
                     resp.elapsed = Some(start.elapsed().as_secs_f64());
 
-                    let ext = resp.extensions.as_ref().unwrap().bind(py);
-                    if let Ok(d) = ext.cast::<PyDict>() {
-                        if !d.contains("http_version")? {
-                            d.set_item("http_version", PyBytes::new(py, b"HTTP/1.1"))?;
-                        }
-                    }
+                    // extensions initialized lazily on first access
 
                     let resp_handle = Py::new(py, resp)?;
                     Ok::<Py<crate::models::Response>, PyErr>(resp_handle)

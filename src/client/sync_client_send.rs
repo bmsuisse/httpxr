@@ -5,7 +5,7 @@
 //! `PageIterator` used by `Client.paginate()`.
 
 use pyo3::prelude::*;
-use pyo3::types::{PyAnyMethods, PyBytes, PyDict, PyDictMethods};
+use pyo3::types::{PyAnyMethods, PyDict, PyDictMethods};
 use std::time::Instant;
 
 use crate::models::{Request, Response};
@@ -46,32 +46,12 @@ impl Client {
             response.default_encoding = de.clone_ref(py);
         }
 
-        let ext = response.extensions.as_ref().unwrap().bind(py);
-        if let Ok(d) = ext.cast::<PyDict>() {
-            if !d.contains("http_version")? {
-                d.set_item("http_version", PyBytes::new(py, b"HTTP/1.1"))?;
-            }
-        }
-
         if log::log_enabled!(log::Level::Info) {
             let method = &request.method;
             let url = request.url.to_string();
-            let http_version = {
-                let ext = response.extensions.as_ref().unwrap().bind(py);
-                if let Ok(d) = ext.cast::<PyDict>() {
-                    d.get_item("http_version")
-                        .ok()
-                        .flatten()
-                        .and_then(|v| v.extract::<Vec<u8>>().ok())
-                        .map(|b| String::from_utf8_lossy(&b).to_string())
-                        .unwrap_or_else(|| "HTTP/1.1".to_string())
-                } else {
-                    "HTTP/1.1".to_string()
-                }
-            };
             let status = response.status_code;
             let reason = response.reason_phrase();
-            log::info!(target: "httpxr", "HTTP Request: {} {} \"{} {} {}\"", method, url, http_version, status, reason);
+            log::info!(target: "httpxr", "HTTP Request: {} {} \"HTTP/1.1 {} {}\"", method, url, status, reason);
         }
 
         extract_cookies_to_jar(py, &mut response, self.cookies.jar.bind(py))?;
@@ -147,12 +127,7 @@ impl Client {
                 response.default_encoding = de.clone_ref(py);
             }
 
-            let ext = response.extensions.as_ref().unwrap().bind(py);
-            if let Ok(d) = ext.cast::<PyDict>() {
-                if !d.contains("http_version")? {
-                    d.set_item("http_version", PyBytes::new(py, b"HTTP/1.1"))?;
-                }
-            }
+            // extensions initialized lazily on first access
 
             extract_cookies_to_jar(py, &mut response, self.cookies.jar.bind(py))?;
 
