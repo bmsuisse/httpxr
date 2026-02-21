@@ -27,8 +27,7 @@ except ImportError:
         sys.exit(1)
 
 
-_EXCLUDED_FROM_ALL = {"compat", "cli", "main"}
-_ALWAYS_IN_ALL = {"sse", "WSGITransport", "extensions"}
+_EXCLUDED_FROM_ALL = {"compat", "cli", "main", "request"}
 
 _members = [
     member
@@ -36,6 +35,5 @@ _members = [
     if (not member.startswith("_") or member in {"__description__", "__title__", "__version__"})
     and member not in _EXCLUDED_FROM_ALL
 ]
-_members = list(set(_members) | _ALWAYS_IN_ALL)
 
 __all__ = sorted(_members, key=str.casefold)  # pyright: ignore[reportUnsupportedDunderAll]
