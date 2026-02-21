@@ -1,6 +1,6 @@
 [package]
 name = "httpxr"
-version = "0.30.20"
+version = "0.30.21"
 edition = "2021"
 license = "MIT"
 authors = ["AI <ai@example.com>"]
@@ -12,7 +12,7 @@ name = "_httpxr"
 crate-type = ["cdylib"]
 
 [dependencies]
-pyo3 = { version = "0.28", features = ["extension-module", "multiple-pymethods"] }
+pyo3 = { version = "0.28.2", features = ["extension-module", "multiple-pymethods"] }
 pyo3-async-runtimes = { version = "0.28", features = ["tokio-runtime"] }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time"] }
 reqwest = { version = "0.13", default-features = false, features = ["rustls", "json", "cookies", "gzip", "brotli", "zstd", "deflate", "stream", "socks"] }
