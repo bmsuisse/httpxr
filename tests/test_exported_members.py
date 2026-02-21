@@ -7,7 +7,7 @@ def test_all_imports_are_exported() -> None:
         "__title__",
         "__version__",
     ]
-    excluded_from_all = {"compat", "cli", "main"}
+    excluded_from_all = httpxr._EXCLUDED_FROM_ALL
     assert httpxr.__all__ == sorted(
         (
             member
