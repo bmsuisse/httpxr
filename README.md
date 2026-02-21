@@ -88,7 +88,8 @@ This ~0.08ms of extra per-request overhead is the cost of **100% API compatibili
 ```bash
 # Reproduce benchmarks locally:
 uv sync --group dev --group benchmark
-uv run python benchmarks/run_benchmark.py
+uv run pytest benchmarks/test_bench_httpx.py --benchmark-json=benchmarks/pytest_benchmark_results.json
+uv run python benchmarks/generate_plots.py
 ```
 
 ---

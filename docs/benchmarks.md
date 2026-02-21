@@ -40,5 +40,6 @@ Hover over the charts for detailed statistics per library.
 !!! info "Reproduce locally"
     ```bash
     uv sync --group dev --group benchmark
-    uv run python benchmarks/run_benchmark.py
+    uv run pytest benchmarks/test_bench_httpx.py --benchmark-json=benchmarks/pytest_benchmark_results.json
+    uv run python benchmarks/generate_plots.py
     ```
