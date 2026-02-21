@@ -558,6 +558,21 @@ pub fn extract_cookies_to_jar(
     response: &mut Response,
     jar: &Bound<'_, PyAny>,
 ) -> PyResult<()> {
+    // Fast path: scan lazy_headers first (no Python object construction).
+    // Most responses don't set cookies — exit immediately if none found.
+    let has_set_cookie = if let Some(ref lazy) = response.lazy_headers {
+        lazy.iter().any(|(k, _)| k.eq_ignore_ascii_case(b"set-cookie"))
+    } else if let Some(ref hdrs_py) = response.headers {
+        hdrs_py.bind(py).borrow().get_multi_items()
+            .iter().any(|(k, _)| k.eq_ignore_ascii_case("set-cookie"))
+    } else {
+        false
+    };
+
+    if !has_set_cookie {
+        return Ok(());
+    }
+
     let mut cookie_list = Vec::new();
     for (k, v) in response.headers(py).unwrap().bind(py).borrow().get_multi_items() {
         if k.to_lowercase() == "set-cookie" {
@@ -569,14 +584,25 @@ pub fn extract_cookies_to_jar(
         return Ok(());
     }
 
-    let code_str = "def process(jar, cookie_list, url):\n    import urllib.request\n    from http.client import HTTPMessage\n    req = urllib.request.Request(url)\n    msg = HTTPMessage()\n    for c in cookie_list:\n        msg.add_header('Set-Cookie', c)\n    res = type('Response', (object,), {'info': lambda self: msg})()\n    jar.extract_cookies(res, req)\n";
-    let process_cookies_code = std::ffi::CString::new(code_str)?;
-
-    let locals = pyo3::types::PyDict::new(py);
-    py.run(&process_cookies_code, None, Some(&locals))?;
-    let process_func = locals
-        .get_item("process")?
-        .expect("Function 'process' should be defined");
+    // Cache the process function in Python builtins to avoid re-compiling on every call.
+    use pyo3::types::PyAnyMethods;
+    let builtins = py.import("builtins")?;
+    let process_func = if let Ok(Some(f)) = builtins.getattr("__httpxr_process_cookies__").map(|a| {
+        if a.is_none() { None } else { Some(a) }
+    }).or_else(|_| Ok::<_, PyErr>(None)) {
+        f
+    } else {
+        let code_str = "def process(jar, cookie_list, url):\n    import urllib.request\n    from http.client import HTTPMessage\n    req = urllib.request.Request(url)\n    msg = HTTPMessage()\n    for c in cookie_list:\n        msg.add_header('Set-Cookie', c)\n    res = type('Response', (object,), {'info': lambda self: msg})()\n    jar.extract_cookies(res, req)\n";
+        let process_cookies_code = std::ffi::CString::new(code_str)?;
+        let locals = pyo3::types::PyDict::new(py);
+        py.run(&process_cookies_code, None, Some(&locals))?;
+        let f = locals
+            .get_item("process")?
+            .expect("Function 'process' should be defined");
+        // Cache for reuse
+        let _ = builtins.setattr("__httpxr_process_cookies__", &f);
+        f
+    };
 
     let py_cookie_list = pyo3::types::PyList::new(py, cookie_list)?;
     process_func.call1((jar, py_cookie_list, response.url()?.to_string()))?;

@@ -101,18 +101,24 @@ impl HTTPTransport {
             extract_timeout_from_extensions(py, &request.extensions);
         let timeout_val = compute_effective_timeout(connect_timeout_val, read_timeout_val, write_timeout_val);
 
-        let body_bytes = request.content_body.clone();
+        // Avoid cloning body — take it directly (it's owned and consumed here)
+        let body_bytes = request.content_body.as_ref().map(|b| bytes::Bytes::copy_from_slice(b));
         let has_body = body_bytes.is_some();
         let stream_response = request.stream_response;
 
         let method = parse_method(request.method.as_str())?;
 
         let hdrs = request.headers.bind(py).borrow();
+        // Collect headers as owned byte vecs so we can drop the borrow before block_on
+        let raw_headers: Vec<(Vec<u8>, Vec<u8>)> = hdrs.raw.iter()
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect();
+        drop(hdrs);
+
         let mut req_builder = self.client.request(method, parsed_url);
-        for (key, value) in &hdrs.raw {
+        for (key, value) in &raw_headers {
             req_builder = req_builder.header(key.as_slice(), value.as_slice());
         }
-        drop(hdrs); // release borrow before moving into closure
 
         if let Some(b) = body_bytes {
             req_builder = req_builder.body(b);
