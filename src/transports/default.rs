@@ -270,17 +270,18 @@ impl HTTPTransport {
         &self,
         py: Python<'_>,
         method: reqwest::Method,
-        url: &str,
+        parsed_url: reqwest::Url,
         raw_headers: &[(Vec<u8>, Vec<u8>)],
+        body: Option<&[u8]>,
         timeout_secs: Option<f64>,
     ) -> PyResult<Response> {
-        let parsed_url = reqwest::Url::parse(url).map_err(|e| {
-            crate::exceptions::InvalidURL::new_err(format!("Invalid URL: {}", e))
-        })?;
 
         let mut req_builder = self.client.request(method, parsed_url);
         for (k, v) in raw_headers {
             req_builder = req_builder.header(k.as_slice(), v.as_slice());
+        }
+        if let Some(b) = body {
+            req_builder = req_builder.body(b.to_vec());
         }
         if let Some(t) = timeout_secs {
             req_builder = req_builder.timeout(std::time::Duration::from_secs_f64(t));

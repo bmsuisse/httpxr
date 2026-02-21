@@ -165,7 +165,7 @@ impl Client {
         let start = Instant::now();
 
         let method_bytes = method.as_bytes();
-        let is_bodyless = method_bytes.eq_ignore_ascii_case(b"GET")
+        let _is_bodyless = method_bytes.eq_ignore_ascii_case(b"GET")
             || method_bytes.eq_ignore_ascii_case(b"HEAD")
             || method_bytes.eq_ignore_ascii_case(b"DELETE")
             || method_bytes.eq_ignore_ascii_case(b"OPTIONS");
@@ -176,12 +176,32 @@ impl Client {
 
         let should_follow = follow_redirects.unwrap_or(self.follow_redirects);
 
-        let _can_fast_path = is_bodyless
+        let mut simple_body_bytes: Option<Vec<u8>> = None;
+        let mut can_fast_path_body = true;
+
+        if data.is_some() || files.is_some() || json.is_some() {
+            can_fast_path_body = false;
+        } else if let Some(c) = content {
+            if let Ok(b) = c.cast::<pyo3::types::PyBytes>() {
+                simple_body_bytes = Some(b.as_bytes().to_vec());
+            } else if let Ok(s) = c.extract::<String>() {
+                simple_body_bytes = Some(s.into_bytes());
+            } else {
+                can_fast_path_body = false;
+            }
+        }
+
+        let is_fast_method = method_bytes.eq_ignore_ascii_case(b"GET")
+            || method_bytes.eq_ignore_ascii_case(b"HEAD")
+            || method_bytes.eq_ignore_ascii_case(b"DELETE")
+            || method_bytes.eq_ignore_ascii_case(b"OPTIONS")
+            || method_bytes.eq_ignore_ascii_case(b"POST")
+            || method_bytes.eq_ignore_ascii_case(b"PUT")
+            || method_bytes.eq_ignore_ascii_case(b"PATCH");
+            
+        let _can_fast_path = is_fast_method
             && has_valid_scheme
-            && content.is_none()
-            && data.is_none()
-            && files.is_none()
-            && json.is_none()
+            && can_fast_path_body
             && params.is_none()
             && cookies.is_none()
             && extensions.is_none()
@@ -198,35 +218,41 @@ impl Client {
             let t_bound = self.transport.bind(py);
             if let Ok(transport) = t_bound.cast::<crate::transports::default::HTTPTransport>() {
                 if let Ok(method_reqwest) = reqwest::Method::from_bytes(method_bytes) {
-                    let target_url_str = if let Some(ref base) = self.base_url {
-                        base.join_relative(&url_str_for_check).map(|u| u.to_string()).unwrap_or(url_str_for_check.clone())
+                    let parsed_url_res = if let Some(ref base) = self.base_url {
+                        match reqwest::Url::parse(&base.to_string()) {
+                            Ok(r_base) => r_base.join(&url_str_for_check).map_err(|_| ()),
+                            Err(_) => Err(())
+                        }
                     } else {
-                        url_str_for_check.clone()
+                        reqwest::Url::parse(&url_str_for_check).map_err(|_| ())
                     };
 
-                    // Pass raw byte headers directly — no String allocations
-                    let def_hdrs = self.default_headers.bind(py).borrow();
-                    let raw_headers = &def_hdrs.raw;
+                    if let Ok(target_url) = parsed_url_res {
+                        let target_url_str = target_url.to_string();
+                        // Pass raw byte headers directly — no String allocations
+                        let def_hdrs = self.default_headers.bind(py).borrow();
+                        let raw_headers = &def_hdrs.raw;
 
-                    match transport.borrow().send_fast_raw(py, method_reqwest, &target_url_str, raw_headers, None) {
-                        Ok(mut response) => {
-                            response.elapsed = Some(start.elapsed().as_secs_f64());
-                            response.lazy_request_method = Some(method.to_uppercase());
-                            response.lazy_request_url = Some(target_url_str);
+                        match transport.borrow().send_fast_raw(py, method_reqwest, target_url, raw_headers, simple_body_bytes.as_deref(), None) {
+                            Ok(mut response) => {
+                                response.elapsed = Some(start.elapsed().as_secs_f64());
+                                response.lazy_request_method = Some(method.to_uppercase());
+                                response.lazy_request_url = Some(target_url_str);
 
-                            if let Some(ref de) = self.default_encoding {
-                                response.default_encoding = de.clone_ref(py);
+                                if let Some(ref de) = self.default_encoding {
+                                    response.default_encoding = de.clone_ref(py);
+                                }
+
+                                if log::log_enabled!(log::Level::Info) {
+                                    log::info!(target: "httpxr", "HTTP Request: {} {} \"HTTP/1.1 {} {}\"", 
+                                        response.lazy_request_method.as_ref().unwrap(), response.lazy_request_url.as_ref().unwrap(), response.status_code, response.reason_phrase());
+                                }
+
+                                return Ok(response);
+                            },
+                            Err(_) => {
+                                // If fast path fails, naturally fall back to slow path
                             }
-
-                            if log::log_enabled!(log::Level::Info) {
-                                log::info!(target: "httpxr", "HTTP Request: {} {} \"HTTP/1.1 {} {}\"", 
-                                    response.lazy_request_method.as_ref().unwrap(), response.lazy_request_url.as_ref().unwrap(), response.status_code, response.reason_phrase());
-                            }
-
-                            return Ok(response);
-                        },
-                        Err(_) => {
-                            // If fast path fails, naturally fall back to slow path
                         }
                     }
                 }
