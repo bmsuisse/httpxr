@@ -346,11 +346,7 @@ impl Response {
     }
 
     pub(crate) fn reason_phrase_impl(&self) -> String {
-        crate::status_codes::status_code_map()
-            .get(&self.status_code)
-            .copied()
-            .unwrap_or("")
-            .to_string()
+        crate::status_codes::reason_phrase_for_code(self.status_code).to_string()
     }
 }
 

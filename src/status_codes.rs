@@ -1,77 +1,77 @@
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
-use std::collections::HashMap;
 
 /// HTTP status codes and reason phrases.
 #[pyclass(from_py_object)]
 #[derive(Clone)]
 pub struct StatusCodes;
 
-pub(crate) fn status_code_map() -> HashMap<u16, &'static str> {
-    let mut m = HashMap::new();
-    m.insert(100, "Continue");
-    m.insert(101, "Switching Protocols");
-    m.insert(102, "Processing");
-    m.insert(103, "Early Hints");
-    m.insert(200, "OK");
-    m.insert(201, "Created");
-    m.insert(202, "Accepted");
-    m.insert(203, "Non-Authoritative Information");
-    m.insert(204, "No Content");
-    m.insert(205, "Reset Content");
-    m.insert(206, "Partial Content");
-    m.insert(207, "Multi-Status");
-    m.insert(208, "Already Reported");
-    m.insert(226, "IM Used");
-    m.insert(300, "Multiple Choices");
-    m.insert(301, "Moved Permanently");
-    m.insert(302, "Found");
-    m.insert(303, "See Other");
-    m.insert(304, "Not Modified");
-    m.insert(305, "Use Proxy");
-    m.insert(307, "Temporary Redirect");
-    m.insert(308, "Permanent Redirect");
-    m.insert(400, "Bad Request");
-    m.insert(401, "Unauthorized");
-    m.insert(402, "Payment Required");
-    m.insert(403, "Forbidden");
-    m.insert(404, "Not Found");
-    m.insert(405, "Method Not Allowed");
-    m.insert(406, "Not Acceptable");
-    m.insert(407, "Proxy Authentication Required");
-    m.insert(408, "Request Timeout");
-    m.insert(409, "Conflict");
-    m.insert(410, "Gone");
-    m.insert(411, "Length Required");
-    m.insert(412, "Precondition Failed");
-    m.insert(413, "Request Entity Too Large");
-    m.insert(414, "Request-URI Too Long");
-    m.insert(415, "Unsupported Media Type");
-    m.insert(416, "Requested Range Not Satisfiable");
-    m.insert(417, "Expectation Failed");
-    m.insert(418, "I'm a teapot");
-    m.insert(421, "Misdirected Request");
-    m.insert(422, "Unprocessable Entity");
-    m.insert(423, "Locked");
-    m.insert(424, "Failed Dependency");
-    m.insert(425, "Too Early");
-    m.insert(426, "Upgrade Required");
-    m.insert(428, "Precondition Required");
-    m.insert(429, "Too Many Requests");
-    m.insert(431, "Request Header Fields Too Large");
-    m.insert(451, "Unavailable For Legal Reasons");
-    m.insert(500, "Internal Server Error");
-    m.insert(501, "Not Implemented");
-    m.insert(502, "Bad Gateway");
-    m.insert(503, "Service Unavailable");
-    m.insert(504, "Gateway Timeout");
-    m.insert(505, "HTTP Version Not Supported");
-    m.insert(506, "Variant Also Negotiates");
-    m.insert(507, "Insufficient Storage");
-    m.insert(508, "Loop Detected");
-    m.insert(510, "Not Extended");
-    m.insert(511, "Network Authentication Required");
-    m
+pub(crate) fn reason_phrase_for_code(code: u16) -> &'static str {
+    match code {
+        100 => "Continue",
+        101 => "Switching Protocols",
+        102 => "Processing",
+        103 => "Early Hints",
+        200 => "OK",
+        201 => "Created",
+        202 => "Accepted",
+        203 => "Non-Authoritative Information",
+        204 => "No Content",
+        205 => "Reset Content",
+        206 => "Partial Content",
+        207 => "Multi-Status",
+        208 => "Already Reported",
+        226 => "IM Used",
+        300 => "Multiple Choices",
+        301 => "Moved Permanently",
+        302 => "Found",
+        303 => "See Other",
+        304 => "Not Modified",
+        305 => "Use Proxy",
+        307 => "Temporary Redirect",
+        308 => "Permanent Redirect",
+        400 => "Bad Request",
+        401 => "Unauthorized",
+        402 => "Payment Required",
+        403 => "Forbidden",
+        404 => "Not Found",
+        405 => "Method Not Allowed",
+        406 => "Not Acceptable",
+        407 => "Proxy Authentication Required",
+        408 => "Request Timeout",
+        409 => "Conflict",
+        410 => "Gone",
+        411 => "Length Required",
+        412 => "Precondition Failed",
+        413 => "Request Entity Too Large",
+        414 => "Request-URI Too Long",
+        415 => "Unsupported Media Type",
+        416 => "Requested Range Not Satisfiable",
+        417 => "Expectation Failed",
+        418 => "I'm a teapot",
+        421 => "Misdirected Request",
+        422 => "Unprocessable Entity",
+        423 => "Locked",
+        424 => "Failed Dependency",
+        425 => "Too Early",
+        426 => "Upgrade Required",
+        428 => "Precondition Required",
+        429 => "Too Many Requests",
+        431 => "Request Header Fields Too Large",
+        451 => "Unavailable For Legal Reasons",
+        500 => "Internal Server Error",
+        501 => "Not Implemented",
+        502 => "Bad Gateway",
+        503 => "Service Unavailable",
+        504 => "Gateway Timeout",
+        505 => "HTTP Version Not Supported",
+        506 => "Variant Also Negotiates",
+        507 => "Insufficient Storage",
+        508 => "Loop Detected",
+        510 => "Not Extended",
+        511 => "Network Authentication Required",
+        _ => "",
+    }
 }
 
 /// We implement the codes module using a Python-side IntEnum class,
