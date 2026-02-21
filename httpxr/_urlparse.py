@@ -10,9 +10,7 @@ from ._httpxr import InvalidURL
 
 MAX_URL_LENGTH = 65536
 
-UNRESERVED_CHARACTERS = (
-    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~"
-)
+UNRESERVED_CHARACTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~"
 SUB_DELIMS = "!$&'()*+,;="
 
 PERCENT_ENCODED_REGEX = re.compile("%[A-Fa-f0-9]{2}")
@@ -35,31 +33,16 @@ USERNAME_SAFE = _safe_chars(*_PATH_EXCLUDED, *_CREDENTIAL_EXTRA)
 PASSWORD_SAFE = USERNAME_SAFE
 USERINFO_SAFE = _safe_chars(*_PATH_EXCLUDED, *_USERINFO_EXTRA)
 
-
 URL_REGEX = re.compile(
-    (
-        r"(?:(?P<scheme>{scheme}):)?"
-        r"(?://(?P<authority>{authority}))?"
-        r"(?P<path>{path})"
-        r"(?:\?(?P<query>{query}))?"
-        r"(?:#(?P<fragment>{fragment}))?"
-    ).format(
-        scheme="([a-zA-Z][a-zA-Z0-9+.-]*)?",
-        authority="[^/?#]*",
-        path="[^?#]*",
-        query="[^#]*",
-        fragment=".*",
-    )
+    r"(?:(?P<scheme>([a-zA-Z][a-zA-Z0-9+.-]*)?):\)?"
+    r"(?://(?P<authority>[^/?#]*))?"
+    r"(?P<path>[^?#]*)"
+    r"(?:\?(?P<query>[^#]*))?"
+    r"(?:#(?P<fragment>.*))?"
 )
 
 AUTHORITY_REGEX = re.compile(
-    (
-        r"(?:(?P<userinfo>{userinfo})@)?" r"(?P<host>{host})" r":?(?P<port>{port})?"
-    ).format(
-        userinfo=".*",
-        host="(\\[.*\\]|[^:@]*)",
-        port=".*",
-    )
+    r"(?:(?P<userinfo>.*)@)?(?P<host>(\[.*\]|[^:@]*)):?(?P<port>.*)?"
 )
 
 COMPONENT_REGEX = {
@@ -88,27 +71,21 @@ class ParseResult(typing.NamedTuple):
 
     @property
     def authority(self) -> str:
-        return "".join(
-            [
-                f"{self.userinfo}@" if self.userinfo else "",
-                f"[{self.host}]" if ":" in self.host else self.host,
-                f":{self.port}" if self.port is not None else "",
-            ]
-        )
+        host = f"[{self.host}]" if ":" in self.host else self.host
+        return "".join([
+            f"{self.userinfo}@" if self.userinfo else "",
+            host,
+            f":{self.port}" if self.port is not None else "",
+        ])
 
     @property
     def netloc(self) -> str:
-        return "".join(
-            [
-                f"[{self.host}]" if ":" in self.host else self.host,
-                f":{self.port}" if self.port is not None else "",
-            ]
-        )
+        host = f"[{self.host}]" if ":" in self.host else self.host
+        return host + (f":{self.port}" if self.port is not None else "")
 
     def copy_with(self, **kwargs: str | None) -> ParseResult:
         if not kwargs:
             return self
-
         defaults = {
             "scheme": self.scheme,
             "authority": self.authority,
@@ -121,25 +98,19 @@ class ParseResult(typing.NamedTuple):
 
     def __str__(self) -> str:
         authority = self.authority
-        return "".join(
-            [
-                f"{self.scheme}:" if self.scheme else "",
-                f"//{authority}" if authority else "",
-                self.path,
-                f"?{self.query}" if self.query is not None else "",
-                f"#{self.fragment}" if self.fragment is not None else "",
-            ]
-        )
+        return "".join([
+            f"{self.scheme}:" if self.scheme else "",
+            f"//{authority}" if authority else "",
+            self.path,
+            f"?{self.query}" if self.query is not None else "",
+            f"#{self.fragment}" if self.fragment is not None else "",
+        ])
 
 
 def _validate_non_printable(value: str, label: str) -> None:
     if any(char.isascii() and not char.isprintable() for char in value):
-        char = next(char for char in value if char.isascii() and not char.isprintable())
-        idx = value.find(char)
-        raise InvalidURL(
-            f"Invalid non-printable ASCII character in {label}, "
-            f"{char!r} at position {idx}."
-        )
+        char = next(c for c in value if c.isascii() and not c.isprintable())
+        raise InvalidURL(f"Invalid non-printable ASCII character in {label}, {char!r} at position {value.find(char)}.")
 
 
 def urlparse(url: str = "", **kwargs: str | None) -> ParseResult:
@@ -163,8 +134,8 @@ def urlparse(url: str = "", **kwargs: str | None) -> ParseResult:
 
     if "raw_path" in kwargs:
         raw_path = kwargs.pop("raw_path") or ""
-        kwargs["path"], seperator, kwargs["query"] = raw_path.partition("?")
-        if not seperator:
+        kwargs["path"], sep, kwargs["query"] = raw_path.partition("?")
+        if not sep:
             kwargs["query"] = None
 
     if "host" in kwargs:
@@ -176,15 +147,11 @@ def urlparse(url: str = "", **kwargs: str | None) -> ParseResult:
         if value is not None:
             if len(value) > MAX_URL_LENGTH:
                 raise InvalidURL(f"URL component '{key}' too long")
-
             _validate_non_printable(value, f"URL {key} component")
-
             if not COMPONENT_REGEX[key].fullmatch(value):
                 raise InvalidURL(f"Invalid URL component '{key}'")
 
-    url_match = URL_REGEX.match(url)
-    assert url_match is not None
-    url_dict = url_match.groupdict()
+    url_dict = URL_REGEX.match(url).groupdict()  # type: ignore[union-attr]
 
     scheme = kwargs.get("scheme", url_dict["scheme"]) or ""
     authority = kwargs.get("authority", url_dict["authority"]) or ""
@@ -192,39 +159,32 @@ def urlparse(url: str = "", **kwargs: str | None) -> ParseResult:
     query = kwargs.get("query", url_dict["query"])
     frag = kwargs.get("fragment", url_dict["fragment"])
 
-    authority_match = AUTHORITY_REGEX.match(authority)
-    assert authority_match is not None
-    authority_dict = authority_match.groupdict()
+    authority_dict = AUTHORITY_REGEX.match(authority).groupdict()  # type: ignore[union-attr]
 
     userinfo = kwargs.get("userinfo", authority_dict["userinfo"]) or ""
     host = kwargs.get("host", authority_dict["host"]) or ""
     port = kwargs.get("port", authority_dict["port"])
 
-    parsed_scheme: str = scheme.lower()
-    parsed_userinfo: str = quote(userinfo, safe=USERINFO_SAFE)
-    parsed_host: str = encode_host(host)
-    parsed_port: int | None = normalize_port(port, scheme)
+    parsed_scheme = scheme.lower()
+    parsed_userinfo = quote(userinfo, safe=USERINFO_SAFE)
+    parsed_host = encode_host(host)
+    parsed_port = normalize_port(port, scheme)
 
-    has_scheme = parsed_scheme != ""
-    has_authority = (
-        parsed_userinfo != "" or parsed_host != "" or parsed_port is not None
-    )
+    has_scheme = bool(parsed_scheme)
+    has_authority = bool(parsed_userinfo or parsed_host or parsed_port is not None)
+
     validate_path(path, has_scheme=has_scheme, has_authority=has_authority)
     if has_scheme or has_authority:
         path = normalize_path(path)
-
-    parsed_path: str = quote(path, safe=PATH_SAFE)
-    parsed_query: str | None = None if query is None else quote(query, safe=QUERY_SAFE)
-    parsed_frag: str | None = None if frag is None else quote(frag, safe=FRAG_SAFE)
 
     return ParseResult(
         parsed_scheme,
         parsed_userinfo,
         parsed_host,
         parsed_port,
-        parsed_path,
-        parsed_query,
-        parsed_frag,
+        quote(path, safe=PATH_SAFE),
+        None if query is None else quote(query, safe=QUERY_SAFE),
+        None if frag is None else quote(frag, safe=FRAG_SAFE),
     )
 
 
@@ -232,21 +192,21 @@ def encode_host(host: str) -> str:
     if not host:
         return ""
 
-    elif IPv4_STYLE_HOSTNAME.match(host):
+    if IPv4_STYLE_HOSTNAME.match(host):
         try:
             ipaddress.IPv4Address(host)
         except ipaddress.AddressValueError:
             raise InvalidURL(f"Invalid IPv4 address: {host!r}")
         return host
 
-    elif IPv6_STYLE_HOSTNAME.match(host):
+    if IPv6_STYLE_HOSTNAME.match(host):
         try:
             ipaddress.IPv6Address(host[1:-1])
         except ipaddress.AddressValueError:
             raise InvalidURL(f"Invalid IPv6 address: {host!r}")
         return host[1:-1]
 
-    elif host.isascii():
+    if host.isascii():
         WHATWG_SAFE = '"`{}%|\\'
         return quote(host.lower(), safe=SUB_DELIMS + WHATWG_SAFE)
 
@@ -257,27 +217,19 @@ def encode_host(host: str) -> str:
 
 
 def normalize_port(port: str | int | None, scheme: str) -> int | None:
-    if port is None or port == "":
+    if not port and port != 0:
         return None
-
     try:
-        port_as_int = int(port)
+        port_as_int = int(port)  # type: ignore[arg-type]
     except ValueError:
         raise InvalidURL(f"Invalid port: {port!r}")
-
-    default_port = {"ftp": 21, "http": 80, "https": 443, "ws": 80, "wss": 443}.get(
-        scheme
-    )
-    if port_as_int == default_port:
-        return None
-    return port_as_int
+    default = {"ftp": 21, "http": 80, "https": 443, "ws": 80, "wss": 443}.get(scheme)
+    return None if port_as_int == default else port_as_int
 
 
 def validate_path(path: str, has_scheme: bool, has_authority: bool) -> None:
-    if has_authority:
-        if path and not path.startswith("/"):
-            raise InvalidURL("For absolute URLs, path must be empty or begin with '/'")
-
+    if has_authority and path and not path.startswith("/"):
+        raise InvalidURL("For absolute URLs, path must be empty or begin with '/'")
     if not has_scheme and not has_authority:
         if path.startswith("//"):
             raise InvalidURL("Relative URLs cannot have a path starting with '//'")
@@ -288,57 +240,39 @@ def validate_path(path: str, has_scheme: bool, has_authority: bool) -> None:
 def normalize_path(path: str) -> str:
     if "." not in path:
         return path
-
     components = path.split("/")
-
     if "." not in components and ".." not in components:
         return path
-
     output: list[str] = []
     for component in components:
-        if component == ".":
-            pass
-        elif component == "..":
+        if component == "..":
             if output and output != [""]:
                 output.pop()
-        else:
+        elif component != ".":
             output.append(component)
     return "/".join(output)
 
 
 def _percent_encode(string: str) -> str:
-    return "".join([f"%{byte:02X}" for byte in string.encode("utf-8")])
+    return "".join(f"%{byte:02X}" for byte in string.encode("utf-8"))
 
 
 def percent_encoded(string: str, safe: str) -> str:
-    NON_ESCAPED_CHARS = UNRESERVED_CHARACTERS + safe
-
-    if not string.rstrip(NON_ESCAPED_CHARS):
+    non_escaped = UNRESERVED_CHARACTERS + safe
+    if not string.rstrip(non_escaped):
         return string
-
-    return "".join(
-        [
-            char if char in NON_ESCAPED_CHARS else _percent_encode(char)
-            for char in string
-        ]
-    )
+    return "".join(c if c in non_escaped else _percent_encode(c) for c in string)
 
 
 def quote(string: str, safe: str) -> str:
     parts: list[str] = []
-    current_position = 0
+    pos = 0
     for match in re.finditer(PERCENT_ENCODED_REGEX, string):
-        start_position, end_position = match.start(), match.end()
-        matched_text = match.group(0)
-        if start_position != current_position:
-            leading_text = string[current_position:start_position]
-            parts.append(percent_encoded(leading_text, safe=safe))
-
-        parts.append(matched_text)
-        current_position = end_position
-
-    if current_position != len(string):
-        trailing_text = string[current_position:]
-        parts.append(percent_encoded(trailing_text, safe=safe))
-
+        start, end = match.start(), match.end()
+        if start != pos:
+            parts.append(percent_encoded(string[pos:start], safe=safe))
+        parts.append(match.group(0))
+        pos = end
+    if pos != len(string):
+        parts.append(percent_encoded(string[pos:], safe=safe))
     return "".join(parts)

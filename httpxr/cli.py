@@ -7,10 +7,6 @@ import typing
 
 import click
 
-# ---------------------------------------------------------------------------
-# Rich output helpers (graceful fallback when rich is not installed)
-# ---------------------------------------------------------------------------
-
 try:
     from rich.console import Console  # type: ignore[import-not-found]
     from rich.syntax import Syntax  # type: ignore[import-not-found]
@@ -22,175 +18,109 @@ except ImportError:  # pragma: no cover
 
 
 def _status_color(status_code: int) -> str:
-    """Return a rich color name based on HTTP status category."""
     if status_code < 200:
         return "cyan"
-    elif status_code < 300:
+    if status_code < 300:
         return "green"
-    elif status_code < 400:
+    if status_code < 400:
         return "yellow"
-    elif status_code < 500:
+    if status_code < 500:
         return "red"
-    else:
-        return "bold red"
+    return "bold red"
 
 
-def is_binary_content(content: bytes) -> bool:
-    return b"\0" in content
-
-
-def is_binary_content_type(content_type: str) -> bool:
-    text_types = (
-        "text/",
-        "application/json",
-        "application/xml",
-        "application/javascript",
-        "application/ecmascript",
-    )
+def _is_binary(content: bytes, content_type: str) -> bool:
+    text_types = ("text/", "application/json", "application/xml", "application/javascript", "application/ecmascript")
     ct = content_type.lower().split(";")[0].strip()
-    return not any(ct.startswith(t) for t in text_types) and ct != ""
+    return (bool(ct) and not any(ct.startswith(t) for t in text_types)) or b"\0" in content
 
 
-# ---------------------------------------------------------------------------
-# Plain-text formatter (used with --no-color or when rich is missing)
-# ---------------------------------------------------------------------------
+def _format_json(text: str) -> str | None:
+    try:
+        return json.dumps(json.loads(text), indent=4, ensure_ascii=False)
+    except (json.JSONDecodeError, TypeError):
+        return None
 
 
-def format_response_plain(
-    response: typing.Any,
-    verbose: bool = False,
-) -> str:
+def parse_header(header: str) -> tuple[str, str]:
+    if ":" not in header:
+        raise click.BadParameter(f"Invalid header format: '{header}'. Expected 'Key: Value'.")
+    key, _, value = header.partition(":")
+    return key.strip(), value.strip()
+
+
+def format_response_plain(response: typing.Any) -> str:
     http_version = getattr(response, "http_version", "HTTP/1.1")
-    status_code = response.status_code
     reason = getattr(response, "reason_phrase", "")
-
-    status_line = f"{http_version} {status_code} {reason}".rstrip()
-    lines: list[str] = [status_line]
+    lines: list[str] = [f"{http_version} {response.status_code} {reason}".rstrip()]
 
     headers = response.headers
     for key, value in headers.items():
         lines.append(f"{key}: {value}")
-
     lines.append("")
 
     content = response.content
     if content:
-        text = getattr(response, "text", None)
         content_type = headers.get("content-type", "")
-
-        if is_binary_content_type(content_type) or is_binary_content(content):
+        text = getattr(response, "text", None)
+        if _is_binary(content, content_type):
             lines.append(f"<{len(content)} bytes of binary data>")
         elif "application/json" in content_type and text:
-            try:
-                data = json.loads(text)
-                formatted = json.dumps(data, indent=4, ensure_ascii=False)
-                lines.append(formatted)
-            except (json.JSONDecodeError, TypeError):
-                lines.append(text or "")
+            lines.append(_format_json(text) or text)
         elif text:
             lines.append(text)
 
     return "\n".join(lines)
 
 
-# ---------------------------------------------------------------------------
-# Rich formatter
-# ---------------------------------------------------------------------------
-
-
-def print_response_rich(
-    console: Console,
-    response: typing.Any,
-    verbose: bool = False,
-) -> None:
-    """Pretty-print a response using rich."""
+def print_response_rich(console: Console, response: typing.Any) -> None:
     http_version = getattr(response, "http_version", "HTTP/1.1")
-    status_code = response.status_code
     reason = getattr(response, "reason_phrase", "")
-    color = _status_color(status_code)
+    color = _status_color(response.status_code)
 
-    # Status line
-    status_line = Text()  # type: ignore[possibly-undefined]
-    status_line.append(f"{http_version} ", style="bold dim")
-    status_line.append(f"{status_code}", style=f"bold {color}")
+    status = Text()  # type: ignore[possibly-undefined]
+    status.append(f"{http_version} ", style="bold dim")
+    status.append(str(response.status_code), style=f"bold {color}")
     if reason:
-        status_line.append(f" {reason}", style=color)
-    console.print(status_line)
+        status.append(f" {reason}", style=color)
+    console.print(status)
 
-    # Headers
     headers = response.headers
     for key, value in headers.items():
-        header_text = Text()  # type: ignore[possibly-undefined]
-        header_text.append(f"{key}", style="dim cyan")
-        header_text.append(": ", style="dim")
-        header_text.append(value)
-        console.print(header_text)
-
+        t = Text()  # type: ignore[possibly-undefined]
+        t.append(key, style="dim cyan")
+        t.append(": ", style="dim")
+        t.append(value)
+        console.print(t)
     console.print()
 
-    # Body
     content = response.content
     if content:
-        text = getattr(response, "text", None)
         content_type = headers.get("content-type", "")
-
-        if is_binary_content_type(content_type) or is_binary_content(content):
+        text = getattr(response, "text", None)
+        if _is_binary(content, content_type):
             console.print(f"[dim]<{len(content)} bytes of binary data>[/dim]")
         elif "application/json" in content_type and text:
-            try:
-                data = json.loads(text)
-                formatted = json.dumps(data, indent=4, ensure_ascii=False)
-                syntax = Syntax(formatted, "json", theme="monokai")  # type: ignore[possibly-undefined]
-                console.print(syntax)
-            except (json.JSONDecodeError, TypeError):
-                console.print(text or "")
+            formatted = _format_json(text)
+            if formatted:
+                console.print(Syntax(formatted, "json", theme="monokai"))  # type: ignore[possibly-undefined]
+            else:
+                console.print(text)
         elif text:
             console.print(text)
-
-
-# ---------------------------------------------------------------------------
-# Header parsing helper (curl-style -H "Key: Value")
-# ---------------------------------------------------------------------------
-
-
-def parse_header(header: str) -> tuple[str, str]:
-    """Parse a 'Key: Value' header string."""
-    if ":" not in header:
-        raise click.BadParameter(
-            f"Invalid header format: '{header}'. Expected 'Key: Value'."
-        )
-    key, _, value = header.partition(":")
-    return key.strip(), value.strip()
-
-
-# ---------------------------------------------------------------------------
-# CLI command
-# ---------------------------------------------------------------------------
 
 
 @click.command(help="A next generation HTTP client. ⚡")
 @click.argument("url")
 @click.option("-m", "--method", default="GET", help="HTTP method.")
-@click.option(
-    "-c", "--content", default=None, help="Content to send in the request body."
-)
+@click.option("-c", "--content", default=None, help="Content to send in the request body.")
 @click.option("-j", "--json-data", "json_body", default=None, help="JSON data to send.")
 @click.option("-v", "--verbose", is_flag=True, default=False, help="Verbose output.")
-@click.option(
-    "--follow-redirects", is_flag=True, default=False, help="Follow redirects."
-)
+@click.option("--follow-redirects", is_flag=True, default=False, help="Follow redirects.")
 @click.option("--auth", nargs=2, default=None, help="Username and password.", type=str)
 @click.option("--download", default=None, help="Download to file.")
-@click.option(
-    "-H",
-    "--header",
-    "headers",
-    multiple=True,
-    help='Add a header, e.g. -H "Authorization: Bearer token".',
-)
-@click.option(
-    "--timing", is_flag=True, default=False, help="Show request timing breakdown."
-)
+@click.option("-H", "--header", "headers", multiple=True, help='Add a header, e.g. -H "Authorization: Bearer token".')
+@click.option("--timing", is_flag=True, default=False, help="Show request timing breakdown.")
 @click.option("--no-color", is_flag=True, default=False, help="Disable colored output.")
 def main(
     url: str,
@@ -216,73 +146,43 @@ def main(
                 "url": url,
                 "follow_redirects": follow_redirects,
             }
-
             if json_body is not None:
                 kwargs["json"] = json.loads(json_body)
-
             if content is not None:
-                kwargs["content"] = content.encode("utf-8")
-
+                kwargs["content"] = content.encode()
             if auth is not None:
                 kwargs["auth"] = auth
-
-            # Parse -H headers
             if headers:
-                header_dict: dict[str, str] = {}
-                for h in headers:
-                    key, value = parse_header(h)
-                    header_dict[key] = value
-                kwargs["headers"] = header_dict
+                kwargs["headers"] = dict(parse_header(h) for h in headers)
 
-            start_time = time.monotonic()
+            t0 = time.monotonic()
             response = client.request(**kwargs)
-            elapsed_ms = (time.monotonic() - start_time) * 1000
+            elapsed_ms = (time.monotonic() - t0) * 1000
 
             if download is not None:
                 with open(download, "wb") as f:
                     f.write(response.content)
-
                 if use_rich:
                     console = Console()  # type: ignore[possibly-undefined]
-                    size = len(response.content)
-                    console.print(
-                        f"[green]✓[/green] Downloaded [bold]{size:,}[/bold] bytes "
-                        f"to [cyan]{download}[/cyan]"
-                    )
+                    console.print(f"[green]✓[/green] Downloaded [bold]{len(response.content):,}[/bold] bytes to [cyan]{download}[/cyan]")
                 return
 
             if use_rich:
                 console = Console()  # type: ignore[possibly-undefined]
-
-                # Print redirect history
-                for hist_resp in getattr(response, "history", []):
-                    print_response_rich(console, hist_resp, verbose=verbose)
+                for hist in getattr(response, "history", []):
+                    print_response_rich(console, hist)
                     console.print()
-
-                # Print main response
-                print_response_rich(console, response, verbose=verbose)
-
-                # Timing
+                print_response_rich(console, response)
                 if timing:
                     elapsed = getattr(response, "elapsed", None)
-                    if elapsed is not None:
-                        server_ms = elapsed.total_seconds() * 1000
-                        console.print()
-                        console.print(
-                            f"[dim]⏱  Server: {server_ms:.1f}ms  "
-                            f"Total: {elapsed_ms:.1f}ms[/dim]"
-                        )
-                    else:
-                        console.print()
-                        console.print(f"[dim]⏱  Total: {elapsed_ms:.1f}ms[/dim]")
+                    server = f"Server: {elapsed.total_seconds() * 1000:.1f}ms  " if elapsed else ""
+                    console.print()
+                    console.print(f"[dim]⏱  {server}Total: {elapsed_ms:.1f}ms[/dim]")
             else:
-                # Plain text output
-                for hist_resp in getattr(response, "history", []):
-                    click.echo(format_response_plain(hist_resp, verbose=verbose))
+                for hist in getattr(response, "history", []):
+                    click.echo(format_response_plain(hist))
                     click.echo()
-
-                click.echo(format_response_plain(response, verbose=verbose))
-
+                click.echo(format_response_plain(response))
                 if timing:
                     click.echo()
                     click.echo(f"Total: {elapsed_ms:.1f}ms")
@@ -292,8 +192,7 @@ def main(
 
     except _httpxr_mod.HTTPError as exc:  # type: ignore[attr-defined]
         if use_rich:
-            console = Console(stderr=True)  # type: ignore[possibly-undefined]
-            console.print(f"[bold red]{type(exc).__name__}[/bold red]: {exc}")
+            Console(stderr=True).print(f"[bold red]{type(exc).__name__}[/bold red]: {exc}")  # type: ignore[possibly-undefined]
         else:
             click.echo(f"{type(exc).__name__}: {exc}", err=False)
         sys.exit(1)
