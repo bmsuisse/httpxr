@@ -34,12 +34,13 @@ PASSWORD_SAFE = USERNAME_SAFE
 USERINFO_SAFE = _safe_chars(*_PATH_EXCLUDED, *_USERINFO_EXTRA)
 
 URL_REGEX = re.compile(
-    r"(?:(?P<scheme>([a-zA-Z][a-zA-Z0-9+.-]*)?):\)?"
+    r"(?:(?P<scheme>[a-zA-Z][a-zA-Z0-9+.-]*):)?"
     r"(?://(?P<authority>[^/?#]*))?"
     r"(?P<path>[^?#]*)"
     r"(?:\?(?P<query>[^#]*))?"
     r"(?:#(?P<fragment>.*))?"
 )
+
 
 AUTHORITY_REGEX = re.compile(
     r"(?:(?P<userinfo>.*)@)?(?P<host>(\[.*\]|[^:@]*)):?(?P<port>.*)?"
