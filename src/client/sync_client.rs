@@ -12,6 +12,7 @@ use super::common::*;
 #[pyclass(subclass, module = "httpxr._httpxr")]
 pub struct Client {
     pub(crate) base_url: Option<URL>,
+    pub(crate) reqwest_base_url: Option<reqwest::Url>,
     pub(crate) auth: Option<Py<PyAny>>,
     pub(crate) params: Option<Py<PyAny>>,
     pub(crate) default_headers: Py<Headers>,
@@ -97,6 +98,7 @@ impl Client {
         let hdrs_py = Py::new(py, hdrs)?;
         let ckies = Cookies::create(py, cookies)?;
         let base = parse_base_url(base_url)?;
+        let reqwest_base_url = base.as_ref().and_then(|b| reqwest::Url::parse(&b.to_string()).ok());
 
         let transport_obj = if let Some(t) = transport {
             t.clone().unbind()
@@ -112,6 +114,7 @@ impl Client {
 
         Ok(Client {
             base_url: base,
+            reqwest_base_url,
             auth: auth
                 .map(|a| {
                     if let AuthArg::Custom(p) = a {
@@ -218,11 +221,8 @@ impl Client {
             let t_bound = self.transport.bind(py);
             if let Ok(transport) = t_bound.cast::<crate::transports::default::HTTPTransport>() {
                 if let Ok(method_reqwest) = reqwest::Method::from_bytes(method_bytes) {
-                    let parsed_url_res = if let Some(ref base) = self.base_url {
-                        match reqwest::Url::parse(&base.to_string()) {
-                            Ok(r_base) => r_base.join(&url_str_for_check).map_err(|_| ()),
-                            Err(_) => Err(())
-                        }
+                    let parsed_url_res = if let Some(ref r_base) = self.reqwest_base_url {
+                        r_base.join(&url_str_for_check).map_err(|_| ())
                     } else {
                         reqwest::Url::parse(&url_str_for_check).map_err(|_| ())
                     };
@@ -477,6 +477,7 @@ impl Client {
         } else {
             Some(URL::create_from_str(&s)?)
         };
+        self.reqwest_base_url = self.base_url.as_ref().and_then(|b| reqwest::Url::parse(&b.to_string()).ok());
         Ok(())
     }
 

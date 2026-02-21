@@ -111,6 +111,8 @@ impl AsyncClient {
         } else {
             Some(URL::create_from_str(&s)?)
         };
+        self.cached_base_url_str = self.base_url.as_ref().map(|b| b.to_string().trim_end_matches('/').to_string());
+        self.reqwest_base_url = self.base_url.as_ref().and_then(|b| reqwest::Url::parse(&b.to_string()).ok());
         Ok(())
     }
 

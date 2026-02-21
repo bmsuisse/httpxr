@@ -33,6 +33,7 @@ pub struct AsyncClient {
     pub(crate) cached_write_timeout: Option<f64>,
     pub(crate) cached_pool_timeout: Option<f64>,
     pub(crate) cached_base_url_str: Option<String>,
+    pub(crate) reqwest_base_url: Option<reqwest::Url>,
     pub(crate) retry: Option<RetryConfig>,
     pub(crate) rate_limit: Option<crate::config::RateLimit>,
 }
@@ -108,6 +109,7 @@ impl AsyncClient {
         let base = parse_base_url(base_url)?;
 
         let cached_base_url_str = base.as_ref().map(|b| b.to_string().trim_end_matches('/').to_string());
+        let reqwest_base_url = base.as_ref().and_then(|b| reqwest::Url::parse(&b.to_string()).ok());
 
         let transport_obj = if let Some(t) = transport {
             t.clone().unbind()
@@ -144,6 +146,7 @@ impl AsyncClient {
 
         Ok(AsyncClient {
             base_url: base,
+            reqwest_base_url,
             auth: auth
                 .map(|a| {
                     if let AuthArg::Custom(p) = a {

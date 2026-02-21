@@ -713,12 +713,18 @@ impl AsyncClient {
                     let url_str = url_str_for_check;
                     let full_url = if let Some(ref base_str) = self.cached_base_url_str {
                         if url_str.starts_with("http://") || url_str.starts_with("https://") {
-                            url_str
+                            url_str.clone()
                         } else {
                             format!("{}{}", base_str, url_str)
                         }
                     } else {
-                        url_str
+                        url_str.clone()
+                    };
+
+                    let reqwest_url_to_use = if let Some(ref reqwest_base) = self.reqwest_base_url {
+                        reqwest_base.join(&url_str).ok()
+                    } else {
+                        reqwest::Url::parse(&url_str).ok()
                     };
 
                     let raw_headers = self.cached_raw_headers.clone();
@@ -774,11 +780,16 @@ impl AsyncClient {
                         };
 
                         let mut current_url = full_url;
+                        let mut current_url_reqwest = reqwest_url_to_use;
                         let mut redirects_remaining = max_redirects;
                         let mut history: Vec<(u16, Vec<(Vec<u8>, Vec<u8>)>, Vec<u8>, String)> = Vec::new();
 
                         let (final_status, final_headers_raw, final_body, final_url) = loop {
-                            let mut req_builder = client.get(&current_url);
+                            let mut req_builder = if let Some(u) = current_url_reqwest.take() {
+                                client.get(u)
+                            } else {
+                                client.get(&current_url)
+                            };
                             for (key, value) in &raw_headers {
                                 req_builder = req_builder.header(key.as_slice(), value.as_slice());
                             }
