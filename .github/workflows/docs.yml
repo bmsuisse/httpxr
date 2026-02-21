@@ -28,7 +28,7 @@ jobs:
           python-version: '3.12'
 
       - name: Install dependencies
-        run: pip install "mkdocs-material<2" "mkdocs-jupyter>=0.24"
+        run: pip install "mkdocs-material~=9.5" "mkdocs-jupyter==0.24.8"
 
       - name: Build docs
         run: mkdocs build --strict
