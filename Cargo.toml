@@ -35,6 +35,7 @@ log = "0.4.29"
 idna = "1.1.0"
 futures = "0.3.32"
 mimalloc = { version = "0.1", default-features = false, features = ["local_dynamic_tls"] }
+ahash = "0.8"
 
 [profile.release]
 opt-level = 3

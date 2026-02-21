@@ -1,24 +1,14 @@
 """
-httpxr.compat — Drop-in migration shim for httpx.
+httpxr.compat — drop-in migration shim for httpx.
 
-Import this module once at your application's entrypoint to transparently
-redirect all ``import httpx`` statements to httpxr::
+Import once at your application's entrypoint to redirect all ``import httpx``
+statements to httpxr (including third-party libraries)::
 
     import httpxr.compat   # enable the shim
     import httpx            # ← now resolves to httpxr
 
-This works for your code **and** for third-party libraries that depend on httpx.
-
-Usage::
-
-    # Enable
-    import httpxr.compat
-
-    # Check status
     httpxr.compat.is_active()  # True
-
-    # Disable (restore original httpx if it was installed)
-    httpxr.compat.disable()
+    httpxr.compat.disable()    # restore original httpx
 """
 
 from __future__ import annotations
@@ -37,13 +27,11 @@ _shim_active: bool = False
 
 
 def _activate() -> None:
-    """Register httpxr as the ``httpx`` module in ``sys.modules``."""
     global _original_httpx, _shim_active
 
     if _shim_active:
         return
 
-    # Preserve existing httpx if already imported
     if "httpx" in sys.modules:
         _original_httpx = sys.modules["httpx"]
         warnings.warn(
@@ -53,9 +41,7 @@ def _activate() -> None:
             stacklevel=3,
         )
 
-    # Register httpxr as httpx
     sys.modules["httpx"] = httpxr  # type: ignore[assignment]
-
     _shim_active = True
     logger.info("httpxr.compat: httpx → httpxr shim active")
 
@@ -82,5 +68,4 @@ def is_active() -> bool:
     return _shim_active
 
 
-# Auto-activate on import
 _activate()

@@ -59,6 +59,7 @@ pub fn extract_from_kwargs<'py>(
 }
 
 /// Merge a base URL with a request URL, matching httpx's `_merge_url` semantics.
+#[inline]
 pub fn merge_base_url(base: &URL, url: &str) -> PyResult<URL> {
     if url.contains("://") {
         return URL::create_from_str(url);
@@ -611,6 +612,7 @@ pub fn extract_cookies_to_jar(
 }
 
 /// Check if a URL matches a mount pattern (httpx-compatible).
+#[inline]
 pub fn url_matches_pattern(url_str: &str, pattern: &str) -> bool {
     if pattern == "all://" {
         return true;
@@ -704,6 +706,7 @@ pub fn select_transport(
 }
 
 /// Compute priority for a mount pattern (higher = more specific).
+#[inline]
 pub fn compute_pattern_priority(pattern: &str) -> u32 {
     let (scheme, rest) = if let Some(idx) = pattern.find("://") {
         (&pattern[..idx], &pattern[idx + 3..])
@@ -723,6 +726,7 @@ pub fn compute_pattern_priority(pattern: &str) -> u32 {
 }
 
 /// Resolve URL from a base URL and url string.
+#[inline]
 pub fn resolve_url(base_url: &Option<URL>, url_str: &str) -> PyResult<URL> {
     if let Some(ref base) = base_url {
         merge_base_url(base, url_str)

@@ -790,7 +790,7 @@ impl AsyncClient {
                             } else {
                                 client.get(&current_url)
                             };
-                            for (key, value) in &raw_headers {
+                            for (key, value) in raw_headers.iter() {
                                 req_builder = req_builder.header(key.as_slice(), value.as_slice());
                             }
                             for (key, value) in &extra_raw {

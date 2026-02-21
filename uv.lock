@@ -1109,7 +1109,7 @@ dev = [
 docs = [
     { name = "jupyter", specifier = ">=1.0.0" },
     { name = "mkautodoc", specifier = ">=0.2.0" },
-    { name = "mkdocs", specifier = ">=1.6.0" },
+    { name = "mkdocs", specifier = ">=1.6.0,<2.0" },
     { name = "mkdocs-jupyter", specifier = ">=0.24.0" },
     { name = "mkdocs-material", specifier = ">=9.5.0" },
     { name = "mkdocstrings", extras = ["python"], specifier = ">=0.24.0" },

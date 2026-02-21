@@ -26,7 +26,7 @@ pub struct AsyncClient {
     pub(crate) event_hooks: Option<Py<PyAny>>,
     #[allow(dead_code)]
     pub(crate) default_encoding: Option<Py<PyAny>>,
-    pub(crate) cached_raw_headers: Vec<(Vec<u8>, Vec<u8>)>,
+    pub(crate) cached_raw_headers: std::sync::Arc<Vec<(Vec<u8>, Vec<u8>)>>,
     pub(crate) cached_timeout: Option<std::time::Duration>,
     pub(crate) cached_connect_timeout: Option<f64>,
     pub(crate) cached_read_timeout: Option<f64>,
@@ -103,7 +103,7 @@ impl AsyncClient {
         if !hdrs.contains_header("connection") {
             hdrs.set_header("connection", "keep-alive");
         }
-        let cached_raw_headers = hdrs.get_raw_items_owned();
+        let cached_raw_headers = std::sync::Arc::new(hdrs.get_raw_items_owned());
         let hdrs_py = Py::new(py, hdrs)?;
         let ckies = Cookies::create(py, cookies)?;
         let base = parse_base_url(base_url)?;
