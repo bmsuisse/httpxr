@@ -2,8 +2,7 @@ from __future__ import annotations
 
 import typing
 
-from ._httpxr import HTTPError as _HTTPError
-from ._httpxr import RequestError as _RequestError
+from ._httpxr import HTTPError as _HTTPError, RequestError as _RequestError
 
 if typing.TYPE_CHECKING:
     from ._httpxr import Request
@@ -29,7 +28,7 @@ def _httperror_request_set(self: _HTTPError, request: Request) -> None:
 
 
 _HTTPError.__init__ = _httperror_init  # type: ignore[assignment]
-_HTTPError.request = property(_httperror_request_get, _httperror_request_set)  # type: ignore[attr-defined]
+_HTTPError.request = property(_httperror_request_get, _httperror_request_set)  # type: ignore
 
 
 def _requesterror_init(

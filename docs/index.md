@@ -92,7 +92,6 @@ pip install httpxr
 ## Hello World
 
 === "Sync"
-
     ```python
     import httpxr
 
@@ -103,7 +102,6 @@ pip install httpxr
     ```
 
 === "Async"
-
     ```python
     import httpxr
     import asyncio
@@ -141,6 +139,7 @@ All benchmarks run against **10 HTTP libraries** on a local ASGI server, 100 rou
 | 50 Concurrent GETs | **5.23** | 7.31 | 6.56 | 6.23 | 7.85 | 12.31 | 16.26 | 10.15 | 70.23 | 21.14 |
 
 !!! tip "Key takeaways"
+
     - **#1 under concurrency** — faster than all other libraries
     - **~2.3× faster** than httpx for sequential workloads
     - **~12× faster** than httpx under concurrency (GIL-free Rust)

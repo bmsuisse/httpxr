@@ -11,9 +11,6 @@ use crate::models::Response;
 use super::common::extract_from_kwargs;
 use super::sync_client::Client;
 
-// ---------------------------------------------------------------------------
-// High-level convenience methods (get, post, put, patch, delete, head, options)
-// ---------------------------------------------------------------------------
 
 macro_rules! sync_no_body_method {
     ($name:ident, $method:expr) => {
@@ -83,10 +80,6 @@ macro_rules! sync_body_method {
     };
 }
 
-// ---------------------------------------------------------------------------
-// Raw convenience methods (get_raw, post_raw, etc.)
-// ---------------------------------------------------------------------------
-
 macro_rules! sync_raw_no_body {
     ($name:ident, $method:expr) => {
         #[pymethods]
@@ -111,10 +104,6 @@ macro_rules! sync_raw_with_body {
     };
 }
 
-// ---------------------------------------------------------------------------
-// Invocations
-// ---------------------------------------------------------------------------
-
 sync_no_body_method!(get, "GET");
 sync_no_body_method!(head, "HEAD");
 sync_no_body_method!(options, "OPTIONS");
@@ -128,10 +117,6 @@ sync_raw_with_body!(put_raw, reqwest::Method::PUT);
 sync_raw_with_body!(patch_raw, reqwest::Method::PATCH);
 sync_raw_no_body!(delete_raw, reqwest::Method::DELETE);
 sync_raw_no_body!(head_raw, reqwest::Method::HEAD);
-
-// ---------------------------------------------------------------------------
-// Paginate convenience methods (paginate_get, paginate_post)
-// ---------------------------------------------------------------------------
 
 macro_rules! sync_paginate_method {
     ($name:ident, $method:expr) => {

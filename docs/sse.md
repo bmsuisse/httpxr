@@ -5,7 +5,9 @@
 seamlessly with the Rust-backed streaming transport.
 
 !!! tip "Installation"
+
     SSE support is included in the base install. No extra dependencies needed:
+
     ```bash
     pip install httpxr
     ```
@@ -15,7 +17,6 @@ seamlessly with the Rust-backed streaming transport.
 ## Quick Start
 
 === "Sync"
-
     ```python
     import httpxr
     from httpxr.sse import connect_sse
@@ -27,7 +28,6 @@ seamlessly with the Rust-backed streaming transport.
     ```
 
 === "Async"
-
     ```python
     import asyncio
     import httpxr

@@ -37,9 +37,12 @@ Hover over the charts for detailed statistics per library.
 | 50 Sequential GETs | ~2.3× faster |
 | 50 Concurrent GETs | ~12× faster (GIL-free Rust) |
 
-!!! info "Reproduce locally"
-    ```bash
-    uv sync --group dev --group benchmark
-    uv run pytest benchmarks/test_bench_httpx.py --benchmark-json=benchmarks/pytest_benchmark_results.json
-    uv run python benchmarks/generate_plots.py
-    ```
+<Info>
+**Reproduce locally**
+
+```bash
+uv sync --group dev --group benchmark
+uv run pytest benchmarks/test_bench_httpx.py --benchmark-json=benchmarks/pytest_benchmark_results.json
+uv run python benchmarks/generate_plots.py
+```
+</Info>

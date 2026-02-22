@@ -12,11 +12,9 @@ use crate::models::{Request, Response};
 use crate::urls::URL;
 
 use super::common::*;
-use super::sync_client::{Client, PageIterator};
+use super::sync_client::Client;
+use super::sync_client_ext::PageIterator;
 
-// ---------------------------------------------------------------------------
-// Send & auth flow
-// ---------------------------------------------------------------------------
 
 impl Client {
     pub(crate) fn _send_single_request(
@@ -104,9 +102,7 @@ impl Client {
                 .and_then(|v| v.extract::<bool>().ok())
                 .unwrap_or(false);
             if req_body_needed {
-                if let Some(ref body) = current_req.content_body {
-                    let _ = body; // Body is already available
-                }
+                let _ = &current_req.content_body;
             }
 
             let mut response = {
@@ -126,8 +122,6 @@ impl Client {
             if let Some(ref de) = self.default_encoding {
                 response.default_encoding = de.clone_ref(py);
             }
-
-            // extensions initialized lazily on first access
 
             extract_cookies_to_jar(py, &mut response, self.cookies.jar.bind(py))?;
 
@@ -194,11 +188,6 @@ impl Client {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Transport selection & redirect handling
-// ---------------------------------------------------------------------------
-
-/// Private implementation helpers (not exposed to Python).
 impl Client {
     /// Select the correct transport for a URL, checking mounts first
     pub(crate) fn select_transport_for_url(&self, py: Python<'_>, url: &URL) -> Py<PyAny> {
@@ -206,7 +195,6 @@ impl Client {
             .unwrap_or_else(|_| self.transport.clone_ref(py))
     }
 
-    /// Core transport selection logic, shared between `_transport_for_url` and `select_transport_for_url`.
     pub(crate) fn _transport_for_url_inner(&self, py: Python<'_>, url: &URL) -> PyResult<Py<PyAny>> {
         let url_str = url.to_string();
         let mut best_transport: Option<Py<PyAny>> = None;
@@ -450,7 +438,6 @@ impl Client {
         Ok(current_response)
     }
 
-    /// Internal fast-path dispatcher: pass Python args directly to transport.
     pub(crate) fn _send_raw(
         &self,
         py: Python<'_>,
@@ -473,143 +460,3 @@ impl Client {
     }
 }
 
-// ---------------------------------------------------------------------------
-// PageIterator — lazy pagination over HTTP responses
-// ---------------------------------------------------------------------------
-
-#[pymethods]
-impl PageIterator {
-    fn __iter__(slf: PyRef<'_, Self>) -> PyRef<'_, Self> {
-        slf
-    }
-
-    fn __next__(&mut self, py: Python<'_>) -> PyResult<Option<Response>> {
-        if self.done || self.page_count >= self.max_pages {
-            return Ok(None);
-        }
-
-        let current_url = match &self.current_url {
-            Some(url) => url.clone_ref(py),
-            None => {
-                self.done = true;
-                return Ok(None);
-            }
-        };
-
-        let client_bound = self.client.bind(py);
-
-        let params_arg = if self.page_count == 0 {
-            self.params.as_ref().map(|p| p.bind(py).clone())
-        } else {
-            None
-        };
-
-        let mut response: Response = client_bound
-            .call_method(
-                "request",
-                (self.method.as_str(), current_url.bind(py)),
-                Some(
-                    &{
-                        let kw = PyDict::new(py);
-                        if let Some(ref p) = params_arg {
-                            kw.set_item("params", p)?;
-                        }
-                        if let Some(ref h) = self.headers {
-                            kw.set_item("headers", h)?;
-                        }
-                        if let Some(ref c) = self.cookies {
-                            kw.set_item("cookies", c)?;
-                        }
-                        if let Some(ref t) = self.timeout {
-                            kw.set_item("timeout", t)?;
-                        }
-                        if let Some(ref e) = self.extensions {
-                            kw.set_item("extensions", e)?;
-                        }
-                        kw
-                    },
-                ),
-            )?
-            .extract()?;
-
-        self.page_count += 1;
-
-        let next: Option<String> = if let Some(ref json_key) = self.next_url_key {
-            let resp_py = Py::new(py, response.clone())?;
-            let json_val = resp_py.call_method0(py, "json")?;
-            let json_bound = json_val.bind(py);
-            if let Ok(val) = json_bound.get_item(json_key.as_str()) {
-                if !val.is_none() {
-                    val.extract::<String>().ok()
-                } else {
-                    None
-                }
-            } else {
-                None
-            }
-        } else if let Some(ref header_name) = self.next_header_name {
-            let hdrs = response.headers(py).unwrap().bind(py).borrow();
-            if let Some(header_val) = hdrs.get_first_value(header_name.as_str()) {
-                parse_link_next(&header_val)
-            } else {
-                None
-            }
-        } else if let Some(ref func) = self.next_func {
-            let resp_py = Py::new(py, response.clone())?;
-            let result = func.call1(py, (resp_py,))?;
-            let result_bound = result.bind(py);
-            if result_bound.is_none() {
-                None
-            } else {
-                result_bound.extract::<String>().ok()
-            }
-        } else {
-            None
-        };
-
-        match next {
-            Some(next_url_str) => {
-                self.current_url =
-                    Some(pyo3::types::PyString::new(py, &next_url_str).into_any().unbind());
-            }
-            None => {
-                self.done = true;
-            }
-        }
-
-        Ok(Some(response))
-    }
-
-    /// Collect all remaining pages into a list (convenience method).
-    fn collect(&mut self, py: Python<'_>) -> PyResult<Vec<Response>> {
-        let mut pages = Vec::new();
-        while let Some(page) = self.__next__(py)? {
-            pages.push(page);
-        }
-        Ok(pages)
-    }
-
-    /// The number of pages fetched so far.
-    #[getter]
-    fn pages_fetched(&self) -> usize {
-        self.page_count
-    }
-}
-
-/// Parse a Link header value to extract the URL with rel="next".
-/// Example: `<https://api.example.com/items?page=2>; rel="next", <...>; rel="prev"`
-pub(crate) fn parse_link_next(header: &str) -> Option<String> {
-    for part in header.split(',') {
-        let part = part.trim();
-        if part.contains("rel=\"next\"") || part.contains("rel='next'") {
-            if let Some(start) = part.find('<') {
-                if let Some(end) = part.find('>') {
-                    if start < end {
-                        return Some(part[start + 1..end].to_string());
-                    }
-                }
-            }
-        }
-    }
-    None
-}

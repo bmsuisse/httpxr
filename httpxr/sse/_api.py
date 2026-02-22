@@ -47,16 +47,20 @@ class EventSource:
 
 
 @contextmanager
-def connect_sse(client: httpxr.Client, method: str, url: str, **kwargs: Any) -> Iterator[EventSource]:
+def connect_sse(
+    client: httpxr.Client, method: str, url: str, **kwargs: Any
+) -> Iterator[EventSource]:
     headers = {**_SSE_HEADERS, **kwargs.pop("headers", {})}
     with client.stream(method, url, headers=headers, **kwargs) as response:
         yield EventSource(response)
 
 
 @asynccontextmanager
-async def aconnect_sse(client: httpxr.AsyncClient, method: str, url: str, **kwargs: Any) -> AsyncIterator[EventSource]:
+async def aconnect_sse(
+    client: httpxr.AsyncClient, method: str, url: str, **kwargs: Any
+) -> AsyncIterator[EventSource]:
     headers = {**_SSE_HEADERS, **kwargs.pop("headers", {})}
-    async with client.stream(method, url, headers=headers, **kwargs) as response:  # type: ignore[attr-defined]
+    async with client.stream(method, url, headers=headers, **kwargs) as response:  # type: ignore
         yield EventSource(response)
 
 
@@ -69,7 +73,7 @@ def _iter_sse_lines(response: httpxr.Response) -> Iterator[str]:
 
 async def _aiter_sse_lines(response: httpxr.Response) -> AsyncGenerator[str, None]:
     decoder = SSELineDecoder()
-    async for text in response.aiter_text():  # type: ignore[union-attr]
+    async for text in response.aiter_text():  # type: ignore
         for line in decoder.decode(text):
             yield line
     for line in decoder.flush():

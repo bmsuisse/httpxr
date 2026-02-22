@@ -270,10 +270,6 @@ def test_context_managed_transport():
             self.events: list[str] = []
 
         def close(self):
-            # The base implementation of httpxr.BaseTransport just
-            # calls into `.close`, so simple transport cases can just override
-            # this method for any cleanup, where more complex cases
-            # might want to additionally override `__enter__`/`__exit__`.
             self.events.append("transport.close")
 
         def __enter__(self):
@@ -302,10 +298,6 @@ def test_context_managed_transport_and_mount():
             self.events: list[str] = []
 
         def close(self):
-            # The base implementation of httpxr.BaseTransport just
-            # calls into `.close`, so simple transport cases can just override
-            # this method for any cleanup, where more complex cases
-            # might want to additionally override `__enter__`/`__exit__`.
             self.events.append(f"{self.name}.close")
 
         def __enter__(self):
@@ -344,11 +336,9 @@ def test_client_closed_state_using_implicit_open():
 
     assert client.is_closed
 
-    # Once we're close we cannot make any more requests.
     with pytest.raises(RuntimeError):
         client.get("http://example.com")
 
-    # Once we're closed we cannot reopen the client.
     with pytest.raises(RuntimeError):
         with client:
             pass  # pragma: no cover

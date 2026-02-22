@@ -1,5 +1,4 @@
 import pytest
-import httpxr
 
 
 @pytest.mark.anyio

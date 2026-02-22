@@ -27,13 +27,12 @@ They leverage the Rust runtime for performance that's impossible in pure Python.
 
 ---
 
-## gather() — Concurrent Batch Requests { #gather }
+## gather() — Concurrent Batch Requests
 
 Dispatch multiple requests concurrently with a single call. Requests are built
 in Python, then sent in parallel via Rust's tokio runtime with zero GIL contention.
 
 === "Sync"
-
     ```python
     import httpxr
 
@@ -49,7 +48,6 @@ in Python, then sent in parallel via Rust's tokio runtime with zero GIL contenti
     ```
 
 === "Async"
-
     ```python
     import httpxr
     import asyncio
@@ -108,7 +106,7 @@ responses = client.gather(requests)
 
 ---
 
-## gather_raw() — Concurrent Raw Requests { #gather-raw }
+## gather_raw() — Concurrent Raw Requests
 
 Like `gather()`, but returns raw `(status, headers, body)` tuples instead of
 full `Response` objects. Maximum throughput for high-volume workloads.
@@ -128,13 +126,14 @@ with httpxr.Client() as client:
 ```
 
 !!! note "Trade-off"
+
     `gather_raw()` sacrifices `Response` objects (no cookies, auth, redirects,
     event hooks) for lower per-request overhead. Use it when throughput matters
     more than API compatibility.
 
 ---
 
-## paginate() — Auto-Follow Pagination { #paginate }
+## paginate() — Auto-Follow Pagination
 
 Automatically follow pagination links across API responses. Returns a **lazy
 iterator** (sync) or **async iterator** (async) — pages are fetched one at a time.
@@ -229,6 +228,7 @@ async with httpxr.AsyncClient() as client:
 | `max_pages` | `int` | `100` | Stop after N pages |
 
 !!! note "Exactly one strategy required"
+
     You must provide exactly one of `next_url`, `next_header`, or `next_func`.
 
 ### Convenience Wrappers
@@ -247,7 +247,7 @@ for page in client.paginate_post(url, json={"cursor": None}, next_func=get_curso
 
 ---
 
-## gather_paginate() — Concurrent Paginated Fetches { #gather-paginate }
+## gather_paginate() — Concurrent Paginated Fetches
 
 Fetch all pages from multiple paginated endpoints concurrently:
 
@@ -268,7 +268,7 @@ with httpxr.Client() as client:
 
 ---
 
-## Raw API — Maximum-Speed Dispatch { #raw-api }
+## Raw API — Maximum-Speed Dispatch
 
 For latency-critical code, the raw API bypasses all httpx `Request`/`Response`
 construction and calls reqwest directly. Returns a simple tuple.
@@ -304,13 +304,14 @@ All raw methods accept:
 | `timeout` | `float` | `None` | Timeout in seconds |
 
 !!! warning "Trade-offs"
+
     The raw API sacrifices httpx compatibility (no `Response` object, cookies,
     auth, redirects, or event hooks) for ~2× lower per-request latency. Use it
     only when every microsecond counts.
 
 ---
 
-## download() — Direct File Download { #download }
+## download() — Direct File Download
 
 Download a URL directly to a file on disk in one line. Returns the `Response`
 for status/header inspection.
@@ -336,7 +337,7 @@ with client.stream("GET", url) as response:
 
 ---
 
-## response.json_bytes() — Raw JSON Bytes { #json-bytes }
+## response.json_bytes() — Raw JSON Bytes
 
 Returns the response body as raw `bytes` without the UTF-8 decode step.
 Feed directly into fast JSON parsers like [orjson](https://github.com/ijl/orjson)
@@ -357,13 +358,14 @@ with httpxr.Client() as client:
 ```
 
 !!! tip "When to use"
+
     `json_bytes()` is most useful when combined with a bytes-native parser like
     `orjson` or `msgspec`. With the standard `json` module, the difference is
     minimal since `json.loads()` accepts both `str` and `bytes`.
 
 ---
 
-## response.iter_json() — NDJSON & SSE Streaming { #iter-json }
+## response.iter_json() — NDJSON & SSE Streaming
 
 Parse newline-delimited JSON (NDJSON) or Server-Sent Events (SSE) responses
 as a stream of Python objects.
@@ -389,12 +391,13 @@ with client.stream("POST", "https://api.openai.com/v1/chat/completions",
 ```
 
 !!! note "Full SSE support"
+
     For complete SSE support including `event`, `id`, and `retry` fields,
     use [`httpxr.sse`](sse.md) instead.
 
 ---
 
-## pool_status() — Connection Pool Introspection { #pool-status }
+## pool_status() — Connection Pool Introspection
 
 Inspect the current state of the connection pool:
 
@@ -417,7 +420,7 @@ Useful for debugging connection exhaustion or verifying pool configuration.
 
 ---
 
-## RetryConfig & RateLimit { #resilience }
+## RetryConfig & RateLimit
 
 Built-in retry and rate-limiting without external dependencies.
 
@@ -432,7 +435,7 @@ See the full [Resilience guide](resilience.md) for all options and patterns.
 
 ---
 
-## Server-Sent Events { #sse }
+## Server-Sent Events
 
 ```python
 from httpxr.sse import connect_sse
@@ -447,7 +450,7 @@ See the full [SSE guide](sse.md) for async support, OpenAI streaming, and more.
 
 ---
 
-## httpxr.extensions — Big-Data Ingestion Helpers { #extensions-module }
+## httpxr.extensions — Big-Data Ingestion Helpers
 
 The `httpxr.extensions` module bundles helpers designed for high-throughput,
 low-memory data ingestion pipelines such as Databricks or PySpark. All helpers
@@ -459,7 +462,7 @@ from httpxr import paginate_to_records, iter_json_bytes, gather_raw_bytes, OAuth
 import httpxr.extensions
 ```
 
-### paginate_to_records() { #paginate-to-records }
+### paginate_to_records()
 
 A lazy iterator that unwraps the records array from every page, yielding
 individual records rather than full `Response` objects.  O(1) memory.
@@ -499,7 +502,7 @@ Async variant: `apaginate_to_records(client: AsyncClient, …)`.
 
 ---
 
-### iter_json_bytes() { #iter-json-bytes }
+### iter_json_bytes()
 
 Stream an NDJSON or SSE response as **raw bytes** lines — no UTF-8 decode, no
 intermediate Python strings. Feed directly into `orjson.loads` or
@@ -523,7 +526,7 @@ Async variant: `aiter_json_bytes(response)`.
 
 ---
 
-### gather_raw_bytes() { #gather-raw-bytes }
+### gather_raw_bytes()
 
 Concurrent batch requests backed by Rust tokio, returning each response body
 as `bytes` (or a parsed object when `parser` is given).
@@ -549,7 +552,7 @@ with httpxr.Client() as client:
 
 ---
 
-### OAuth2Auth { #oauth2-auth }
+### OAuth2Auth
 
 Client-credentials token with transparent refresh.  Thread-safe.
 
@@ -570,6 +573,7 @@ Works with `AsyncClient` too — `async_auth_flow` is implemented.
 Triggers a one-time re-fetch on a `401` response.
 
 !!! tip "Databricks examples"
+
     See [`examples/databricks/`](https://github.com/bmsuisse/httpxr/tree/main/examples/databricks)
     for full notebook-ready examples using `OAuth2Auth` + `paginate_to_records`
     with Microsoft Graph and Salesforce APIs.

@@ -83,5 +83,6 @@ with httpxr.stream("GET", "https://httpbin.org/get") as response:
 ```
 
 !!! tip "Performance"
+
     For multiple streamed requests, use a `Client` context manager instead
     of the top-level function to benefit from connection pooling.

@@ -49,18 +49,28 @@ def paginate_to_records(
     **kwargs: Any,
 ) -> Iterator[Any]:
     """Lazily yield individual records from a paginated JSON API."""
-    has_strategy = next_url is not None or next_header is not None or next_func is not None
+    has_strategy = (
+        next_url is not None or next_header is not None or next_func is not None
+    )
 
     if not has_strategy:
-        resp = client.request(method, url, params=params, headers=headers, timeout=timeout, **kwargs)
+        resp = client.request(
+            method, url, params=params, headers=headers, timeout=timeout, **kwargs
+        )
         resp.raise_for_status()
         yield from _extract_records(resp.json(), records_key)
         return
 
     page_iter = client.paginate(
-        method, url,
-        next_url=next_url, next_header=next_header, next_func=next_func,
-        max_pages=max_pages, params=params, headers=headers, timeout=timeout,
+        method,
+        url,
+        next_url=next_url,
+        next_header=next_header,
+        next_func=next_func,
+        max_pages=max_pages,
+        params=params,
+        headers=headers,
+        timeout=timeout,
         **kwargs,
     )
     for response in page_iter:
@@ -84,22 +94,32 @@ async def apaginate_to_records(
     **kwargs: Any,
 ) -> AsyncGenerator[Any, None]:
     """Async variant of :func:`paginate_to_records`."""
-    has_strategy = next_url is not None or next_header is not None or next_func is not None
+    has_strategy = (
+        next_url is not None or next_header is not None or next_func is not None
+    )
 
     if not has_strategy:
-        resp = await client.request(method, url, params=params, headers=headers, timeout=timeout, **kwargs)
+        resp = await client.request(
+            method, url, params=params, headers=headers, timeout=timeout, **kwargs
+        )
         resp.raise_for_status()
         for record in _extract_records(resp.json(), records_key):
             yield record
         return
 
     page_iter = client.paginate(
-        method, url,
-        next_url=next_url, next_header=next_header, next_func=next_func,
-        max_pages=max_pages, params=params, headers=headers, timeout=timeout,
+        method,
+        url,
+        next_url=next_url,
+        next_header=next_header,
+        next_func=next_func,
+        max_pages=max_pages,
+        params=params,
+        headers=headers,
+        timeout=timeout,
         **kwargs,
     )
-    async for response in page_iter:  # type: ignore[union-attr]
+    async for response in page_iter:  # type: ignore
         response.raise_for_status()
         for record in _extract_records(response.json(), records_key):
             yield record
@@ -124,7 +144,7 @@ def iter_json_bytes(response: httpxr.Response) -> Iterator[bytes]:
 async def aiter_json_bytes(response: httpxr.Response) -> AsyncGenerator[bytes, None]:
     """Async variant of :func:`iter_json_bytes`."""
     buf = b""
-    async for chunk in response.aiter_bytes():  # type: ignore[union-attr]
+    async for chunk in response.aiter_bytes():  # type: ignore
         buf += chunk
         while b"\n" in buf:
             raw_line, buf = buf.split(b"\n", 1)
@@ -149,7 +169,9 @@ def gather_raw_bytes(
     if not requests:
         return []
 
-    responses = client.gather(requests, max_concurrency=max_concurrency, return_exceptions=return_exceptions)
+    responses = client.gather(
+        requests, max_concurrency=max_concurrency, return_exceptions=return_exceptions
+    )
     out: list[Any] = []
     for item in responses:
         if isinstance(item, Exception):
@@ -208,7 +230,9 @@ class OAuth2Auth(httpxr.Auth):
     def _parse_token_response(self, body: bytes) -> str:
         payload = _json.loads(body)
         if "access_token" not in payload:
-            raise RuntimeError(f"OAuth2Auth: token response missing 'access_token': {payload}")
+            raise RuntimeError(
+                f"OAuth2Auth: token response missing 'access_token': {payload}"
+            )
         self._token = str(payload["access_token"])
         self._expires_at = time.monotonic() + int(payload.get("expires_in", 3600))
         return self._token
@@ -247,7 +271,9 @@ class OAuth2Auth(httpxr.Auth):
         assert self._token is not None
         return self._token
 
-    async def async_auth_flow(self, request: httpxr.Request) -> AsyncGenerator[httpxr.Request, None]:
+    async def async_auth_flow(
+        self, request: httpxr.Request
+    ) -> AsyncGenerator[httpxr.Request, None]:
         request.headers["Authorization"] = f"Bearer {await self._get_token_async()}"
         response = yield request
         if response is not None and response.status_code == 401:

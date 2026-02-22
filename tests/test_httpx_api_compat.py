@@ -14,14 +14,12 @@ it acts as a regression guard AND as documentation of the variance.
 
 from __future__ import annotations
 
-import asyncio
 import datetime
 from typing import Any
 
 import pytest
 
 import httpxr
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -562,7 +560,8 @@ class TestResponse:
         assert isinstance(r.is_stream_consumed, bool)
 
     def test_default_encoding_prop(self):
-        # NOTE: property is exposed as `default_encoding_prop` in impl (pyi says `default_encoding`)
+        # NOTE: property is exposed as `default_encoding_prop` in impl
+        # (pyi says `default_encoding`)
         r = httpxr.Response(200)
         enc = r.default_encoding_prop
         assert isinstance(enc, str)
@@ -593,7 +592,7 @@ class TestResponse:
         lines = list(r.iter_lines())
         assert len(lines) == 3
         # iter_lines strips trailing newlines (one approach) or includes them
-        assert any("line1" in l for l in lines)
+        assert any("line1" in line for line in lines)
 
     def test_context_manager(self):
         r = httpxr.Response(200, content=b"data")
@@ -1249,8 +1248,9 @@ class TestDecoders:
     def test_line_decoder(self):
         d = httpxr.LineDecoder()
         lines = d.decode("line1\nline2\n")
-        # lines may or may not include the trailing newline — just ensure they contain the text
-        assert any("line1" in l for l in lines)
+        # lines may or may not include the trailing newline
+        # just ensure they contain the text
+        assert any("line1" in line for line in lines)
 
     def test_byte_chunker(self):
         c = httpxr.ByteChunker(chunk_size=4)

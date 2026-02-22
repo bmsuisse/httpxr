@@ -5,25 +5,21 @@
 Install httpxr from PyPI:
 
 === "pip"
-
     ```bash
     pip install httpxr
     ```
 
 === "uv"
-
     ```bash
     uv add httpxr
     ```
 
 === "poetry"
-
     ```bash
     poetry add httpxr
     ```
 
 === "conda"
-
     ```bash
     pip install httpxr  # httpxr is not on conda-forge yet
     ```
@@ -35,13 +31,16 @@ pip install "httpxr[cli]"
 ```
 
 !!! tip "Coming from httpx?"
+
     httpxr is a **drop-in replacement**. In most cases you just need to change your import:
+
     ```python
     # Before
     import httpx
     # After
     import httpxr as httpx  # or just import httpxr
     ```
+
     See the full [Migration Guide](migration.md) for details.
 
 ## Your First Request
@@ -80,7 +79,6 @@ For production code, always use a `Client` (or `AsyncClient`) as a context manag
 This enables **connection pooling** and **keepalive** for much better performance:
 
 === "Sync"
-
     ```python
     import httpxr
 
@@ -90,7 +88,6 @@ This enables **connection pooling** and **keepalive** for much better performanc
     ```
 
 === "Async"
-
     ```python
     import httpxr
     import asyncio

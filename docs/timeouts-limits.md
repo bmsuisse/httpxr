@@ -92,6 +92,7 @@ with httpxr.Client(proxy="socks5://proxy.example.com:1080") as client:
 ```
 
 !!! tip "Environment Proxies"
+
     By default (`trust_env=True`), httpxr reads `HTTP_PROXY`, `HTTPS_PROXY`,
     and `NO_PROXY` environment variables.
 

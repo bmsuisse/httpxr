@@ -6,7 +6,6 @@ Always use them as **context managers** for proper connection lifecycle manageme
 ## Basic Usage
 
 === "Sync"
-
     ```python
     import httpxr
 
@@ -16,7 +15,6 @@ Always use them as **context managers** for proper connection lifecycle manageme
     ```
 
 === "Async"
-
     ```python
     import httpxr
     import asyncio

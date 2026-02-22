@@ -1,9 +1,9 @@
 """Type stubs for the httpxr package."""
 
+from . import sse as sse
 from ._httpxr import *  # noqa: F403
 from ._httpxr import __version__ as __version__
 from ._transports import ASGITransport as ASGITransport, WSGITransport as WSGITransport
-from . import sse as sse
 
 def main() -> None: ...
 

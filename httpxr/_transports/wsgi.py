@@ -34,6 +34,7 @@ class WSGITransport(BaseTransport):
         remote_addr: str = "127.0.0.1",
         wsgi_errors: typing.TextIO | None = None,
     ) -> None:
+        super().__init__()  # type: ignore
         self.app = app
         self.raise_app_exceptions = raise_app_exceptions
         self.script_name = script_name

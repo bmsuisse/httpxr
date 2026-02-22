@@ -70,7 +70,7 @@ def rate_limit_basics() -> None:
         requests_per_second=5.0,
         burst=10,
     )
-    print(f"\nRateLimit:")
+    print("\nRateLimit:")
     print(f"  requests_per_second: {rl.requests_per_second}")
     print(f"  burst:               {rl.burst}")
     print(f"  wait_time():         {rl.wait_time():.4f}s")

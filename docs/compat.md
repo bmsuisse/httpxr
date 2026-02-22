@@ -38,6 +38,7 @@ Any subsequent `import httpx` — even from third-party packages — will receiv
 the httpxr module instead.
 
 !!! note "One-time setup"
+
     The shim only needs to be imported **once**, as early as possible in your
     application. A good place is `__init__.py`, `manage.py`, `main.py`, or
     your ASGI/WSGI entrypoint.
@@ -103,12 +104,14 @@ Start with the shim, then progressively replace `import httpx` with
 ## Caveats
 
 !!! warning "Import order matters"
+
     `import httpxr.compat` should be called **before** any `import httpx`.
     If httpx is already imported, the shim will still activate but will emit
     a warning — modules that already hold references to the original httpx
     objects will not be affected.
 
 !!! warning "Internal module paths"
+
     The shim redirects the top-level `httpx` module. Code that reaches into
     httpx internals like `httpx._transports` or `httpx._models` will not
     work through the shim, since httpxr has a different internal structure.

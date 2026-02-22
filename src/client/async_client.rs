@@ -8,7 +8,6 @@ use crate::urls::URL;
 
 use super::common::*;
 
-/// Async HTTP Client backed by reqwest + tokio.
 #[pyclass(subclass, module = "httpxr._httpxr")]
 pub struct AsyncClient {
     pub(crate) base_url: Option<URL>,
@@ -582,8 +581,6 @@ impl AsyncClient {
                     let mut resp: Response = response_obj.bind(py).extract()?;
                     resp.request = Some(current_req.clone());
                     resp.elapsed = Some(start.elapsed().as_secs_f64());
-
-                    // extensions initialized lazily on first access
 
                     let resp_handle = Py::new(py, resp)?;
                     Ok::<Py<crate::models::Response>, PyErr>(resp_handle)

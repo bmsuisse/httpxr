@@ -552,7 +552,7 @@ impl Response {
     }
 
     #[pyo3(signature = (**kwargs))]
-    fn json(&mut self, py: Python<'_>, kwargs: Option<&Bound<'_, PyDict>>) -> PyResult<Py<PyAny>> {
+    pub(crate) fn json(&mut self, py: Python<'_>, kwargs: Option<&Bound<'_, PyDict>>) -> PyResult<Py<PyAny>> {
         let content = self.content_bytes.as_ref().ok_or_else(|| {
             crate::exceptions::ResponseNotRead::new_err(
                 "Attempted to access json, without having called `read()`.",

@@ -10,7 +10,9 @@ from ._httpxr import InvalidURL
 
 MAX_URL_LENGTH = 65536
 
-UNRESERVED_CHARACTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~"
+UNRESERVED_CHARACTERS = (
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~"
+)
 SUB_DELIMS = "!$&'()*+,;="
 
 PERCENT_ENCODED_REGEX = re.compile("%[A-Fa-f0-9]{2}")
@@ -73,11 +75,13 @@ class ParseResult(typing.NamedTuple):
     @property
     def authority(self) -> str:
         host = f"[{self.host}]" if ":" in self.host else self.host
-        return "".join([
-            f"{self.userinfo}@" if self.userinfo else "",
-            host,
-            f":{self.port}" if self.port is not None else "",
-        ])
+        return "".join(
+            [
+                f"{self.userinfo}@" if self.userinfo else "",
+                host,
+                f":{self.port}" if self.port is not None else "",
+            ]
+        )
 
     @property
     def netloc(self) -> str:
@@ -99,19 +103,24 @@ class ParseResult(typing.NamedTuple):
 
     def __str__(self) -> str:
         authority = self.authority
-        return "".join([
-            f"{self.scheme}:" if self.scheme else "",
-            f"//{authority}" if authority else "",
-            self.path,
-            f"?{self.query}" if self.query is not None else "",
-            f"#{self.fragment}" if self.fragment is not None else "",
-        ])
+        return "".join(
+            [
+                f"{self.scheme}:" if self.scheme else "",
+                f"//{authority}" if authority else "",
+                self.path,
+                f"?{self.query}" if self.query is not None else "",
+                f"#{self.fragment}" if self.fragment is not None else "",
+            ]
+        )
 
 
 def _validate_non_printable(value: str, label: str) -> None:
     if any(char.isascii() and not char.isprintable() for char in value):
         char = next(c for c in value if c.isascii() and not c.isprintable())
-        raise InvalidURL(f"Invalid non-printable ASCII character in {label}, {char!r} at position {value.find(char)}.")
+        raise InvalidURL(
+            f"Invalid non-printable ASCII character in {label}, "
+            f"{char!r} at position {value.find(char)}."
+        )
 
 
 def urlparse(url: str = "", **kwargs: str | None) -> ParseResult:
@@ -152,7 +161,7 @@ def urlparse(url: str = "", **kwargs: str | None) -> ParseResult:
             if not COMPONENT_REGEX[key].fullmatch(value):
                 raise InvalidURL(f"Invalid URL component '{key}'")
 
-    url_dict = URL_REGEX.match(url).groupdict()  # type: ignore[union-attr]
+    url_dict = URL_REGEX.match(url).groupdict()  # type: ignore
 
     scheme = kwargs.get("scheme", url_dict["scheme"]) or ""
     authority = kwargs.get("authority", url_dict["authority"]) or ""
@@ -160,7 +169,7 @@ def urlparse(url: str = "", **kwargs: str | None) -> ParseResult:
     query = kwargs.get("query", url_dict["query"])
     frag = kwargs.get("fragment", url_dict["fragment"])
 
-    authority_dict = AUTHORITY_REGEX.match(authority).groupdict()  # type: ignore[union-attr]
+    authority_dict = AUTHORITY_REGEX.match(authority).groupdict()  # type: ignore
 
     userinfo = kwargs.get("userinfo", authority_dict["userinfo"]) or ""
     host = kwargs.get("host", authority_dict["host"]) or ""

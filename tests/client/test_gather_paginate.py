@@ -6,7 +6,6 @@ import pytest
 
 import httpxr
 
-
 # ---------------------------------------------------------------------------
 # Helpers – mock transport handlers
 # ---------------------------------------------------------------------------
@@ -367,7 +366,7 @@ class TestAsyncGather:
             results = await client.gather(requests)
 
         assert len(results) == 5
-        for i, resp in enumerate(results):
+        for _i, resp in enumerate(results):
             assert resp.status_code == 200
 
     @pytest.mark.anyio

@@ -10,10 +10,9 @@ import json
 import pytest
 
 import httpxr
-from httpxr.sse import EventSource, SSEError, ServerSentEvent, connect_sse
+from httpxr.sse import EventSource, ServerSentEvent, SSEError, connect_sse
 from httpxr.sse._api import _iter_sse_lines
 from httpxr.sse._decoders import SSELineDecoder, _splitlines_sse
-
 
 # ---------------------------------------------------------------------------
 # test_models.py

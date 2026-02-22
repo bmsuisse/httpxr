@@ -1,7 +1,10 @@
 # How It Was Built
 
-!!! info "🤖 AI-Generated with Human Oversight"
-    Every line of Rust, Python, and configuration in httpxr was written by an AI coding agent powered by **Claude Opus 4.6**. The iterative process of getting all 1300+ tests to pass involved human oversight — reviewing agent output, steering direction, and deciding next steps. This was a human-in-the-loop collaboration, not a fully autonomous push-button workflow — but it demonstrates the potential of AI agents given a clear, measurable goal, and hints at a near future where this kind of work runs fully autonomously.
+<Info>
+**🤖 AI-Generated with Human Oversight**
+
+Every line of Rust, Python, and configuration in httpxr was written by an AI coding agent powered by **Claude Opus 4.6**. The iterative process of getting all 1300+ tests to pass involved human oversight — reviewing agent output, steering direction, and deciding next steps. This was a human-in-the-loop collaboration, not a fully autonomous push-button workflow — but it demonstrates the potential of AI agents given a clear, measurable goal, and hints at a near future where this kind of work runs fully autonomously.
+</Info>
 
 ## Why This Exists
 

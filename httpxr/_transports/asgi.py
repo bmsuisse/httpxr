@@ -69,6 +69,7 @@ class ASGITransport(AsyncBaseTransport):
         root_path: str = "",
         client: tuple[str, int] = ("127.0.0.1", 123),
     ) -> None:
+        super().__init__()  # type: ignore
         self.app = app
         self.raise_app_exceptions = raise_app_exceptions
         self.root_path = root_path

@@ -11,13 +11,10 @@ import pytest
 import httpxr
 from httpxr.extensions import (
     OAuth2Auth,
-    aiter_json_bytes,
-    apaginate_to_records,
     gather_raw_bytes,
     iter_json_bytes,
     paginate_to_records,
 )
-
 
 # ---------------------------------------------------------------------------
 # Helpers

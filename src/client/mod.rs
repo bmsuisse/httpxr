@@ -5,6 +5,7 @@ pub mod common;
 pub mod sync_client;
 mod sync_client_methods;
 mod sync_client_send;
+mod sync_client_ext;
 
 use pyo3::prelude::*;
 

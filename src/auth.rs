@@ -6,7 +6,6 @@ use sha1::Sha1;
 use sha2::{Sha256, Sha512};
 use std::sync::{Arc, Mutex};
 
-/// Auth base class
 #[pyclass(from_py_object, subclass)]
 #[derive(Clone)]
 pub struct Auth;
@@ -53,7 +52,6 @@ impl SyncAuthFlow {
     }
 }
 
-/// Basic HTTP authentication.
 #[pyclass(from_py_object, extends=Auth)]
 #[derive(Clone)]
 pub struct BasicAuth {
@@ -117,7 +115,6 @@ impl BasicAuthFlow {
     }
 }
 
-/// Digest HTTP authentication.
 #[pyclass(from_py_object, extends=Auth, dict)]
 #[derive(Clone)]
 pub struct DigestAuth {
@@ -167,7 +164,7 @@ impl DigestAuth {
         let flow = DigestAuthFlow {
             auth,
             request: request.clone(),
-            state: if has_cached_nonce { 3 } else { 0 }, // 3 = has cached nonce, need to build
+            state: if has_cached_nonce { 3 } else { 0 },
             pending_response: None,
         };
         Ok(Py::new(py, flow)?.into_any())
@@ -572,7 +569,6 @@ impl DigestAuthFlow {
     }
 }
 
-/// Function-based authentication.
 #[pyclass(extends=Auth)]
 pub struct FunctionAuth {
     func: Py<PyAny>,
@@ -604,7 +600,6 @@ impl FunctionAuth {
     }
 }
 
-/// NetRC authentication.
 #[pyclass(extends=Auth)]
 pub struct NetRCAuth {
     netrc_info: Py<PyAny>,

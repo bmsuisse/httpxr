@@ -35,14 +35,12 @@ fn check_length(s: &str, limit: usize, component: Option<&str>) -> PyResult<()> 
     Ok(())
 }
 
-/// A URL class that wraps a ParseResult and provides a friendly API.
 #[pyclass(from_py_object)]
 #[derive(Clone, Debug)]
 pub struct URL {
     pub(crate) parsed: ParseResult,
 }
 
-/// Public Rust-side helper methods
 fn extract_str_or_bytes(obj: &Bound<'_, PyAny>) -> PyResult<String> {
     if let Ok(s) = obj.extract::<String>() {
         Ok(s)
@@ -263,7 +261,6 @@ impl URL {
         &self.parsed.path
     }
 
-    /// Internal Rust helper: returns raw_path as a String (path + query + fragment)
     pub fn raw_path_str(&self) -> String {
         let mut rp = if self.parsed.path.is_empty()
             && (self.parsed.scheme == "http" || self.parsed.scheme == "https")

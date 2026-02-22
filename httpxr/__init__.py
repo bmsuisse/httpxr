@@ -32,7 +32,10 @@ _EXCLUDED_FROM_ALL = {"compat", "cli", "main", "request"}
 _members = [
     member
     for member in vars().keys()
-    if (not member.startswith("_") or member in {"__description__", "__title__", "__version__"})
+    if (
+        not member.startswith("_")
+        or member in {"__description__", "__title__", "__version__"}
+    )
     and member not in _EXCLUDED_FROM_ALL
 ]
 

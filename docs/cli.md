@@ -97,6 +97,7 @@ for colorized, syntax-highlighted output:
 - **Binary responses** show `<N bytes of binary data>`
 
 !!! tip "Piping and CI"
+
     Color is automatically disabled when piping to another command or when
     `stdout` is not a terminal. Use `--no-color` to force plain text output.
 

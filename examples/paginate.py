@@ -1,18 +1,4 @@
-"""
-Example: httpxr.Client.paginate() — automatic pagination
-
-paginate() returns a lazy **iterator** that auto-follows pagination links.
-Each call to ``next()`` fetches exactly one page, keeping memory usage low
-even for APIs with thousands of pages.
-
-Three strategies for discovering the next page URL:
-
-  1. next_url:    Extract from a JSON key in the response body
-  2. next_header: Parse a Link header (e.g. GitHub-style pagination)
-  3. next_func:   Use a custom callable to extract the next URL
-
-This is an httpxr extension — not available in httpx.
-"""
+"""Examples: httpxr.Client.paginate() — automatic pagination."""
 
 import httpxr
 
