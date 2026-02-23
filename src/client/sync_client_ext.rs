@@ -62,9 +62,24 @@ impl Client {
             }
             Ok(py_list.into())
         } else {
-            Err(pyo3::exceptions::PyRuntimeError::new_err(
-                "gather requires the default HTTPTransport",
-            ))
+            let py_list = pyo3::types::PyList::empty(py);
+            for req in &request_refs {
+                let req_py = Py::new(py, req.clone())?;
+                match transport_bound.call_method1("handle_request", (req_py,)) {
+                    Ok(res_py) => {
+                        py_list.append(res_py)?;
+                    }
+                    Err(err) => {
+                        if return_exceptions {
+                            let err_str = format!("{}", err);
+                            py_list.append(pyo3::exceptions::PyRuntimeError::new_err(err_str).into_value(py).into_any())?;
+                        } else {
+                            return Err(err);
+                        }
+                    }
+                }
+            }
+            Ok(py_list.unbind())
         }
     }
 
@@ -151,6 +166,18 @@ impl Client {
         extensions: Option<&Bound<'_, PyAny>>,
         kwargs: Option<&Bound<'_, PyDict>>,
     ) -> PyResult<PageIterator> {
+        let this = slf.borrow();
+        if this.is_closed {
+            return Err(pyo3::exceptions::PyRuntimeError::new_err(
+                "Cannot send requests, as the client has been closed.",
+            ));
+        }
+        if next_url.is_none() && next_header.is_none() && next_func.is_none() {
+            return Err(pyo3::exceptions::PyValueError::new_err(
+                "Must specify one of: next_url, next_header, or next_func",
+            ));
+        }
+
         let f = kwargs.as_ref()
             .and_then(|kw| kw.get_item("follow_redirects").ok()?)
             .and_then(|v| v.extract::<bool>().ok());
@@ -197,145 +224,63 @@ impl Client {
         headers: Option<&Bound<'_, PyAny>>,
         extensions: Option<&Bound<'_, PyAny>>,
     ) -> PyResult<Py<pyo3::types::PyList>> {
-        // ... (This function remains largely the same, just copied over)
-        // See implementation in sync_client.rs:1176 for the exact logic.
-        // I will copy it over properly.
-        let url_str = url.to_string();
-        
-        let py_list = PyList::empty(py);
-        
-        // 1. Fetch first page
-        let mut first_url = url_str.clone();
-        if !first_url.contains(&format!("{}=", page_param)) {
-            let sep = if first_url.contains('?') { "&" } else { "?" };
-            first_url = format!("{}{}{}={}", first_url, sep, page_param, start_page);
+        let total = total_pages.ok_or_else(|| {
+            pyo3::exceptions::PyValueError::new_err(
+                "total_pages is required for gather_paginate"
+            )
+        })?;
+
+        if total == 0 {
+            return Ok(pyo3::types::PyList::empty(py).unbind());
         }
-        
-        let first_req = self.build_request(
-            py, method, &pyo3::types::PyString::new(py, &first_url),
-            None, None, None, None, None, headers, None, extensions, None
-        )?;
-        
-        let t1 = Instant::now();
-        let mut py_first_response = self._send_single_request(py, t1, first_req, None)?;
-        
-        let total = match total_pages {
-            Some(t) => t,
-            None => {
-                // Try extracting total pages from well-known JSON locations
-                let py_json_res = py_first_response.json(py, None);
-                if let Ok(py_json) = py_json_res {
-                    if let Ok(dict) = py_json.downcast_bound::<PyDict>(py) {
-                        if let Ok(Some(total)) = dict.get_item("total_pages") {
-                            let total: Bound<'_, PyAny> = total;
-                            total.extract::<usize>().unwrap_or(1)
-                        } else if let Ok(Some(meta_py)) = dict.get_item("meta") {
-                            let meta_py: Bound<'_, PyAny> = meta_py;
-                            if let Ok(meta_dict) = meta_py.downcast_into::<PyDict>() {
-                                if let Ok(Some(total)) = meta_dict.get_item("total_pages") {
-                                    let total: Bound<'_, PyAny> = total;
-                                    total.extract::<usize>().unwrap_or(1)
-                                } else { 1 }
-                            } else { 1 }
-                        } else { 1 }
-                    } else { 1 }
-                } else { 1 }
-            }
-        };
-        
-        py_list.append(Py::new(py, py_first_response)?)?;
-        
-        if total <= start_page {
-            return Ok(py_list.unbind());
-        }
-        
-        // 2. Build remaining requests concurrently
-        let mut remaining_reqs = Vec::with_capacity(total - start_page);
-        for page in (start_page + 1)..=total {
-            let mut page_url = url_str.clone();
-            if page_url.contains(&format!("{}=", page_param)) {
-                 // Replace existing page param - regex or string replace. Harder in rust without regex crate.
-                 // let's do a simple replace assuming format &page=X or ?page=X
-                 // This is a rough approximation, we probably want to use url::Url
-                 if let Ok(mut parsed) = reqwest::Url::parse(&page_url) {
-                     let mut pairs: Vec<(String, String)> = parsed.query_pairs().into_owned().collect();
-                     let mut found = false;
-                     for (k, v) in pairs.iter_mut() {
-                         if k == page_param {
-                             *v = page.to_string();
-                             found = true;
-                         }
-                     }
-                     if !found {
-                         pairs.push((page_param.to_string(), page.to_string()));
-                     }
-                     
-                     let mut ser = url::form_urlencoded::Serializer::new(String::new());
-                     for (k, v) in pairs {
-                         ser.append_pair(&k, &v);
-                     }
-                     parsed.set_query(Some(&ser.finish()));
-                     page_url = parsed.to_string();
-                 }
-            } else {
-                let sep = if page_url.contains('?') { "&" } else { "?" };
-                page_url = format!("{}{}{}={}", page_url, sep, page_param, page);
-            }
-            
+
+        let url_str = url.str()?.extract::<String>()?;
+        let mut request_objs: Vec<Py<Request>> = Vec::with_capacity(total);
+
+        for page in start_page..=(start_page + total - 1) {
+            let separator = if url_str.contains('?') { "&" } else { "?" };
+            let page_url = format!("{}{}{}={}", url_str, separator, page_param, page);
+            let page_url_py = page_url.into_pyobject(py)?.into_any();
+
             let req = self.build_request(
-                py, method, &pyo3::types::PyString::new(py, &page_url),
-                None, None, None, None, None, headers, None, extensions, None
+                py,
+                method,
+                &page_url_py,
+                None, None, None, None, None,
+                headers,
+                None,
+                extensions,
+                None, // timeout
             )?;
-            remaining_reqs.push(Py::new(py, req)?);
+            request_objs.push(Py::new(py, req)?);
         }
-        
-        let py_remaining: Py<PyList> = self.gather(py, remaining_reqs, max_concurrency, false)?;
-        
-        let remaining_bound = py_remaining.bind(py);
-        for i in 0..remaining_bound.len() {
-            py_list.append(remaining_bound.get_item(i)?)?;
-        }
-        
-        Ok(py_list.unbind())
+
+        self.gather(py, request_objs, max_concurrency, false)
     }
 
     /// Stream a response via generator.
     /// Use this as a context manager: `with client.stream("GET", "...") as response:`
-    #[pyo3(signature = (method, url, *, content=None, data=None, files=None, json=None, params=None, headers=None, cookies=None, follow_redirects=None, timeout=None, extensions=None, **kwargs))]
+    #[pyo3(signature = (method, url, **kwargs))]
     fn stream<'py>(
-        &self,
-        py: Python<'_>,
-        method: &str,
-        url: &Bound<'_, PyAny>,
-        content: Option<&Bound<'_, PyAny>>,
-        data: Option<&Bound<'_, PyAny>>,
-        files: Option<&Bound<'_, PyAny>>,
-        json: Option<&Bound<'_, PyAny>>,
-        params: Option<&Bound<'_, PyAny>>,
-        headers: Option<&Bound<'_, PyAny>>,
-        cookies: Option<&Bound<'_, PyAny>>,
-        follow_redirects: Option<bool>,
-        timeout: Option<&Bound<'_, PyAny>>,
-        extensions: Option<&Bound<'_, PyAny>>,
-        kwargs: Option<&Bound<'_, PyDict>>,
-    ) -> PyResult<Response> {
-        let f = follow_redirects.or_else(|| {
-            kwargs.as_ref()
-                .and_then(|kw| kw.get_item("follow_redirects").ok()?)
-                .and_then(|v| v.extract::<bool>().ok())
-        });
-        
-        let req = self.build_request(
-            py, method, url, content, data, files, json, params, headers,
-            cookies, extensions, timeout
-        )?;
-        
-        let t1 = Instant::now();
-        let mut response = self._send_handling_auth(py, t1, req.clone(), py.None(), f)?;
-        
-        // Return stream context manager correctly mapped context
-        // ...
-        Ok(response)
+        client: Bound<'py, Self>,
+        py: Python<'py>,
+        method: String,
+        url: Bound<'py, PyAny>,
+        kwargs: Option<Bound<'py, PyDict>>,
+    ) -> PyResult<crate::stream_ctx::SyncStreamContextManager> {
+        let mut request = client
+            .call_method1("build_request", (&method, &url))
+            .map_err(|e| e)?
+            .extract::<crate::models::Request>()?;
+        request.stream_response = true;
+
+        Ok(crate::stream_ctx::SyncStreamContextManager {
+            client: client.unbind(),
+            method: request.method,
+            url: request.url.into_pyobject(py)?.into_any().unbind(),
+            kwargs: kwargs.map(|k| k.unbind()),
+            response: None,
+        })
     }
 
     /// Download a URL to a file path, streaming the content directly to disk.

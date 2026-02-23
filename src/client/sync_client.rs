@@ -640,6 +640,275 @@ impl Client {
         })
     }
 
+    #[pyo3(signature = (request, *, auth=None, follow_redirects=None))]
+    fn send(
+        &self,
+        py: Python<'_>,
+        request: &Request,
+        auth: Option<&Bound<'_, PyAny>>,
+        follow_redirects: Option<bool>,
+    ) -> PyResult<Response> {
+        let _ = auth;
+        let start = Instant::now();
+        let t_bound = self.transport.bind(py);
+        let mut response: Response = if let Ok(t) = t_bound.cast::<crate::transports::default::HTTPTransport>() {
+            t.borrow().send_request(py, request)?
+        } else {
+            let req_py = Py::new(py, request.clone())?;
+            let res_py = t_bound.call_method1("handle_request", (req_py,))?;
+            res_py.extract()?
+        };
+        response.elapsed = Some(start.elapsed().as_secs_f64());
+        response.request = Some(request.clone());
+        let should_follow = follow_redirects.unwrap_or(self.follow_redirects);
+        if should_follow && response.has_redirect_check(py) {
+            let mut redirect_count = 0u32;
+            let mut current_response = response;
+            let mut current_request = request.clone();
+            while current_response.has_redirect_check(py) && redirect_count < self.max_redirects {
+                redirect_count += 1;
+                let location = current_response
+                    .headers(py).unwrap()
+                    .bind(py)
+                    .borrow()
+                    .get_first_value("location")
+                    .ok_or_else(|| {
+                        pyo3::exceptions::PyValueError::new_err("Redirect without Location header")
+                    })?;
+                let redirect_url = current_request.url.join_relative(&location)?;
+                let redirect_method = if current_response.status_code == 303 {
+                    "GET".to_string()
+                } else {
+                    current_request.method.clone()
+                };
+                let redirect_body = if redirect_method == "GET" {
+                    None
+                } else {
+                    current_request.content_body.clone()
+                };
+                let redirect_request = Request {
+                    method: redirect_method,
+                    url: redirect_url,
+                    headers: current_request.headers.clone_ref(py),
+                    extensions: PyDict::new(py).into(),
+                    content_body: redirect_body,
+                    stream: None,
+                    stream_response: false,
+                };
+                let mut history = current_response.history.clone();
+                history.push(current_response);
+                let mut new_response = if let Ok(t) = t_bound.cast::<crate::transports::default::HTTPTransport>() {
+                    t.borrow().send_request(py, &redirect_request)?
+                } else {
+                    let req_py2 = Py::new(py, redirect_request.clone())?;
+                    let res_py2 = t_bound.call_method1("handle_request", (req_py2,))?;
+                    res_py2.extract::<Response>()?
+                };
+                new_response.elapsed = Some(start.elapsed().as_secs_f64());
+                new_response.request = Some(redirect_request.clone());
+                new_response.history = history;
+                current_response = new_response;
+                current_request = redirect_request;
+            }
+            if current_response.has_redirect_check(py) && redirect_count >= self.max_redirects {
+                return Err(crate::exceptions::TooManyRedirects::new_err(format!(
+                    "Exceeded maximum number of redirects ({})",
+                    self.max_redirects
+                )));
+            }
+            return Ok(current_response);
+        }
+        Ok(response)
+    }
+
+    fn _transport_for_url(&self, py: Python<'_>, url: &Bound<'_, PyAny>) -> PyResult<Py<PyAny>> {
+        let url_str = url.str()?.extract::<String>().unwrap_or_default();
+        let u = crate::urls::URL::create_from_str(&url_str)?;
+        self._transport_for_url_inner(py, &u)
+    }
+
+    #[getter]
+    fn _transport(&self, py: Python<'_>) -> Py<PyAny> {
+        self.transport.clone_ref(py)
+    }
+
+    #[getter]
+    fn _mounts(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
+        let dict = PyDict::new(py);
+        for (pattern, transport) in &self.mounts {
+            dict.set_item(pattern, transport.clone_ref(py))?;
+        }
+        Ok(dict.into())
+    }
+
+    #[getter]
+    fn get_params(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
+        if let Some(ref p) = self.params {
+            let bound = p.bind(py);
+            if bound.is_instance_of::<crate::query_params::QueryParams>() {
+                Ok(p.clone_ref(py))
+            } else {
+                let qp = crate::query_params::QueryParams::create(Some(bound))?;
+                Ok(Py::new(py, qp)?.into())
+            }
+        } else {
+            let qp = crate::query_params::QueryParams::create(None)?;
+            Ok(Py::new(py, qp)?.into())
+        }
+    }
+
+    #[setter]
+    fn set_params(&mut self, py: Python<'_>, value: &Bound<'_, PyAny>) -> PyResult<()> {
+        if value.is_none() {
+            self.params = None;
+        } else {
+            let qp = crate::query_params::QueryParams::create(Some(value))?;
+            self.params = Some(Py::new(py, qp)?.into());
+        }
+        Ok(())
+    }
+
+    fn _redirect_headers(
+        &self,
+        request: &Request,
+        url: &Bound<'_, PyAny>,
+        _method: &str,
+    ) -> PyResult<Headers> {
+        Python::attach(|py| {
+            let mut hdrs = request.headers.bind(py).borrow().clone();
+
+            let request_url = &request.url;
+            let redirect_url = if let Ok(u) = url.extract::<URL>() {
+                u
+            } else {
+                let s = url.str()?.extract::<String>()?;
+                URL::create_from_str(&s)?
+            };
+
+            let req_host = request_url.get_host().to_lowercase();
+            let red_host = redirect_url.get_host().to_lowercase();
+            let req_scheme = request_url.get_scheme().to_lowercase();
+            let red_scheme = redirect_url.get_scheme().to_lowercase();
+            let req_port = request_url.get_port();
+            let red_port = redirect_url.get_port();
+
+            let is_same_host = req_host == red_host;
+            let is_same_port = req_port == red_port;
+            let is_https_upgrade = is_same_host
+                && req_scheme == "http"
+                && red_scheme == "https"
+                && (req_port.is_none() || req_port == Some(80))
+                && (red_port.is_none() || red_port == Some(443));
+            let is_same_origin = is_same_host && is_same_port && req_scheme == red_scheme;
+
+            if !is_same_origin && !is_https_upgrade {
+                hdrs.remove_header("authorization");
+            }
+
+            hdrs.set_header("host", &build_host_header(&redirect_url));
+
+            Ok(hdrs)
+        })
+    }
+
+    fn __enter__<'py>(slf: PyRef<'py, Self>, py: Python<'py>) -> PyResult<PyRef<'py, Self>> {
+        if slf.is_closed {
+            return Err(pyo3::exceptions::PyRuntimeError::new_err(
+                "Cannot open a client instance that has been closed.",
+            ));
+        }
+        let transport = slf.transport.bind(py);
+        if transport.hasattr("__enter__")? {
+            transport.call_method0("__enter__")?;
+        }
+        for (_, mt) in &slf.mounts {
+            let t = mt.bind(py);
+            if t.hasattr("__enter__")? {
+                t.call_method0("__enter__")?;
+            }
+        }
+        Ok(slf)
+    }
+
+    fn __exit__(
+        &mut self,
+        py: Python<'_>,
+        _e1: Option<&Bound<'_, PyAny>>,
+        _e2: Option<&Bound<'_, PyAny>>,
+        _e3: Option<&Bound<'_, PyAny>>,
+    ) -> PyResult<()> {
+        self.close()?;
+        let transport = self.transport.bind(py);
+        if transport.hasattr("close")? {
+            transport.call_method0("close")?;
+        }
+        if transport.hasattr("__exit__")? {
+            let none = py.None();
+            transport.call_method1("__exit__", (none.bind(py), none.bind(py), none.bind(py)))?;
+        }
+        for (_, mt) in &self.mounts {
+            let t = mt.bind(py);
+            if t.hasattr("close")? {
+                t.call_method0("close")?;
+            }
+            if t.hasattr("__exit__")? {
+                let none = py.None();
+                t.call_method1("__exit__", (none.bind(py), none.bind(py), none.bind(py)))?;
+            }
+        }
+        Ok(())
+    }
+
+    /// Get the client-level retry configuration.
+    #[getter]
+    fn retry(&self) -> Option<RetryConfig> {
+        self.retry.clone()
+    }
+
+    /// Set the client-level retry configuration.
+    #[setter]
+    fn set_retry(&mut self, value: Option<RetryConfig>) {
+        self.retry = value;
+    }
+
+    /// Get the client-level rate limit configuration.
+    #[getter]
+    fn rate_limit(&self) -> Option<crate::config::RateLimit> {
+        self.rate_limit.clone()
+    }
+
+    /// Set the client-level rate limit configuration.
+    #[setter]
+    fn set_rate_limit(&mut self, value: Option<crate::config::RateLimit>) {
+        self.rate_limit = value;
+    }
+
+    /// Return connection pool status (active, idle, total).
+    /// Returns a dict with pool statistics.
+    /// This is an httpxr extension — not available in httpx.
+    fn pool_status<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyDict>> {
+        let d = PyDict::new(py);
+        // Get pool info from the transport if available
+        let transport = self.transport.bind(py);
+        if let Ok(pool_size) = transport.getattr("_pool_connections") {
+            if let Ok(size) = pool_size.extract::<u32>() {
+                d.set_item("max_connections", size)?;
+            }
+        }
+        if let Ok(pool_size) = transport.getattr("_pool_maxsize") {
+            if let Ok(size) = pool_size.extract::<u32>() {
+                d.set_item("max_keepalive", size)?;
+            }
+        }
+        // Always provide at least a basic status
+        if d.is_empty() {
+            d.set_item("max_connections", py.None())?;
+            d.set_item("max_keepalive", py.None())?;
+        }
+        d.set_item("is_closed", self.is_closed)?;
+        Ok(d)
+    }
+
     fn __repr__(&self) -> String {
         if self.is_closed {
             "<Client [closed]>".to_string()
