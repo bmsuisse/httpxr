@@ -18,6 +18,8 @@ social = [
 
 [project.markdown_extensions]
 admonition = {}
+md_in_html = {}
+attr_list = {}
 "pymdownx.details" = {}
 "pymdownx.superfences" = {}
 "pymdownx.highlight" = { anchor_linenums = true, line_spans = "__span", pygments_lang_class = true }
